@@ -3,8 +3,8 @@ resolver = "3"
 members = ["tauri"]
 
 [workspace.package]
-edition = "2021"
-rust-version = "1.85"
+edition = "2024"
+rust-version = "1.97.0"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

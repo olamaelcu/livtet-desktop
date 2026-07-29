@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["Jacky Alcine <yo@jacky.wtf>"]
 edition.workspace = true
+rust-version.workspace = true
 license = "MPL-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
