@@ -1,6 +1,7 @@
 use camino::Utf8PathBuf;
 use miette::IntoDiagnostic;
 use tauri::{App, Manager};
+use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
 
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum Error {
@@ -41,14 +42,33 @@ impl AppDirectories {
     }
 }
 
+fn init_tracing() -> miette::Result<()> {
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let filter = env_filter
+        .add_directive("tokio_tungstenite=off".parse().into_diagnostic()?)
+        .add_directive("tokio_tungstenite::compat=off".parse().into_diagnostic()?);
+
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(ForestLayer::default())
+        .init();
+
+    Ok(())
+}
+
 #[tracing::instrument(skip(app), ret, err)]
 async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    tracing_forest::init();
+    init_tracing()?;
     let paths = AppDirectories::resolve(app).await?;
     tracing::trace!(
         db_path = paths.database_path.to_string(),
         "Connecting to the database..."
     );
+
+    if fs_err::tokio::try_exists(&paths.database_path).await.ok() != Some(true) {
+        fs_err::tokio::write(&paths.database_path, &[]).await?;
+    }
 
     let db = livtet_core::data::SharedState::connect(paths.database_path.as_str()).await?;
     app.manage(db);
