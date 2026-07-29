@@ -15,6 +15,9 @@
   },
   "license": "MPL-2.0",
   "dependencies": {
+    "@awesome.me/webawesome": "^3.10.0",
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2"
   },
@@ -22,10 +25,11 @@
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.65.1",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@tauri-apps/cli": "^2",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
-    "@tauri-apps/cli": "^2"
+    "@types/node": "*"
   }
 }

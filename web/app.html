@@ -4,7 +4,24 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <title>livtet</title>
+    <script>
+      // WebAwesome v3 has no built-in `prefers-color-scheme` handling -
+      // dark mode is opt-in via `wa-dark` on <html>. Apply before CSS
+      // loads to avoid a light-mode flash on dark systems.
+      (function () {
+        try {
+          var m = window.matchMedia("(prefers-color-scheme: dark)");
+          var apply = function (dark) {
+            document.documentElement.classList.toggle("wa-dark", dark);
+          };
+          apply(m.matches);
+          m.addEventListener("change", function (e) {
+            apply(e.matches);
+          });
+        } catch (_) {}
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">

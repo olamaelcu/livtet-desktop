@@ -3,154 +3,107 @@
 
   let name = $state("");
   let greetMsg = $state("");
+  let loading = $state(false);
 
-  async function greet(event: Event) {
+  async function greet(event: SubmitEvent) {
     event.preventDefault();
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    greetMsg = await invoke("greet", { name });
+    if (!name.trim()) return;
+    try {
+      loading = true;
+      greetMsg = await invoke("greet", { name });
+    } finally {
+      loading = false;
+    }
   }
 </script>
 
-<main class="container">
-  <h1>Welcome to Tauri + Svelte</h1>
+<svelte:head>
+  <title>livtet</title>
+</svelte:head>
 
-  <div class="row">
-    <a href="https://vite.dev" target="_blank">
-      <img src="/vite.svg" class="logo vite" alt="Vite Logo" />
-    </a>
-    <a href="https://tauri.app" target="_blank">
-      <img src="/tauri.svg" class="logo tauri" alt="Tauri Logo" />
-    </a>
-    <a href="https://svelte.dev" target="_blank">
-      <img src="/svelte.svg" class="logo svelte-kit" alt="SvelteKit Logo" />
-    </a>
-  </div>
-  <p>Click on the Tauri, Vite, and SvelteKit logos to learn more.</p>
+<main class="page">
+  <wa-card class="card">
+    <div slot="header" class="card-header">
+      <wa-icon name="house" variant="solid" class="mark"></wa-icon>
+      <div class="title-group">
+        <h1>livtet</h1>
+        <p class="subtitle">A coherent interface for daily work.</p>
+      </div>
+    </div>
 
-  <form class="row" onsubmit={greet}>
-    <input id="greet-input" placeholder="Enter a name..." bind:value={name} />
-    <button type="submit">Greet</button>
-  </form>
-  <p>{greetMsg}</p>
+    <form class="form" onsubmit={greet}>
+      <wa-input
+        label="Your name"
+        placeholder="Ada Lovelace"
+        value={name}
+        oninput={(e) => (name = (e.target as HTMLInputElement).value)}
+        required
+      ></wa-input>
+      <wa-button type="submit" variant="brand" loading={loading} disabled={!name.trim()}>
+        Greet
+        <wa-icon slot="end" name="arrow-right"></wa-icon>
+      </wa-button>
+    </form>
+
+    {#if greetMsg}
+      <wa-callout variant="success" class="greeting">
+        <wa-icon slot="icon" name="check-circle" variant="solid"></wa-icon>
+        {greetMsg}
+      </wa-callout>
+    {/if}
+  </wa-card>
 </main>
 
 <style>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
-}
-
-.logo.svelte-kit:hover {
-  filter: drop-shadow(0 0 2em #ff3e00);
-}
-
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
-}
-
-.container {
-  margin: 0;
-  padding-top: 10vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
-}
-
-button {
-  cursor: pointer;
-}
-
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
-}
-
-input,
-button {
-  outline: none;
-}
-
-#greet-input {
-  margin-right: 5px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
+  .page {
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 2rem 1.25rem;
+    box-sizing: border-box;
   }
 
-  a:hover {
-    color: #24c8db;
+  .card {
+    width: 100%;
+    max-width: 28rem;
   }
 
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
   }
-  button:active {
-    background-color: #0f0f0f69;
-  }
-}
 
+  .card-header .mark {
+    font-size: 1.75rem;
+    color: var(--wa-color-brand-text-quiet);
+  }
+
+  .title-group h1 {
+    margin: 0;
+    font-size: 1.375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .subtitle {
+    margin: 0.125rem 0 0;
+    font-size: 0.9375rem;
+    color: var(--wa-color-text-quiet);
+  }
+
+  .form {
+    display: flex;
+    gap: 0.75rem;
+    align-items: end;
+    margin-top: 1.25rem;
+  }
+
+  .form wa-input {
+    flex: 1;
+  }
+
+  .greeting {
+    margin-top: 1.25rem;
+  }
 </style>
