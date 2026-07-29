@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = ["tauri"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.85"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

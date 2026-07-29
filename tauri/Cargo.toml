@@ -3,7 +3,7 @@ name = "livtet-desktop"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["Jacky Alcine <yo@jacky.wtf>"]
-edition = "2021"
+edition.workspace = true
 license = "MPL-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -23,12 +23,3 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-
-
-# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-panic = "abort"
-strip = true
