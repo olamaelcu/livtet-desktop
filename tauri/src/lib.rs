@@ -37,7 +37,7 @@ async fn init_tracing(logs_dir: &Utf8Path) -> miette::Result<()> {
     fs_err::tokio::create_dir_all(&logs_dir)
         .await
         .into_diagnostic()?;
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().into_diagnostic()?;
 
     let filter = env_filter
         .add_directive("tokio_tungstenite=off".parse().into_diagnostic()?)
