@@ -37,6 +37,11 @@ pub struct SearchHitRow {
     pub snippet_highlighted: Vec<[u32; 2]>,
     pub grouped_edition_ids: Vec<String>,
     pub source: String,
+    pub publisher: Option<String>,
+    pub page_count: Option<u32>,
+    pub cover_url: Option<String>,
+    pub description: Option<String>,
+    pub isbn_13: Option<String>,
 }
 
 impl From<livtet_core::search::SearchHit> for SearchHitRow {
@@ -65,6 +70,11 @@ impl From<livtet_core::search::SearchHit> for SearchHitRow {
             snippet_highlighted,
             grouped_edition_ids: h.grouped_edition_ids,
             source: h.source,
+            publisher: None,
+            page_count: None,
+            cover_url: None,
+            description: None,
+            isbn_13: None,
         }
     }
 }
