@@ -24,9 +24,12 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }
 tauri-plugin-mcp-bridge = "0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
+specta-typescript = "0.0.12"
 camino = { version = "1.2.5", features = ["serde1"] }
 tracing = "0.1.44"
 tracing-appender = "0.2"
@@ -35,3 +38,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 miette = "7.6.0"
 thiserror = "2.0.19"
 fs-err = { version = "3.3.1", features = ["debug", "tokio"] }
+
+[dev-dependencies]
+time = "0.3"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

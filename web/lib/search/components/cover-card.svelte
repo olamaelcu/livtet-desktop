@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { SearchHit } from "../types";
-  import { coverLetter, dominantColorFor } from "../mock-data";
+  import { coverLetter, dominantColorFor } from "../cover-art";
   import { attachAsButton } from "$lib/a11y/attachments";
 
   interface Props {

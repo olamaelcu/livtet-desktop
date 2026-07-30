@@ -1,23 +1,28 @@
 <script lang="ts">
   import { deriveFacets } from "$lib/search/deriveFacets";
-  import { mockHits } from "$lib/search/mock-data";
   import { filterHits } from "$lib/search/search";
-  import { emptyFilters, type FilterState, type SearchHit } from "$lib/search/types";
+  import { emptyFilters, type FilterState } from "$lib/search/types";
+  import { commands, type SearchHitRow } from "$lib/bindings";
   import CoverGrid from "$lib/search/components/cover-grid.svelte";
   import FilterChip from "$lib/search/components/filter-chip.svelte";
   import SearchBar from "$lib/search/components/search-bar.svelte";
 
-  // The eventual swap: replace `mockHits` with an `await invoke('search_works', { ... })`
-  // result, and re-derive `facets` from the response. The component tree below doesn't change.
-  const allHits: readonly SearchHit[] = mockHits;
-  const facets = $derived(deriveFacets(allHits));
+  // The search command is invoked on a debounced query. Empty
+  // query produces no results (tantivy returns zero hits for
+  // an empty parsed query), so we skip the IPC roundtrip when
+  // there's nothing to search for.
+  const SEARCH_LIMIT = 50;
+
+  let allHits = $state<readonly SearchHitRow[]>([]);
+  let loading = $state(false);
+  let searchError = $state<string | null>(null);
 
   let rawQuery = $state("");
   let query = $state("");
   let filters: FilterState = $state(emptyFilters());
 
   // Debounce: typing updates `rawQuery` immediately (so the input is
-  // responsive), but `query` — the value actually used for filtering
+  // responsive), but `query` — the value actually used for searching
   // — only catches up after 150 ms of inactivity.
   $effect(() => {
     const next = rawQuery;
@@ -27,6 +32,42 @@
     return () => clearTimeout(id);
   });
 
+  // Run the backend search whenever the debounced query changes.
+  $effect(() => {
+    const q = query.trim();
+    if (q === "") {
+      allHits = [];
+      searchError = null;
+      return;
+    }
+    let cancelled = false;
+    loading = true;
+    searchError = null;
+    commands
+      .search(q, SEARCH_LIMIT)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.status === "ok") {
+          allHits = result.data;
+        } else {
+          searchError = result.error;
+          allHits = [];
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        searchError = String(err);
+        allHits = [];
+      })
+      .finally(() => {
+        if (!cancelled) loading = false;
+      });
+    return () => {
+      cancelled = true;
+    };
+  });
+
+  const facets = $derived(deriveFacets(allHits));
   const filteredHits = $derived(filterHits(query, filters, allHits));
 
   function toggleFormat(label: string) {
@@ -95,7 +136,22 @@
 
   <main>
     <wa-scroller orientation="vertical" class="result-scroller">
-      {#if filteredHits.length === 0}
+      {#if searchError}
+        <wa-callout variant="warning">
+          <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
+          Search failed: {searchError}
+        </wa-callout>
+      {:else if query.trim() === ""}
+        <wa-callout variant="neutral">
+          <wa-icon slot="icon" name="circle-info"></wa-icon>
+          Type a query to search the catalog.
+        </wa-callout>
+      {:else if loading && allHits.length === 0}
+        <wa-callout variant="neutral">
+          <wa-icon slot="icon" name="hourglass"></wa-icon>
+          Searching…
+        </wa-callout>
+      {:else if filteredHits.length === 0}
         <wa-callout variant="neutral">
           <wa-icon slot="icon" name="circle-info"></wa-icon>
           No matches for "{query}". Try fewer filters or a shorter query.
@@ -163,7 +219,7 @@
     padding: 0;
     margin: 0;
   }
-  
+
   div[slot=main-header] {
     padding: var(--wa-space-m);
     margin: 0;
