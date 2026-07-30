@@ -3,116 +3,81 @@
   import { filterHits } from "$lib/search/search";
   import { emptyFilters, type FilterState } from "$lib/search/types";
   import { commands, type SearchHitRow } from "$lib/bindings";
-  import CoverGrid from "$lib/search/components/cover-grid.svelte";
+  import SearchView from "$lib/search/components/search-view.svelte";
   import FilterChip from "$lib/search/components/filter-chip.svelte";
-  import SearchBar from "$lib/search/components/search-bar.svelte";
+  import CoverGrid from "$lib/search/components/cover-grid.svelte";
   import CommandScope from "$lib/commands/components/command-scope.svelte";
 
-  // The search command is invoked on a debounced query. Empty
-  // query produces no results (tantivy returns zero hits for
-  // an empty parsed query), so we skip the IPC roundtrip when
-  // there's nothing to search for.
   const SEARCH_LIMIT = 50;
 
-  let allHits = $state<readonly SearchHitRow[]>([]);
-  let loading = $state(false);
-  let searchError = $state<string | null>(null);
-
-  let rawQuery = $state("");
-  let query = $state("");
-  let filters: FilterState = $state(emptyFilters());
-
-  // Debounce: typing updates `rawQuery` immediately (so the input is
-  // responsive), but `query` — the value actually used for searching
-  // — only catches up after 150 ms of inactivity.
-  // FIXME: This is causing this error:
-  // [Error] Unhandled Promise Rejection: Svelte error: effect_update_depth_exceeded
-  // Maximum update depth exceeded. This typically indicates that an effect reads and writes the same piece of state
-  // https://svelte.dev/e/effect_update_depth_exce...
-  // start (client.js:405)
-  $effect(() => {
-    const next = rawQuery;
-    const id = setTimeout(() => {
-      query = next;
-    }, 150);
-
-    // Run the backend search whenever the debounced query changes.
-    const q = query.trim();
-    if (q === "") {
-      allHits = [];
-      searchError = null;
-      return;
-    }
-    let cancelled = false;
-    loading = true;
-    searchError = null;
-    commands
-      .search(q, SEARCH_LIMIT)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.status === "ok") {
-          allHits = result.data;
-        } else {
-          searchError = result.error;
-          allHits = [];
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        searchError = String(err);
-        allHits = [];
-      })
-      .finally(() => {
-        if (!cancelled) loading = false;
-      });
-    return () => {
-      cancelled = true;
-      clearTimeout(id);
-    };
-  });
-
-  const facets = $derived(deriveFacets(allHits));
-  const filteredHits = $derived(filterHits(query, filters, allHits));
+  // Renamed from `filters` to `filterState` to avoid shadowing the
+  // `filters` snippet name in SearchView's child scope.
+  let filterState: FilterState = $state(emptyFilters());
 
   function toggleFormat(label: string) {
-    const next = new Set(filters.formats);
+    const next = new Set(filterState.formats);
     if (next.has(label)) next.delete(label);
     else next.add(label);
-    filters = { ...filters, formats: next };
+    filterState = { ...filterState, formats: next };
   }
 
   function toggleLanguage(label: string) {
-    const next = new Set(filters.languages);
+    const next = new Set(filterState.languages);
     if (next.has(label)) next.delete(label);
     else next.add(label);
-    filters = { ...filters, languages: next };
+    filterState = { ...filterState, languages: next };
+  }
+
+  // Extracted from the inline prop so the reference is stable across renders.
+  // An inline arrow on the consumer side would create a new closure each
+  // render; SearchView's search effect reads `runSearch`, so a fresh
+  // reference each render triggers reactive re-runs that feed back into its
+  // `allHits = []` reset path and trip effect_update_depth_exceeded.
+  async function runSearch(
+    q: string,
+    limit: number,
+    onResults: (hits: SearchHitRow[]) => void,
+    onError?: (err: string) => void,
+  ) {
+    await commands
+      .search(q, limit)
+      .then((r) => {
+        if (r.status === "ok") onResults(r.data);
+        else {
+          onError?.(r.error);
+          onResults([]);
+        }
+      })
+      .catch((e) => {
+        onError?.(String(e));
+        onResults([]);
+      });
   }
 </script>
 
-<svelte:head>
-  <title>Search · livtet</title>
-</svelte:head>
-
 <CommandScope id="search">
-  <wa-page>
-    <header slot="header">
-      <SearchBar bind:value={rawQuery} />
-    </header>
-
-    <div slot="main-header">
+  <SearchView
+    title="Search · livtet"
+    limit={SEARCH_LIMIT}
+    {runSearch}
+    prompt="Type a query to search the catalog."
+    noResults="No matches."
+  >
+    {#snippet filters({ hits })}
+      {@const facets = deriveFacets(hits)}
       {#if facets.formats.length > 0}
         <section class="facet-row" aria-label="Format filter">
           <span class="facet-label">Format</span>
-          {#if filters.formats.size > 0}
+          {#if filterState.formats.size > 0}
             <wa-badge variant="brand" appearance="filled">
-              {filters.formats.size}
+              {filterState.formats.size}
             </wa-badge>
           {/if}
           {#each facets.formats as label (label)}
             <FilterChip
               id={`format-${label}`}
               {label}
-              selected={filters.formats.has(label)}
+              selected={filterState.formats.has(label)}
               ontoggle={() => toggleFormat(label)}
             />
           {/each}
@@ -122,58 +87,42 @@
       {#if facets.languages.length > 0}
         <section class="facet-row" aria-label="Language filter">
           <span class="facet-label">Language</span>
-          {#if filters.languages.size > 0}
+          {#if filterState.languages.size > 0}
             <wa-badge variant="brand" appearance="filled">
-              {filters.languages.size}
+              {filterState.languages.size}
             </wa-badge>
           {/if}
           {#each facets.languages as label (label)}
             <FilterChip
               id={`language-${label}`}
               {label}
-              selected={filters.languages.has(label)}
+              selected={filterState.languages.has(label)}
               ontoggle={() => toggleLanguage(label)}
             />
           {/each}
         </section>
       {/if}
-    </div>
+    {/snippet}
 
-    <main>
-      <wa-scroller orientation="vertical" class="result-scroller">
-        {#if searchError}
-          <wa-callout variant="warning">
-            <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
-            Search failed: {searchError}
-          </wa-callout>
-        {:else if query.trim() === ""}
-          <wa-callout variant="neutral">
-            <wa-icon slot="icon" name="circle-info"></wa-icon>
-            Type a query to search the catalog.
-          </wa-callout>
-        {:else if loading && allHits.length === 0}
-          <wa-callout variant="neutral">
-            <wa-icon slot="icon" name="hourglass"></wa-icon>
-            Searching…
-          </wa-callout>
-        {:else if filteredHits.length === 0}
-          <wa-callout variant="neutral">
-            <wa-icon slot="icon" name="circle-info"></wa-icon>
-            No matches for "{query}". Try fewer filters or a shorter query.
-          </wa-callout>
-        {:else}
-          <CoverGrid hits={filteredHits} />
-        {/if}
-      </wa-scroller>
-    </main>
+    {#snippet result({ hits, query })}
+      {@const filtered = filterHits(query, filterState, hits)}
+      {#if filtered.length === 0}
+        <wa-callout variant="neutral">
+          <wa-icon slot="icon" name="circle-info"></wa-icon>
+          No matches for "{query}". Try fewer filters or a shorter query.
+        </wa-callout>
+      {:else}
+        <CoverGrid hits={filtered} />
+      {/if}
+    {/snippet}
 
-    <footer slot="main-footer">
+    {#snippet footer({ count })}
       <p class="result-count">
-        {filteredHits.length}
-        {filteredHits.length === 1 ? "result" : "results"}
+        {count}
+        {count === 1 ? "result" : "results"}
       </p>
-    </footer>
-  </wa-page>
+    {/snippet}
+  </SearchView>
 </CommandScope>
 
 <style>
@@ -194,16 +143,10 @@
     margin-right: 0.25rem;
   }
 
-  /* Scroller needs a max-height to actually scroll. Subtracts room for
-     header + main-header + footer; tune if those grow. */
-  .result-scroller {
-    max-height: calc(100vh - 20rem);
-  }
-
   /* Pin the result count to the bottom-center of the viewport.
      Semantically it lives in <wa-page>'s main-footer slot, but the slot
      itself is collapsed via ::part(main-footer) { display: contents }
-     below so the floating element doesn't push the grid up. */
+     in app.css so the floating element doesn't push the grid up. */
   .result-count {
     position: fixed;
     bottom: 1rem;
@@ -219,17 +162,5 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     z-index: 10;
     white-space: nowrap;
-  }
-
-  main {
-    padding: var(--wa-space-s);
-    margin: 0;
-    flex: 1 1;
-    min-height: max-content;
-  }
-
-  div[slot="main-header"] {
-    padding: var(--wa-space-m);
-    margin: 0;
   }
 </style>
