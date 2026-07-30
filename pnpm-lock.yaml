@@ -26,6 +26,12 @@ importers:
       '@tauri-apps/plugin-opener':
         specifier: ^2
         version: 2.5.4
+      svelte-sonner:
+        specifier: ^0.3
+        version: 0.3.28(svelte@5.56.8)
+      ulid:
+        specifier: ^2.3.0
+        version: 2.4.0
     devDependencies:
       '@sveltejs/adapter-static':
         specifier: ^3.0.10
@@ -675,6 +681,11 @@ packages:
       svelte: ^4.0.0 || ^5.0.0-next.0
       typescript: ^5.0.0 || ^6.0.0
 
+  svelte-sonner@0.3.28:
+    resolution: {integrity: sha512-K3AmlySeFifF/cKgsYNv5uXqMVNln0NBAacOYgmkQStLa/UoU0LhfAACU6Gr+YYC8bOCHdVmFNoKuDbMEsppJg==}
+    peerDependencies:
+      svelte: ^3.0.0 || ^4.0.0 || ^5.0.0-next.1
+
   svelte@5.56.8:
     resolution: {integrity: sha512-PY8LOw7xP6c8IOiVqdo0sbbZVYhXRSfklOQLAUyGBKqjTX0wx/z4l/9J+PmBpmlLnxzEb1NqltxQ5/wZme/Cmg==}
     engines: {node: '>=18'}
@@ -697,6 +708,10 @@ packages:
   typescript@6.0.3:
     resolution: {integrity: sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==}
     engines: {node: '>=14.17'}
+    hasBin: true
+
+  ulid@2.4.0:
+    resolution: {integrity: sha512-fIRiVTJNcSRmXKPZtGzFQv9WRrZ3M9eoptl/teFJvjOzmpU+/K/JH6HZ8deBfb5vMEpicJcLn7JmvdknlMq7Zg==}
     hasBin: true
 
   undici-types@8.3.0:
@@ -1285,6 +1300,10 @@ snapshots:
     transitivePeerDependencies:
       - picomatch
 
+  svelte-sonner@0.3.28(svelte@5.56.8):
+    dependencies:
+      svelte: 5.56.8
+
   svelte@5.56.8:
     dependencies:
       '@jridgewell/remapping': 2.3.5
@@ -1319,6 +1338,8 @@ snapshots:
     optional: true
 
   typescript@6.0.3: {}
+
+  ulid@2.4.0: {}
 
   undici-types@8.3.0: {}
 
