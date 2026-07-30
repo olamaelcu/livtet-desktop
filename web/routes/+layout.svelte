@@ -15,5 +15,7 @@
 </wa-page>
 
 <style>
-
+  main {
+    padding: var(--wa-space-s);
+  }
 </style>
