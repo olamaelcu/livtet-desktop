@@ -8,6 +8,7 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
 use tracing_subscriber::fmt;
 
+pub mod secrets;
 mod commands;
 pub mod state;
 
