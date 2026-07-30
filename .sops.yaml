@@ -1,11 +1,4 @@
 ---
-# SOPS configuration for the desktop app.
-#
-# The age recipient below is a placeholder — secrets-init (Task 6)
-# regenerates this file with the real recipient derived from a freshly
-# generated age key. Until then, the values in .mise/secrets.json.sops
-# are encrypted against this recipient. Operators with the matching
-# private key (in .envrc as SOPS_AGE_KEY) can decrypt; nobody else can.
 creation_rules:
   - path_regex: \.mise/secrets\.json\.sops$
-    age: "PLACEHOLDER_REPLACE_VIA_MISE_RUN_SECRETS_INIT"
+    age: "age1cczkcq8p49f5kusvxk3a2vvypthm9a3u4xaqj4grlafum7eeke4q902q3y"
