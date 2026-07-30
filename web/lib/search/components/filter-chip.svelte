@@ -5,7 +5,8 @@
     label: string;
     selected: boolean;
     ontoggle: () => void;
-    id?: string;
+    /** Stable id used by both the <wa-button> and its associated <wa-tooltip>. */
+    id: string;
   }
 
   let { label, selected, ontoggle, id }: Props = $props();
@@ -16,6 +17,7 @@
        static analyzer does not recognize WA custom elements. attachActivate is
        a defensive second source of Enter/Space handling. -->
 
+<wa-tooltip for={id}>Show only {label} books</wa-tooltip>
 <wa-button
   size="s"
   appearance={selected ? "filled" : "outlined"}
@@ -27,4 +29,3 @@
 >
   {label}
 </wa-button>
-<wa-tooltip for={`language-${label}`} content={`Show only ${label} books`}></wa-tooltip>

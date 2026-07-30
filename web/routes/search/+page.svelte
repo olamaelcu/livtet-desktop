@@ -69,7 +69,6 @@
             selected={filters.formats.has(label)}
             ontoggle={() => toggleFormat(label)}
           />
-          <wa-tooltip for={`format-${label}`} content={`Show only ${label} books`}></wa-tooltip>
         {/each}
       </section>
     {/if}
@@ -89,7 +88,6 @@
             selected={filters.languages.has(label)}
             ontoggle={() => toggleLanguage(label)}
           />
-          <wa-tooltip for={`language-${label}`} content={`Show only ${label} books`}></wa-tooltip>
         {/each}
       </section>
     {/if}
