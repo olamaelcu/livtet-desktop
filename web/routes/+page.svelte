@@ -25,10 +25,4 @@
     width: 100%;
     max-width: 28rem;
   }
-
-  .card-header {
-    display: flex;
-    align-items: center;
-    gap: 0.875rem;
-  }
 </style>
