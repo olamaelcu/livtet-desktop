@@ -13,7 +13,7 @@ declare global {
     interface IntrinsicElements {
       "wa-button": import("svelte/elements").HTMLButtonAttributes & {
         variant?: "brand" | "neutral" | "success" | "warning" | "danger" | "text" | "default";
-        size?: "small" | "medium" | "large";
+        size?: "s" | "m" | "l" | "small" | "medium" | "large";
         appearance?: "accent" | "filled" | "outlined" | "plain";
         type?: "button" | "submit" | "reset";
         disabled?: boolean;
@@ -28,7 +28,7 @@ declare global {
         placeholder?: string;
         value?: string | number;
         type?: string;
-        size?: "small" | "medium" | "large";
+        size?: "s" | "m" | "l" | "small" | "medium" | "large";
         appearance?: string;
         pill?: boolean;
         required?: boolean;
@@ -48,7 +48,7 @@ declare global {
       "wa-callout": import("svelte/elements").HTMLAttributes<HTMLElement> & {
         variant?: "brand" | "neutral" | "success" | "warning" | "danger";
         appearance?: "accent" | "filled" | "outlined" | "plain";
-        size?: "small" | "medium" | "large";
+        size?: "s" | "m" | "l" | "small" | "medium" | "large";
       };
       "wa-divider": import("svelte/elements").HTMLAttributes<HTMLElement> & {
         orientation?: "horizontal" | "vertical";

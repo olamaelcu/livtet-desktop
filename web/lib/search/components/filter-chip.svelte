@@ -15,7 +15,7 @@
        static analyzer does not recognize WA custom elements. attachActivate is
        a defensive second source of Enter/Space handling. -->
 <wa-button
-  size="small"
+  size="s"
   appearance={selected ? "filled" : "outlined"}
   role="button"
   tabindex="0"
