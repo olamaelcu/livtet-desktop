@@ -97,7 +97,7 @@
   .search-page {
     max-width: 80rem;
     margin: 0 auto;
-    padding: 2rem 1.5rem 3rem;
+    padding: 2rem 1.5rem 5rem;
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
@@ -124,8 +124,19 @@
   }
 
   .result-count {
+    position: fixed;
+    bottom: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
     margin: 0;
+    padding: 0.5rem 1rem;
     font-size: 0.875rem;
     color: var(--wa-color-text-quiet, currentColor);
+    background: var(--wa-color-surface-default, white);
+    border: 1px solid var(--wa-color-surface-border, rgba(0, 0, 0, 0.1));
+    border-radius: 9999px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    z-index: 10;
+    white-space: nowrap;
   }
 </style>

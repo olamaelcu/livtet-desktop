@@ -1,7 +1,12 @@
-use camino::Utf8PathBuf;
+use std::sync::OnceLock;
+
+use camino::{Utf8Path, Utf8PathBuf};
 use miette::IntoDiagnostic;
 use tauri::{App, Manager};
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
+use tracing_subscriber::fmt;
 
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum Error {
@@ -18,6 +23,7 @@ fn greet(name: &str) -> String {
 #[derive(Debug)]
 struct AppDirectories {
     database_path: Utf8PathBuf,
+    logs_dir: Utf8PathBuf,
 }
 
 impl AppDirectories {
@@ -36,22 +42,41 @@ impl AppDirectories {
                 .into_diagnostic()?;
         }
 
+        let logs_dir = local_data_dir_path.join("logs");
         let database_path = local_data_dir_path.join("livtet.sqlite");
 
-        Ok(Self { database_path })
+        Ok(Self {
+            database_path,
+            logs_dir,
+        })
     }
 }
 
-fn init_tracing() -> miette::Result<()> {
+static LOG_FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+
+fn init_tracing(logs_dir: &Utf8Path) -> miette::Result<()> {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let filter = env_filter
         .add_directive("tokio_tungstenite=off".parse().into_diagnostic()?)
         .add_directive("tokio_tungstenite::compat=off".parse().into_diagnostic()?);
 
+    let file_appender =
+        RollingFileAppender::new(Rotation::DAILY, logs_dir, "livtet.log");
+    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+    let _ = LOG_FILE_GUARD.set(guard);
+
     tracing_subscriber::registry()
         .with(filter)
         .with(ForestLayer::default())
+        .with(
+            fmt::layer()
+                .with_writer(file_writer)
+                .with_ansi(false)
+                .with_target(true)
+                .with_file(true)
+                .with_line_number(true),
+        )
         .init();
 
     Ok(())
@@ -59,10 +84,12 @@ fn init_tracing() -> miette::Result<()> {
 
 #[tracing::instrument(skip(app), ret, err)]
 async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    init_tracing()?;
     let paths = AppDirectories::resolve(app).await?;
+    fs_err::tokio::create_dir_all(&paths.logs_dir).await?;
+    init_tracing(&paths.logs_dir)?;
     tracing::trace!(
         db_path = paths.database_path.to_string(),
+        logs_dir = paths.logs_dir.to_string(),
         "Connecting to the database..."
     );
 
