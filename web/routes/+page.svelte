@@ -6,8 +6,8 @@
 
 <main class="page">
   <wa-card class="card">
-    <div slot="header" class="card-header">Jacky</div>
-    Alcine
+    <wa-button href="/search">Search Local Catalog</wa-button>
+    <wa-button href="/search/remote">Search Remote Catalog</wa-button>
   </wa-card>
 </main>
 

@@ -8,8 +8,8 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
 use tracing_subscriber::fmt;
 
-pub mod secrets;
 mod commands;
+pub mod secrets;
 pub mod state;
 
 #[doc(hidden)]
@@ -33,7 +33,10 @@ pub enum Error {
 
 static LOG_FILE_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
-fn init_tracing(logs_dir: &Utf8Path) -> miette::Result<()> {
+async fn init_tracing(logs_dir: &Utf8Path) -> miette::Result<()> {
+    fs_err::tokio::create_dir_all(&logs_dir)
+        .await
+        .into_diagnostic()?;
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     let filter = env_filter
@@ -60,11 +63,27 @@ fn init_tracing(logs_dir: &Utf8Path) -> miette::Result<()> {
     Ok(())
 }
 
+#[tracing::instrument(err)]
+async fn setup_database(
+    database_path: &Utf8Path,
+) -> miette::Result<livtet_core::data::SharedState> {
+    if fs_err::tokio::try_exists(&database_path).await.ok() != Some(true) {
+        fs_err::tokio::write(&database_path, &[])
+            .await
+            .into_diagnostic()?;
+    }
+
+    let db = livtet_core::data::SharedState::connect(database_path.as_str())
+        .await
+        .into_diagnostic()?;
+
+    Ok(db)
+}
+
 #[tracing::instrument(skip(app), ret, err)]
 async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let paths = AppDirectories::resolve(app).await?;
-    fs_err::tokio::create_dir_all(&paths.logs_dir).await?;
-    init_tracing(&paths.logs_dir)?;
+    init_tracing(&paths.logs_dir).await?;
     tracing::trace!(
         db_path = paths.database_path.to_string(),
         logs_dir = paths.logs_dir.to_string(),
@@ -72,11 +91,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         "Connecting to the database and opening search index..."
     );
 
-    if fs_err::tokio::try_exists(&paths.database_path).await.ok() != Some(true) {
-        fs_err::tokio::write(&paths.database_path, &[]).await?;
-    }
-
-    let db = livtet_core::data::SharedState::connect(paths.database_path.as_str()).await?;
+    let db = setup_database(&paths.database_path).await?;
     let search = Arc::new(livtet_core::search::SearchIndex::open(
         paths.search_index_path.as_path(),
     )?);
@@ -88,15 +103,14 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new().commands(
-        tauri_specta::collect_commands![
+    let specta_builder =
+        tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
             greet,
             commands::window::sync_window_title,
             commands::search::search,
             commands::edition::find_edition_by_id,
             commands::edition::find_edition_by_identifier,
-        ],
-    );
+        ]);
 
     // Bindings export runs on debug builds only. The path is
     // relative to the working directory of `tauri dev`, which is
