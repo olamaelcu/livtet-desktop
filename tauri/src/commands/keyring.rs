@@ -173,15 +173,19 @@ async fn do_verify(
         });
     }
     let parsed: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    let username = parsed
-        .pointer("/data/me/username")
-        .and_then(|v| v.as_str())
-        .map(String::from);
+    let username = extract_hardcover_username(&parsed);
     Ok(HardcoverVerifyResult {
         valid: username.is_some(),
         username,
         error: None,
     })
+}
+
+fn extract_hardcover_username(parsed: &serde_json::Value) -> Option<String> {
+    parsed
+        .pointer("/data/me/0/username")
+        .and_then(|v| v.as_str())
+        .map(String::from)
 }
 
 #[cfg(test)]
@@ -208,5 +212,23 @@ mod tests {
         let body = serde_json::to_string(&meta).unwrap();
         let parsed: Meta = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed.last_set_at, meta.last_set_at);
+    }
+
+    #[test]
+    fn extract_hardcover_username_parses_me_as_array() {
+        let body = serde_json::json!({ "data": { "me": [{ "id": 1, "username": "alice" }] } });
+        assert_eq!(extract_hardcover_username(&body), Some("alice".to_string()));
+    }
+
+    #[test]
+    fn extract_hardcover_username_missing_me_is_none() {
+        let empty_array = serde_json::json!({ "data": { "me": [] } });
+        assert_eq!(extract_hardcover_username(&empty_array), None);
+
+        let no_data = serde_json::json!({});
+        assert_eq!(extract_hardcover_username(&no_data), None);
+
+        let null_data = serde_json::json!({ "data": null });
+        assert_eq!(extract_hardcover_username(&null_data), None);
     }
 }

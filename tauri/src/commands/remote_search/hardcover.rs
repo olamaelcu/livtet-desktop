@@ -20,7 +20,7 @@ use serde::Deserialize;
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
 
 const HARDCOVER_URL: &str = "https://api.hardcover.app/v1/graphql";
-const USER_AGENT: &str = "livtet-desktop/0.1.0 (+https://livtet.app)";
+const USER_AGENT: &str = "livtet-desktop/0.1.0 (+https://livtet.olamaelcu.net/apps)";
 
 const HARDCOVER_QUERY: &str = r#"
 query BookSearch($query: String!, $per_page: Int!) {
