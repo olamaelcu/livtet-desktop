@@ -17,7 +17,6 @@
     width: 100%;
     display: grid;
     place-items: center;
-    padding: 2rem 1.25rem;
     box-sizing: border-box;
   }
 
