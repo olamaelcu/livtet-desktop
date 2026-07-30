@@ -73,10 +73,12 @@
       (hits) => {
         if (cancelled) return;
         allHits = hits;
+        loading = false;
       },
       (err) => {
         if (cancelled) return;
         searchError = err;
+        loading = false;
       },
     );
     return () => {
