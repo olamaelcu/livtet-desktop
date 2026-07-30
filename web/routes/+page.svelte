@@ -8,6 +8,7 @@
   <wa-card class="card">
     <wa-button href="/search">Search Local Catalog</wa-button>
     <wa-button href="/search/remote">Search Remote Catalog</wa-button>
+    <wa-button href="/settings">Settings</wa-button>
   </wa-card>
 </main>
 
