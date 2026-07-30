@@ -4,9 +4,10 @@
     placeholder?: string;
   }
 
-  let { value = $bindable(), placeholder = "Search the library…" }: Props =
+  let { value = $bindable(""), placeholder = "Search the library…" }: Props =
     $props();
 
+  // TS-only cast: the runtime target is the <wa-input> custom element.
   function oninput(e: Event) {
     const target = e.target as HTMLInputElement | null;
     if (target) value = target.value;
