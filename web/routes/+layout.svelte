@@ -17,8 +17,7 @@
 </script>
 
 <wa-page>
-  <nav class="main-header">
-  </nav>
+  <nav class="main-header"></nav>
   <main>
     {@render children()}
   </main>
