@@ -9,6 +9,7 @@
 use std::sync::Arc;
 
 use serde::Serialize;
+use specta::Type;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -24,14 +25,14 @@ use crate::state::AppState;
 
 pub const PROVIDER_FAILURE_EVENT: &str = "provider-failure";
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 pub struct ProviderFailureEvent {
     pub request_id: String,
     pub provider: ProviderId,
     pub reason: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 pub struct RemoteSearchResult {
     pub request_id: String,
     pub results: Vec<SearchHitRow>,

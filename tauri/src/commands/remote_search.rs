@@ -125,3 +125,34 @@ pub enum ProviderError {
     #[diagnostic(code(provider::timeout))]
     Timeout,
 }
+
+use tauri::{AppHandle, State};
+
+use crate::commands::remote_search::chain::{
+    run_chain, RemoteSearchResult, SearchRegistry,
+};
+use crate::state::AppState;
+
+#[tauri::command]
+#[specta::specta]
+pub async fn remote_search(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    query: String,
+    limit: u32,
+    request_id: String,
+) -> Result<RemoteSearchResult, String> {
+    let token = state.search_registry.begin(request_id.clone()).await;
+    let result = run_chain(&state, &app, &query, limit, &request_id, token).await;
+    state.search_registry.finish().await;
+    Ok(result)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_remote_search(
+    state: State<'_, AppState>,
+    request_id: String,
+) -> Result<bool, String> {
+    Ok(state.search_registry.cancel(&request_id).await)
+}

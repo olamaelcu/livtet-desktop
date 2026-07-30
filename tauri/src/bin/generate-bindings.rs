@@ -14,6 +14,12 @@ fn main() {
             livtet_desktop_lib::_bindings_export::search::search,
             livtet_desktop_lib::_bindings_export::edition::find_edition_by_id,
             livtet_desktop_lib::_bindings_export::edition::find_edition_by_identifier,
+            livtet_desktop_lib::_bindings_export::remote_search::remote_search,
+            livtet_desktop_lib::_bindings_export::remote_search::cancel_remote_search,
+            livtet_desktop_lib::_bindings_export::keyring::get_hardcover_key,
+            livtet_desktop_lib::_bindings_export::keyring::set_hardcover_key,
+            livtet_desktop_lib::_bindings_export::keyring::clear_hardcover_key,
+            livtet_desktop_lib::_bindings_export::keyring::verify_hardcover_key,
         ],
     );
 
