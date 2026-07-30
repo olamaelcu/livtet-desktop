@@ -8,8 +8,6 @@ function matchesQuery(hit: SearchHit, q: string): boolean {
     hit.edition_title ?? "",
     hit.work_title ?? "",
     hit.authors.join(" "),
-    hit.format ?? "",
-    hit.language ?? "",
     hit.snippet_text ?? "",
   ]
     .join("\n")
