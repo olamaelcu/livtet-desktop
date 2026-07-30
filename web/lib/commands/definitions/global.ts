@@ -40,4 +40,15 @@ export const globalCommands: readonly Command[] = [
       void goto("/");
     },
   },
+  {
+    id: asCommandId("nav.settings"),
+    label: "Open settings",
+    description: "Navigate to the Settings page.",
+    category: "Navigation",
+    icon: "gear",
+    scope: "global",
+    run: () => {
+      void goto("/settings");
+    },
+  },
 ];

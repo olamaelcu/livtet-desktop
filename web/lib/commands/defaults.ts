@@ -15,6 +15,7 @@ export const defaultBindings: Profile = {
   [asCommandId("palette.open")]: "Mod+K" as Binding,
   [asCommandId("help.shortcuts")]: "Shift+/" as Binding,
   [asCommandId("nav.home")]: "Mod+1" as Binding,
+  [asCommandId("nav.settings")]: "Mod+," as Binding,
   [asCommandId("go.top")]: ["G", "G"] as Binding,
   [asCommandId("go.bottom")]: ["G", "Shift+G"] as Binding,
 };
