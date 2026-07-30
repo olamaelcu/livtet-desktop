@@ -141,6 +141,7 @@ async fn do_verify(
     api_key: &str,
 ) -> Result<HardcoverVerifyResult, String> {
     let body = serde_json::json!({ "query": "query Test { me { username } }" });
+    tracing::trace!(api_key = %api_key, query = %body, "Sending test request");
     let res = state
         .http
         .post("https://api.hardcover.app/v1/graphql")

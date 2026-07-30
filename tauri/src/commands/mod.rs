@@ -5,7 +5,6 @@
 //! handler in `lib.rs`.
 
 pub mod edition;
-pub mod greet;
 pub mod keyring;
 pub mod remote_search;
 pub mod search;
