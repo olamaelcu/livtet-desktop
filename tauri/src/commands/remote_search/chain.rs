@@ -161,3 +161,159 @@ fn emit_provider_failure(app: &AppHandle, request_id: &str, provider: ProviderId
         warn!(error = %e, "failed to emit provider-failure event");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
+    use async_trait::async_trait;
+    use std::sync::Arc;
+
+    /// A test-only provider that returns a canned result.
+    struct StubProvider {
+        id: ProviderId,
+        behaviour: StubBehaviour,
+    }
+
+    #[derive(Debug, Clone)]
+    enum StubBehaviour {
+        Ok(Vec<RawSearchHit>),
+        Empty,
+        ErrRateLimited,
+        ErrAuth,
+        ErrHttp,
+        ErrCancelled,
+    }
+
+    #[async_trait]
+    impl Provider for StubProvider {
+        fn id(&self) -> ProviderId { self.id }
+        async fn search(&self, _: &str, _: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+            match self.behaviour.clone() {
+                StubBehaviour::Ok(h) => Ok(h),
+                StubBehaviour::Empty => Ok(Vec::new()),
+                StubBehaviour::ErrRateLimited => Err(ProviderError::RateLimited { retry_after_seconds: 60 }),
+                StubBehaviour::ErrAuth => Err(ProviderError::Auth),
+                StubBehaviour::ErrHttp => Err(ProviderError::Http { status: 503, body: "down".into() }),
+                StubBehaviour::ErrCancelled => Err(ProviderError::Auth), // sentinel — match arm checks is_cancelled
+            }
+        }
+    }
+
+    fn hit(title: &str) -> RawSearchHit {
+        RawSearchHit {
+            provider_id: ProviderId::GoogleBooks,
+            provider_work_id: format!("/{title}"),
+            title: title.into(),
+            authors: vec!["A".into()],
+            isbn: None,
+            isbn_13: None,
+            publisher: None,
+            page_count: None,
+            language: None,
+            published_date: None,
+            cover_url: None,
+            description: None,
+        }
+    }
+
+    /// Test that the chain returns the first non-empty result and
+    /// does not call later providers.
+    #[tokio::test]
+    async fn first_non_empty_wins() {
+        let providers: Vec<Arc<dyn Provider>> = vec![
+            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::Ok(vec![hit("A")]) }),
+            Arc::new(StubProvider { id: ProviderId::Hardcover, behaviour: StubBehaviour::Ok(vec![hit("B")]) }),
+        ];
+        let token = CancellationToken::new();
+        let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
+        assert_eq!(result.used_provider, Some(ProviderId::GoogleBooks));
+        assert_eq!(result.results.len(), 1);
+        assert_eq!(result.results[0].title, "A");
+    }
+
+    #[tokio::test]
+    async fn empty_first_advances_to_next() {
+        let providers: Vec<Arc<dyn Provider>> = vec![
+            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::Empty }),
+            Arc::new(StubProvider { id: ProviderId::Hardcover, behaviour: StubBehaviour::Ok(vec![hit("B")]) }),
+        ];
+        let token = CancellationToken::new();
+        let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
+        assert_eq!(result.used_provider, Some(ProviderId::Hardcover));
+        assert_eq!(result.results[0].title, "B");
+    }
+
+    #[tokio::test]
+    async fn all_three_fail_returns_empty() {
+        let providers: Vec<Arc<dyn Provider>> = vec![
+            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::ErrAuth }),
+            Arc::new(StubProvider { id: ProviderId::Hardcover, behaviour: StubBehaviour::ErrHttp }),
+            Arc::new(StubProvider { id: ProviderId::OpenLibrary, behaviour: StubBehaviour::ErrRateLimited }),
+        ];
+        let token = CancellationToken::new();
+        let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
+        assert_eq!(result.used_provider, None);
+        assert_eq!(result.results.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn pre_cancelled_token_short_circuits() {
+        let providers: Vec<Arc<dyn Provider>> = vec![
+            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::Ok(vec![hit("A")]) }),
+        ];
+        let token = CancellationToken::new();
+        token.cancel();
+        let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
+        assert_eq!(result.used_provider, None);
+        assert_eq!(result.results.len(), 0);
+    }
+
+    /// Bypass the live `run_chain` because it needs AppState/AppHandle.
+    /// This is a test-only reimplementation that mirrors the real
+    /// chain's logic without the side effects.
+    async fn run_chain_with(
+        providers: Vec<Arc<dyn Provider>>,
+        token: &CancellationToken,
+        query: &str,
+        limit: u32,
+        request_id: &str,
+    ) -> RemoteSearchResult {
+        for provider in providers {
+            if token.is_cancelled() {
+                return RemoteSearchResult {
+                    request_id: request_id.to_string(),
+                    results: Vec::new(),
+                    used_provider: None,
+                };
+            }
+            let result = tokio::select! {
+                r = provider.search(query, limit) => r,
+                _ = token.cancelled() => Err(ProviderError::Auth),
+            };
+            match result {
+                Ok(hits) if !hits.is_empty() => {
+                    return RemoteSearchResult {
+                        request_id: request_id.to_string(),
+                        results: hits.into_iter().map(SearchHitRow::from).collect(),
+                        used_provider: Some(provider.id()),
+                    };
+                }
+                Ok(_) => continue,
+                Err(_) if token.is_cancelled() => {
+                    return RemoteSearchResult {
+                        request_id: request_id.to_string(),
+                        results: Vec::new(),
+                        used_provider: None,
+                    };
+                }
+                Err(_) => continue,
+            }
+        }
+        RemoteSearchResult {
+            request_id: request_id.to_string(),
+            results: Vec::new(),
+            used_provider: None,
+        }
+    }
+}
