@@ -28,7 +28,16 @@
   {@attach attachAsButton}
 >
   <div class="cover" aria-hidden="true">
-    <span class="cover-letter">{letter}</span>
+    {#if hit.cover_url}
+      <img
+        src={hit.cover_url}
+        alt=""
+        loading="lazy"
+        referrerpolicy="no-referrer"
+      />
+    {:else}
+      <span class="cover-letter">{letter}</span>
+    {/if}
   </div>
   <div class="cover-overlay">
     <div class="cover-title" aria-hidden="true">{hit.title}</div>
@@ -61,6 +70,13 @@
     box-shadow:
       inset 0 0 0 1px rgba(0, 0, 0, 0.08),
       0 1px 3px rgba(0, 0, 0, 0.15);
+  }
+
+  .cover img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
   }
 
   .cover-letter {

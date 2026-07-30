@@ -41,7 +41,13 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 miette = "7.6.0"
 thiserror = "2.0.19"
 fs-err = { version = "3.3.1", features = ["debug", "tokio"] }
+async-trait = "0.1"
+reqwest     = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+urlencoding = "2"
+tokio       = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
+tokio-util  = { version = "0.7", features = ["rt"] }
+keyring     = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }
+time        = { version = "0.3", features = ["formatting"] }
 
 [dev-dependencies]
-time = "0.3"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

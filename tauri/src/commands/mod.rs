@@ -6,5 +6,7 @@
 
 pub mod edition;
 pub mod greet;
+pub mod keyring;
+pub mod remote_search;
 pub mod search;
 pub mod window;

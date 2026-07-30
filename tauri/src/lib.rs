@@ -17,6 +17,8 @@ pub mod _bindings_export {
     //! Public re-exports for the `generate-bindings` bin.
     pub use crate::commands::edition;
     pub use crate::commands::greet;
+    pub use crate::commands::keyring;
+    pub use crate::commands::remote_search;
     pub use crate::commands::search;
     pub use crate::commands::window;
     pub use crate::state;
@@ -95,22 +97,34 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let search = Arc::new(livtet_core::search::SearchIndex::open(
         paths.search_index_path.as_path(),
     )?);
+    let http = reqwest::Client::builder()
+        .user_agent("livtet-desktop/0.1.0 (+https://livtet.app)")
+        .build()
+        .expect("failed to build reqwest client");
+    let search_registry = crate::commands::remote_search::chain::SearchRegistry::default();
 
-    app.manage(AppState { db, search });
+    app.manage(AppState { db, search, http, search_registry });
 
     Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let specta_builder =
-        tauri_specta::Builder::<tauri::Wry>::new().commands(tauri_specta::collect_commands![
+    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new().commands(
+        tauri_specta::collect_commands![
             greet,
             commands::window::sync_window_title,
             commands::search::search,
             commands::edition::find_edition_by_id,
             commands::edition::find_edition_by_identifier,
-        ]);
+            commands::remote_search::remote_search,
+            commands::remote_search::cancel_remote_search,
+            commands::keyring::get_hardcover_key,
+            commands::keyring::set_hardcover_key,
+            commands::keyring::clear_hardcover_key,
+            commands::keyring::verify_hardcover_key,
+        ],
+    );
 
     // Bindings export runs on debug builds only. The path is
     // relative to the working directory of `tauri dev`, which is

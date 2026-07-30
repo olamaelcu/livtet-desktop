@@ -1,0 +1,219 @@
+//! Hardcover GraphQL provider.
+//!
+//! Endpoint: https://api.hardcover.app/v1/graphql
+//! Auth: Authorization: Bearer <token>
+//! Rate limit: 60 req/min. Max timeout: 30s. Query depth limit: 3.
+//!
+//! The query returns `data.search.results`, where `results` is
+//! an opaque JSON array (Typesense docs). We type the envelope
+//! with serde::Deserialize structs and type the per-hit
+//! `HardcoverBookDoc` so serde ignores unknown fields. Publisher
+//! and language are not in the Book search response — they live
+//! on the Editions schema and would require a second lookup per
+//! hit. We leave them as None.
+
+use std::time::Duration;
+
+use async_trait::async_trait;
+use serde::Deserialize;
+
+use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
+
+const HARDCOVER_URL: &str = "https://api.hardcover.app/v1/graphql";
+const USER_AGENT: &str = "livtet-desktop/0.1.0 (+https://livtet.app)";
+
+const HARDCOVER_QUERY: &str = r#"
+query BookSearch($query: String!, $per_page: Int!) {
+  search(query: $query, query_type: "Book", per_page: $per_page, page: 1) {
+    results
+  }
+}"#;
+
+pub struct Hardcover {
+    http: reqwest::Client,
+    api_key: Option<String>,
+}
+
+impl Hardcover {
+    pub fn new(http: reqwest::Client, api_key: Option<String>) -> Self {
+        Self { http, api_key }
+    }
+}
+
+#[async_trait]
+impl Provider for Hardcover {
+    fn id(&self) -> ProviderId { ProviderId::Hardcover }
+
+    async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+        let key = self.api_key.as_deref().ok_or(ProviderError::Auth)?;
+        let body = serde_json::json!({
+            "query": HARDCOVER_QUERY,
+            "variables": { "query": query, "per_page": limit },
+        });
+        let res = self.http
+            .post(HARDCOVER_URL)
+            .header("Authorization", format!("Bearer {key}"))
+            .header("User-Agent", USER_AGENT)
+            .timeout(Duration::from_secs(8))
+            .json(&body)
+            .send()
+            .await?;
+        let status = res.status();
+        if status.as_u16() == 429 {
+            let retry = res.headers()
+                .get("Retry-After")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(60);
+            return Err(ProviderError::RateLimited { retry_after_seconds: retry });
+        }
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(ProviderError::Auth);
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Http {
+                status: status.as_u16(),
+                body: res.text().await.unwrap_or_default(),
+            });
+        }
+        let body: HardcoverResponse = res.json()
+            .await
+            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+        if let Some(errors) = body.errors {
+            return Err(ProviderError::GraphQL {
+                messages: errors.into_iter().map(|e| e.message).collect(),
+            });
+        }
+        let Some(data) = body.data else { return Ok(Vec::new()); };
+        Ok(data.search.results.into_iter().filter_map(map_hardcover_hit).collect())
+    }
+}
+
+#[derive(Deserialize)]
+struct HardcoverResponse {
+    data: Option<HardcoverData>,
+    errors: Option<Vec<HardcoverError>>,
+}
+#[derive(Deserialize)]
+struct HardcoverData { search: HardcoverSearch }
+#[derive(Deserialize)]
+struct HardcoverSearch { results: Vec<HardcoverBookDoc> }
+#[derive(Deserialize)]
+struct HardcoverError { message: String }
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct HardcoverBookDoc {
+    id: Option<String>,
+    title: Option<String>,
+    author_names: Option<Vec<String>>,
+    isbns: Option<Vec<String>>,
+    pages: Option<u32>,
+    description: Option<String>,
+    release_year: Option<i32>,
+    image: Option<HardcoverImage>,
+    slug: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct HardcoverImage { url: Option<String> }
+
+fn map_hardcover_hit(doc: HardcoverBookDoc) -> Option<RawSearchHit> {
+    let id = doc.id?;
+    let title = doc.title.unwrap_or_default();
+    let authors = doc.author_names.unwrap_or_default();
+    let isbns = doc.isbns.unwrap_or_default();
+    let isbn_13 = isbns.iter().find(|s| s.len() == 13).cloned();
+    let isbn = isbns.iter()
+        .find(|s| s.len() == 10)
+        .cloned()
+        .or_else(|| isbn_13.clone());
+    Some(RawSearchHit {
+        provider_id: ProviderId::Hardcover,
+        provider_work_id: id,
+        title,
+        authors,
+        isbn,
+        isbn_13,
+        publisher: None,
+        page_count: doc.pages,
+        language: None,
+        published_date: doc.release_year.map(|y| y.to_string()),
+        cover_url: doc.image.and_then(|i| i.url),
+        description: doc.description,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn maps_full_response_with_both_isbn_lengths() {
+        let json = serde_json::json!({
+            "id": "hcv-1",
+            "title": "The Lord of the Rings",
+            "author_names": ["J.R.R. Tolkien"],
+            "isbns": ["0000000000", "9780000000000"],
+            "pages": 1200,
+            "description": "One ring to rule them all.",
+            "release_year": 1954,
+            "image": { "url": "https://cdn.hardcover.example/lotr.jpg" },
+            "slug": "the-lord-of-the-rings"
+        });
+        let doc: HardcoverBookDoc = serde_json::from_value(json).unwrap();
+        let hit = map_hardcover_hit(doc).unwrap();
+        assert_eq!(hit.provider_id, ProviderId::Hardcover);
+        assert_eq!(hit.provider_work_id, "hcv-1");
+        assert_eq!(hit.title, "The Lord of the Rings");
+        assert_eq!(hit.authors, vec!["J.R.R. Tolkien"]);
+        assert_eq!(hit.isbn.as_deref(), Some("0000000000"), "ISBN-10 wins as primary");
+        assert_eq!(hit.isbn_13.as_deref(), Some("9780000000000"));
+        assert_eq!(hit.page_count, Some(1200));
+        assert_eq!(hit.published_date.as_deref(), Some("1954"));
+        assert_eq!(hit.cover_url.as_deref(), Some("https://cdn.hardcover.example/lotr.jpg"));
+        assert_eq!(hit.description.as_deref(), Some("One ring to rule them all."));
+        assert_eq!(hit.publisher, None, "not in the Book search doc");
+        assert_eq!(hit.language,  None, "not in the Book search doc");
+    }
+
+    #[test]
+    fn drops_hit_without_id() {
+        let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
+            "title": "Orphan"
+        })).unwrap();
+        assert!(map_hardcover_hit(doc).is_none());
+    }
+
+    #[test]
+    fn tolerates_unknown_fields() {
+        let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
+            "id": "x",
+            "future_field_we_dont_know_about": { "nested": [1, 2, 3] }
+        })).unwrap();
+        assert!(map_hardcover_hit(doc).is_some());
+    }
+
+    #[test]
+    fn falls_back_to_isbn13_when_no_isbn10_present() {
+        let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
+            "id": "x",
+            "isbns": ["1234567890123"]
+        })).unwrap();
+        let hit = map_hardcover_hit(doc).unwrap();
+        assert_eq!(hit.isbn.as_deref(), Some("1234567890123"));
+        assert_eq!(hit.isbn_13.as_deref(), Some("1234567890123"));
+    }
+
+    #[test]
+    fn empty_isbns_yields_none() {
+        let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
+            "id": "x",
+            "isbns": []
+        })).unwrap();
+        let hit = map_hardcover_hit(doc).unwrap();
+        assert_eq!(hit.isbn, None);
+        assert_eq!(hit.isbn_13, None);
+    }
+}

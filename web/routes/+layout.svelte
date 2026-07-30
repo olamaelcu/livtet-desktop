@@ -14,6 +14,8 @@
   import HelpOverlay from "$lib/commands/components/help-overlay.svelte";
   import CommandReconciler from "$lib/commands/components/command-reconciler.svelte";
   import HeldKeysIndicator from "$lib/commands/components/held-keys-indicator.svelte";
+  import { Toaster } from "svelte-sonner";
+  import { subscribeProviderFailures } from "$lib/remote/chain";
 
   let { children } = $props();
 
@@ -33,9 +35,13 @@
 
   // Register the default command set once at startup.
   for (const c of defaultCommands) registry.register(c);
+
+  subscribeProviderFailures();
 </script>
 
 <CommandReconciler customProfile={bridge.getCustomProfile()} />
+
+<Toaster position="bottom-right" richColors closeButton />
 
 <wa-page>
   <nav class="main-header"></nav>
