@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use config::{Config, Environment, File, FileFormat};
+use config::{Config, Environment};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -10,11 +10,11 @@ struct Secrets {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed=.mise/secrets.env");
+    println!("cargo:rerun-if-changed={}", env_path.display());
     println!("cargo:rerun-if-env-changed=GOOGLE_BOOKS_API_KEY");
     println!("cargo:rerun-if-env-changed=SENTRY_DSN");
 
-    let env_path = Path::new(".mise/secrets.env");
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.mise/secrets.env");
     if !env_path.exists() {
         eprintln!(
             "error: .mise/secrets.env is missing.\n\
@@ -24,8 +24,9 @@ fn main() {
         std::process::exit(1);
     }
 
+    dotenvy::from_filename(env_path).ok();
+
     let config = Config::builder()
-        .add_source(File::new(".mise/secrets.env", FileFormat::Env))
         .add_source(Environment::default().separator("_"))
         .build()
         .expect("failed to build secrets config");
