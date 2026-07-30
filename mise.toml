@@ -1,9 +1,13 @@
 [tools]
-"aqua:getsops/sops" = "3.13.2"
-"aqua:age"          = "1.3.1"
-"aqua:jqlang/jq"    = "1.8.2"
-adr-tools           = "latest"
+"aqua:getsops/sops"    = "3.13.2"
+"aqua:age"             = "1.3.1"
+"aqua:jqlang/jq"       = "1.8.2"
+adr-tools              = "latest"
+taskwarrior            = "3.4.2"
+"pipx:taskwarrior-mcp" = "0.2.0"
 
 [env]
 RUST_BACKTRACE = "full"
 RUST_LOG       = "tao=warn,wry=warn,log=warn,trace"
+TASKRC         = "{{ [config_root, '.taskrc']   | join_path }}"
+TASKDATA       = "{{ [config_root, '.taskdata'] | join_path }}"

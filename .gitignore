@@ -19,4 +19,7 @@ web/lib/bindings.ts
 .mise/secrets.env
 .mise/.sops-age-key-fingerprint
 age.key
-docs/superpowers
+# Ignore everything under docs/superpowers EXCEPT the tracked specs subtree.
+docs/superpowers/*
+!docs/superpowers/specs/
+!docs/superpowers/specs/**
