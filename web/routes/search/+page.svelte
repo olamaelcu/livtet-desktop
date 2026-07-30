@@ -6,6 +6,7 @@
   import CoverGrid from "$lib/search/components/cover-grid.svelte";
   import FilterChip from "$lib/search/components/filter-chip.svelte";
   import SearchBar from "$lib/search/components/search-bar.svelte";
+  import CommandScope from "$lib/commands/components/command-scope.svelte";
 
   // The search command is invoked on a debounced query. Empty
   // query produces no results (tantivy returns zero hits for
@@ -89,6 +90,7 @@
   <title>Search · livtet</title>
 </svelte:head>
 
+<CommandScope id="search">
 <wa-page>
   <header slot="header">
     <SearchBar bind:value={rawQuery} />
@@ -169,6 +171,7 @@
     </p>
   </footer>
 </wa-page>
+</CommandScope>
 
 <style>
 .facet-row {

@@ -18,6 +18,7 @@
     "@awesome.me/webawesome": "^3.10.0",
     "@fontsource-variable/geist": "^5.3.0",
     "@fontsource-variable/geist-mono": "^5.3.0",
+    "@tanstack/svelte-hotkeys": "^0.10.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2"
   },
