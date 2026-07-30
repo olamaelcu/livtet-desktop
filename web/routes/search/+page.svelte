@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
   import { deriveFacets } from "$lib/search/deriveFacets";
   import { mockHits } from "$lib/search/mock-data";
   import { filterHits } from "$lib/search/search";
@@ -20,17 +19,12 @@
   // Debounce: typing updates `rawQuery` immediately (so the input is
   // responsive), but `query` — the value actually used for filtering
   // — only catches up after 150 ms of inactivity.
-  let debounce: ReturnType<typeof setTimeout> | null = null;
   $effect(() => {
     const next = rawQuery;
-    if (debounce !== null) clearTimeout(debounce);
-    debounce = setTimeout(() => {
+    const id = setTimeout(() => {
       query = next;
     }, 150);
-  });
-
-  onDestroy(() => {
-    if (debounce !== null) clearTimeout(debounce);
+    return () => clearTimeout(id);
   });
 
   const filteredHits = $derived(filterHits(query, filters, allHits));
