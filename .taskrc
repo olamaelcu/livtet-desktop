@@ -1,0 +1,14 @@
+# Taskwarrior config for livtet-desktop.
+# Paths are relative to TASKDATA (set by mise.toml's [env] block); `.taskrc`
+# lives one directory up (the repo root) because TASKRC points there.
+
+data.location           = .
+default.priority        = M
+default.due             = 7d
+report.min.filter       = status:pending
+
+# Custom UDA — lets agents and humans tag tasks to monorepo sub-projects.
+uda.livtet_component.type   = string
+uda.livtet_component.label  = Component
+uda.livtet_component.values = web,desktop,mobile,platform,data,opds,core
+news.version=3.4.2

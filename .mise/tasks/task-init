@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# When invoked via `mise run task-init`, TASKRC/TASKDATA are rendered from
+# mise.toml's [env] block and exported into this script's environment. The
+# fallback uses `git rev-parse --show-toplevel` so the script still works
+# when run by hand (e.g. for debugging or in CI without mise).
+root="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+data_dir="${TASKDATA:-${root}/.taskdata}"
+rc_file="${TASKRC:-${root}/.taskrc}"
+
+mkdir -p "$data_dir"
+[ -f "$rc_file" ] || {
+  echo "task-init: .taskrc missing at $rc_file" >&2
+  exit 1
+}
+
+# Smoke test — forces .taskdata/ initialization on first run.
+# `task list` exits non-zero when there are no pending tasks, so we can't
+# rely on its exit code. Instead, verify the database file exists after
+# the first invocation.
+task --version >/dev/null
+task list >/dev/null 2>&1 || true
+
+if [ ! -f "$data_dir/taskchampion.sqlite3" ]; then
+  echo "task-init: expected $data_dir/taskchampion.sqlite3 to exist after task list" >&2
+  exit 1
+fi
+
+echo "task database ready: $data_dir"

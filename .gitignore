@@ -8,6 +8,7 @@ node_modules
 .env
 .env.*
 !.env.example
+!.envrc.example
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 

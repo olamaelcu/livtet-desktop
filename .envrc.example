@@ -1,0 +1,21 @@
+# .envrc template for livtet-desktop.
+#
+# This file is per-developer and intentionally NOT committed. Copy it to
+# `.envrc` and fill in the SOPS_AGE_KEY value. direnv will load it on `cd`.
+#
+# The `eval "$(mise env -s bash)"` line re-exports the [env] block from
+# mise.toml — including TASKRC and TASKDATA — into the shell so the opencode
+# direnv plugin propagates them to child MCP servers (e.g. taskwarrior-mcp).
+#
+# Order matters: SOPS_AGE_KEY must be exported before any tool that depends
+# on it (e.g. sops) runs. The mise env eval is independent and can come
+# after.
+
+# Required: SOPS age key for decrypting secrets in this repo.
+# Get the value from your password manager / 1Password / age-keyring.
+# DO NOT commit this value. See README and AGENTS.md for rotation steps.
+export SOPS_AGE_KEY="<rotate-before-use>"
+
+# Re-export mise-managed env vars (TASKRC, TASKDATA, RUST_*, etc.) so they
+# reach child processes spawned by opencode's direnv plugin.
+eval "$(mise env -s bash)"
