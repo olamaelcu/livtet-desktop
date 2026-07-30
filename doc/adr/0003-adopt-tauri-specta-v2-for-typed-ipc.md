@@ -6,6 +6,8 @@ Date: 2026-07-30
 
 Accepted
 
+Amended by 5 [5. Pin digital_inventory edition_id to UNIQUE; add edition-detail IPC surface](0005-pin-digital-inventory-edition-id-to-unique-add-edition-detail-ipc-surface.md)
+
 ## Context
 
 `livtet-desktop` is a Tauri 2 + SvelteKit 2 (Svelte 5) application. Before this change, every new Tauri command required three hand-maintained artefacts:
