@@ -48,70 +48,81 @@
   <title>Search · livtet</title>
 </svelte:head>
 
-<main class="search-page">
-  <div class="search-bar-row">
+<wa-page>
+  <header slot="header">
     <SearchBar bind:value={rawQuery} />
+  </header>
+
+  <div slot="main-header">
+    {#if facets.formats.length > 0}
+      <section class="facet-row" aria-label="Format filter">
+        <span class="facet-label">Format</span>
+        {#if filters.formats.size > 0}
+          <wa-badge variant="brand" appearance="filled">
+            {filters.formats.size}
+          </wa-badge>
+        {/if}
+        {#each facets.formats as label (label)}
+          <FilterChip
+            id={`format-${label}`}
+            {label}
+            selected={filters.formats.has(label)}
+            ontoggle={() => toggleFormat(label)}
+          />
+          <wa-tooltip for={`format-${label}`} content={`Show only ${label} books`}></wa-tooltip>
+        {/each}
+      </section>
+    {/if}
+
+    {#if facets.languages.length > 0}
+      <section class="facet-row" aria-label="Language filter">
+        <span class="facet-label">Language</span>
+        {#if filters.languages.size > 0}
+          <wa-badge variant="brand" appearance="filled">
+            {filters.languages.size}
+          </wa-badge>
+        {/if}
+        {#each facets.languages as label (label)}
+          <FilterChip
+            id={`language-${label}`}
+            {label}
+            selected={filters.languages.has(label)}
+            ontoggle={() => toggleLanguage(label)}
+          />
+          <wa-tooltip for={`language-${label}`} content={`Show only ${label} books`}></wa-tooltip>
+        {/each}
+      </section>
+    {/if}
   </div>
 
-  {#if facets.formats.length > 0}
-    <section class="facet-row" aria-label="Format filter">
-      <span class="facet-label">Format</span>
-      {#each facets.formats as label (label)}
-        <FilterChip
-          {label}
-          selected={filters.formats.has(label)}
-          ontoggle={() => toggleFormat(label)}
-        />
-      {/each}
-    </section>
-  {/if}
+  <main>
+    <wa-scroller orientation="vertical" class="result-scroller">
+      {#if filteredHits.length === 0}
+        <wa-callout variant="neutral">
+          <wa-icon slot="icon" name="circle-info"></wa-icon>
+          No matches for "{query}". Try fewer filters or a shorter query.
+        </wa-callout>
+      {:else}
+        <CoverGrid hits={filteredHits} />
+      {/if}
+    </wa-scroller>
+  </main>
 
-  {#if facets.languages.length > 0}
-    <section class="facet-row" aria-label="Language filter">
-      <span class="facet-label">Language</span>
-      {#each facets.languages as label (label)}
-        <FilterChip
-          {label}
-          selected={filters.languages.has(label)}
-          ontoggle={() => toggleLanguage(label)}
-        />
-      {/each}
-    </section>
-  {/if}
-
-  {#if filteredHits.length === 0}
-    <wa-callout variant="neutral">
-      <wa-icon slot="icon" name="circle-info"></wa-icon>
-      No matches for "{query}". Try fewer filters or a shorter query.
-    </wa-callout>
-  {:else}
-    <CoverGrid hits={filteredHits} />
+  <footer slot="main-footer">
     <p class="result-count">
       {filteredHits.length}
       {filteredHits.length === 1 ? "result" : "results"}
     </p>
-  {/if}
-</main>
+  </footer>
+</wa-page>
 
 <style>
-  .search-page {
-    max-width: 80rem;
-    margin: 0 auto;
-    padding: 2rem 1.5rem 5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
-  }
-
-  .search-bar-row {
-    width: 100%;
-  }
-
-  .facet-row {
+.facet-row {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
+    flex-basis: 100%;
   }
 
   .facet-label {
@@ -123,6 +134,16 @@
     margin-right: 0.25rem;
   }
 
+  /* Scroller needs a max-height to actually scroll. Subtracts room for
+     header + main-header + footer; tune if those grow. */
+  .result-scroller {
+    max-height: calc(100vh - 14rem);
+  }
+
+  /* Pin the result count to the bottom-center of the viewport.
+     Semantically it lives in <wa-page>'s main-footer slot, but the slot
+     itself is collapsed via ::part(main-footer) { display: contents }
+     below so the floating element doesn't push the grid up. */
   .result-count {
     position: fixed;
     bottom: 1rem;
@@ -139,4 +160,15 @@
     z-index: 10;
     white-space: nowrap;
   }
+
+  main, header {
+    padding: 0;
+    margin: 0;
+  }
+  
+  div[slot=main-header] {
+    padding: var(--wa-space-m);
+    margin: 0;
+  }
+
 </style>

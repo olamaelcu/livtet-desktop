@@ -6,4 +6,14 @@
   let { children } = $props();
 </script>
 
-{@render children()}
+<wa-page>
+  <nav class="main-header">
+  </nav>
+  <main>
+    {@render children()}
+  </main>
+</wa-page>
+
+<style>
+
+</style>
