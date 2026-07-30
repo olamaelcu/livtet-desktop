@@ -1,4 +1,4 @@
 ---
 creation_rules:
-  - path_regex: \.mise/secrets\.json\.sops$
+  - path_regex: \.mise/secrets\.json(?:\.sops)?$
     age: "age1cczkcq8p49f5kusvxk3a2vvypthm9a3u4xaqj4grlafum7eeke4q902q3y"
