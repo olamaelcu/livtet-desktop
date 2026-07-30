@@ -8,9 +8,22 @@
     "tauri": {
       "type": "local",
       "command": [
+        "mise",
+        "x",
+        "--",
         "npx",
         "-y",
         "@hypothesi/tauri-mcp-server"
+      ],
+      "enabled": true
+    },
+    "taskwarrior": {
+      "type": "local",
+      "command": [
+        "mise",
+        "x",
+        "--",
+        "taskwarrior-mcp"
       ],
       "enabled": true
     }
