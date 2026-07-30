@@ -6,29 +6,24 @@
 //! runtime export (gated on `#[cfg(debug_assertions)]` in `run()`)
 //! produces the same file at runtime — keep the two paths in sync.
 
-fn main() {
-    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new().commands(
-        tauri_specta::collect_commands![
-            livtet_desktop_lib::_bindings_export::greet::greet,
-            livtet_desktop_lib::_bindings_export::window::sync_window_title,
-            livtet_desktop_lib::_bindings_export::search::search,
-            livtet_desktop_lib::_bindings_export::edition::find_edition_by_id,
-            livtet_desktop_lib::_bindings_export::edition::find_edition_by_identifier,
-            livtet_desktop_lib::_bindings_export::remote_search::remote_search,
-            livtet_desktop_lib::_bindings_export::remote_search::cancel_remote_search,
-            livtet_desktop_lib::_bindings_export::keyring::get_hardcover_key,
-            livtet_desktop_lib::_bindings_export::keyring::set_hardcover_key,
-            livtet_desktop_lib::_bindings_export::keyring::clear_hardcover_key,
-            livtet_desktop_lib::_bindings_export::keyring::verify_hardcover_key,
-        ],
-    );
+use std::path::PathBuf;
+
+use miette::IntoDiagnostic;
+
+fn main() -> miette::Result<()> {
+    let specta_builder = livtet_desktop_lib::specta();
+
+    let bindings_path = fs_err::canonicalize(
+        PathBuf::new()
+            .join(env!("CARGO_MANIFEST_DIR"))
+            .join("../web/lib/bindings.ts"),
+    )
+    .into_diagnostic()?;
 
     specta_builder
-        .export(
-            specta_typescript::Typescript::default(),
-            "web/lib/bindings.ts",
-        )
-        .expect("failed to export TS bindings");
+        .export(specta_typescript::Typescript::default(), &bindings_path)
+        .into_diagnostic()?;
 
-    println!("bindings.ts written to web/lib/bindings.ts");
+    println!("bindings.ts written to disk at {bindings_path:?}");
+    Ok(())
 }

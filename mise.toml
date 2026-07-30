@@ -14,6 +14,6 @@ TASKDATA = "{{ [config_root, '.taskdata'] | join_path }}"
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
 [tasks.dev]
-depends = ["secrets-export-env"]
-run = "pnpm tauri dev"
+run = ["cargo run --bin generate-bindings", "pnpm tauri dev"]
 
+depends = ["secrets-export-env"]

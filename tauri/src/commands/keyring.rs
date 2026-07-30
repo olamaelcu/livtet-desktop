@@ -19,8 +19,8 @@ use time::OffsetDateTime;
 use crate::state::AppState;
 
 const KEYRING_SERVICE: &str = "net.olamaelcu.livtet";
-const KEYRING_USER:    &str = "hardcover_api_key";
-const META_FILE:       &str = "hardcover_key.json";
+const KEYRING_USER: &str = "hardcover_api_key";
+const META_FILE: &str = "hardcover_key.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
@@ -48,20 +48,30 @@ fn metadata_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn read_metadata(app: &AppHandle) -> Option<String> {
-    let Ok(path) = metadata_path(app) else { return None };
-    let Ok(raw) = std::fs::read_to_string(&path) else { return None };
-    serde_json::from_str::<Meta>(&raw).ok().and_then(|m| Some(m.last_set_at))
+    let Ok(path) = metadata_path(app) else {
+        return None;
+    };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return None;
+    };
+    serde_json::from_str::<Meta>(&raw)
+        .ok()
+        .map(|m| m.last_set_at)
 }
 
 fn write_metadata(app: &AppHandle) -> Result<(), String> {
     let path = metadata_path(app)?;
-    let meta = Meta { last_set_at: now_iso() };
+    let meta = Meta {
+        last_set_at: now_iso(),
+    };
     let body = serde_json::to_string(&meta).map_err(|e| e.to_string())?;
     std::fs::write(&path, body).map_err(|e| e.to_string())
 }
 
 #[derive(Serialize, Deserialize)]
-struct Meta { last_set_at: String }
+struct Meta {
+    last_set_at: String,
+}
 
 fn now_iso() -> String {
     OffsetDateTime::now_utc()
@@ -73,7 +83,10 @@ fn now_iso() -> String {
 #[specta::specta]
 pub async fn get_hardcover_key(app: AppHandle) -> Result<HardcoverKeyStatus, String> {
     let configured = entry()?.get_password().is_ok();
-    Ok(HardcoverKeyStatus { configured, last_set_at: read_metadata(&app) })
+    Ok(HardcoverKeyStatus {
+        configured,
+        last_set_at: read_metadata(&app),
+    })
 }
 
 #[tauri::command]
@@ -84,10 +97,14 @@ pub async fn set_hardcover_key(
     api_key: String,
 ) -> Result<HardcoverKeyStatus, String> {
     let key = api_key.trim();
-    if key.is_empty() { return Err("API key is empty".into()); }
+    if key.is_empty() {
+        return Err("API key is empty".into());
+    }
     let verify = do_verify(state, key).await?;
     if !verify.valid {
-        return Err(verify.error.unwrap_or_else(|| "key rejected by Hardcover".into()));
+        return Err(verify
+            .error
+            .unwrap_or_else(|| "key rejected by Hardcover".into()));
     }
     entry()?.set_password(key).map_err(|e| e.to_string())?;
     write_metadata(&app)?;
@@ -104,7 +121,10 @@ pub async fn clear_hardcover_key(app: AppHandle) -> Result<HardcoverKeyStatus, S
     if let Ok(path) = metadata_path(&app) {
         let _ = std::fs::remove_file(path);
     }
-    Ok(HardcoverKeyStatus { configured: false, last_set_at: None })
+    Ok(HardcoverKeyStatus {
+        configured: false,
+        last_set_at: None,
+    })
 }
 
 #[tauri::command]
@@ -120,11 +140,15 @@ async fn do_verify(
     state: State<'_, AppState>,
     api_key: &str,
 ) -> Result<HardcoverVerifyResult, String> {
-    let body = serde_json::json!({ "query": "query { me { id, username } }" });
-    let res = state.http
+    let body = serde_json::json!({ "query": "query Test { me { username } }" });
+    let res = state
+        .http
         .post("https://api.hardcover.app/v1/graphql")
         .header("Authorization", format!("Bearer {api_key}"))
-        .header("User-Agent", "livtet-desktop/0.1.0 (+https://livtet.app)")
+        .header(
+            "User-Agent",
+            "livtet-desktop/0.1.0 (+https://livtet.olamaelcu.net/apps)",
+        )
         .timeout(Duration::from_secs(5))
         .json(&body)
         .send()
@@ -132,10 +156,12 @@ async fn do_verify(
         .map_err(|e| e.to_string())?;
     let status = res.status();
     if status.as_u16() == 401 || status.as_u16() == 403 {
+        let body: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
+        tracing::warn!(body = %body, status =%status,"Failed to handle test");
         return Ok(HardcoverVerifyResult {
             valid: false,
             username: None,
-            error: Some("Invalid or expired API key".into()),
+            error: Some("Invalid or expired API key".to_string()),
         });
     }
     if !status.is_success() {
@@ -146,7 +172,8 @@ async fn do_verify(
         });
     }
     let parsed: serde_json::Value = res.json().await.map_err(|e| e.to_string())?;
-    let username = parsed.pointer("/data/me/username")
+    let username = parsed
+        .pointer("/data/me/username")
         .and_then(|v| v.as_str())
         .map(String::from);
     Ok(HardcoverVerifyResult {
@@ -174,7 +201,9 @@ mod tests {
 
     #[test]
     fn round_trip_metadata_via_now_iso() {
-        let meta = Meta { last_set_at: now_iso() };
+        let meta = Meta {
+            last_set_at: now_iso(),
+        };
         let body = serde_json::to_string(&meta).unwrap();
         let parsed: Meta = serde_json::from_str(&body).unwrap();
         assert_eq!(parsed.last_set_at, meta.last_set_at);

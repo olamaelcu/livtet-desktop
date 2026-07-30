@@ -44,7 +44,15 @@
 <Toaster position="bottom-right" richColors closeButton />
 
 <wa-page>
-  <nav class="main-header"></nav>
+  <wa-button slot="navigation-header" href="/">Home</wa-button>
+  <nav slot="navigation">
+    <wa-button-group class="nav">
+      <wa-button href="/search">Search</wa-button>
+      <wa-button href="/search/remote">Remote Search</wa-button>
+      <wa-button href="/catalog">Catalog</wa-button>
+      <wa-button href="/settings">Settings</wa-button>
+    </wa-button-group>
+  </nav>
   <main>
     {@render children()}
   </main>
@@ -58,5 +66,10 @@
   main {
     padding: 0;
   }
-</style>
 
+  .nav {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-xs);
+  }
+</style>

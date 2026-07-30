@@ -29,7 +29,7 @@
   // [Error] Unhandled Promise Rejection: Svelte error: effect_update_depth_exceeded
   // Maximum update depth exceeded. This typically indicates that an effect reads and writes the same piece of state
   // https://svelte.dev/e/effect_update_depth_exce...
-	start (client.js:405)
+  // start (client.js:405)
   $effect(() => {
     const next = rawQuery;
     const id = setTimeout(() => {

@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use camino::Utf8Path;
 use miette::IntoDiagnostic;
-use tauri::{App, Manager};
+use tauri::{App, Manager, Wry};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
@@ -103,46 +103,39 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .expect("failed to build reqwest client");
     let search_registry = crate::commands::remote_search::chain::SearchRegistry::default();
 
-    app.manage(AppState { db, search, http, search_registry });
+    app.manage(AppState {
+        db,
+        search,
+        http,
+        search_registry,
+    });
 
     Ok(())
 }
 
+pub fn specta() -> tauri_specta::Builder<Wry> {
+    tauri_specta::Builder::<Wry>::new().commands(tauri_specta::collect_commands![
+        greet,
+        commands::window::sync_window_title,
+        commands::search::search,
+        commands::edition::find_edition_by_id,
+        commands::edition::find_edition_by_identifier,
+        commands::remote_search::remote_search,
+        commands::remote_search::cancel_remote_search,
+        commands::keyring::get_hardcover_key,
+        commands::keyring::set_hardcover_key,
+        commands::keyring::clear_hardcover_key,
+        commands::keyring::verify_hardcover_key,
+    ])
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new().commands(
-        tauri_specta::collect_commands![
-            greet,
-            commands::window::sync_window_title,
-            commands::search::search,
-            commands::edition::find_edition_by_id,
-            commands::edition::find_edition_by_identifier,
-            commands::remote_search::remote_search,
-            commands::remote_search::cancel_remote_search,
-            commands::keyring::get_hardcover_key,
-            commands::keyring::set_hardcover_key,
-            commands::keyring::clear_hardcover_key,
-            commands::keyring::verify_hardcover_key,
-        ],
-    );
-
-    // Bindings export runs on debug builds only. The path is
-    // relative to the working directory of `tauri dev`, which is
-    // the desktop repo root — so "web/lib/bindings.ts" resolves
-    // correctly. Maintainers running `cargo run` from `tauri/`
-    // directly will see the export fail (the path doesn't exist
-    // relative to that CWD); that's intentional, not a bug.
-    #[cfg(debug_assertions)]
-    specta_builder
-        .export(
-            specta_typescript::Typescript::default(),
-            "web/lib/bindings.ts",
-        )
-        .expect("failed to export TS bindings");
-
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_decorum::init());
+
+    let specta_builder = specta();
 
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
