@@ -6,5 +6,6 @@
 
 pub mod edition;
 pub mod greet;
+pub mod remote_search;
 pub mod search;
 pub mod window;

@@ -63,4 +63,6 @@ impl AppDirectories {
 pub struct AppState {
     pub db: livtet_core::data::SharedState,
     pub search: Arc<livtet_core::search::SearchIndex>,
+    pub http: reqwest::Client,
+    pub search_registry: crate::commands::remote_search::chain::SearchRegistry,
 }
