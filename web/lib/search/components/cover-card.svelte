@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SearchHit } from "../types";
   import { coverLetter, dominantColorFor } from "../mock-data";
+  import { attachAsButton } from "$lib/a11y/attachments";
 
   interface Props {
     hit: SearchHit;
@@ -15,14 +16,16 @@
   );
 </script>
 
-<!-- TODO: promote to <button> (or <a>) when detail-on-click lands; that will
-     remove the a11y_no_noninteractive_tabindex warning and give screen readers
-     a real activation announcement. -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!--   attachAsButton adds a keydown listener at runtime; Svelte's static
+       analyzer cannot see it. role="button" + tabindex="0" set by the
+       attachment silence a11y_no_noninteractive_tabindex and
+       a11y_no_static_element_interactions on their own. -->
 <article
   class="cover-card"
   style:--dominant={bg}
   aria-label={hit.title}
-  tabindex="0"
+  {@attach attachAsButton}
 >
   <div class="cover" aria-hidden="true">
     <span class="cover-letter">{letter}</span>
