@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use config::{Config, Environment};
@@ -9,12 +10,37 @@ struct Secrets {
     sentry_dsn:           String,
 }
 
+fn parse_env_file(path: &Path) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return map;
+    };
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        let key = k.trim().to_string();
+        let value = v
+            .trim()
+            .trim_matches('\'')
+            .trim_matches('"')
+            .to_string();
+        map.insert(key, value);
+    }
+    map
+}
+
 fn main() {
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.mise/secrets.env");
+
     println!("cargo:rerun-if-changed={}", env_path.display());
     println!("cargo:rerun-if-env-changed=GOOGLE_BOOKS_API_KEY");
     println!("cargo:rerun-if-env-changed=SENTRY_DSN");
 
-    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.mise/secrets.env");
     if !env_path.exists() {
         eprintln!(
             "error: .mise/secrets.env is missing.\n\
@@ -24,10 +50,12 @@ fn main() {
         std::process::exit(1);
     }
 
-    dotenvy::from_filename(env_path).ok();
+    let file_map = parse_env_file(&env_path);
+    let env_map: HashMap<String, String> = std::env::vars().collect();
 
     let config = Config::builder()
-        .add_source(Environment::default().separator("_"))
+        .add_source(Environment::default().source(Some(file_map)))
+        .add_source(Environment::default().source(Some(env_map)))
         .build()
         .expect("failed to build secrets config");
 

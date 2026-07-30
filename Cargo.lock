@@ -3435,7 +3435,6 @@ version = "0.1.0"
 dependencies = [
  "camino",
  "config",
- "dotenvy",
  "fs-err",
  "livtet-core",
  "miette",
