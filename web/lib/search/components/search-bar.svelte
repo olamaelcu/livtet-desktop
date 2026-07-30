@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { attachAsButton } from "$lib/a11y/attachments";
+
   interface Props {
     value: string;
     placeholder?: string;
@@ -23,20 +25,17 @@
 >
   <wa-icon slot="start" name="magnifying-glass"></wa-icon>
   {#if value}
+    <!-- svelte-ignore a11y_click_events_have_key_events,a11y_no_static_element_interactions -->
+    <!--   attachAsButton adds a keydown listener + role="button" + tabindex="0"
+         at runtime; Svelte's static analyzer cannot see them on the <wa-icon>
+         custom element. -->
     <wa-icon
       slot="end"
       name="xmark"
       class="clear-button"
-      role="button"
-      tabindex="0"
       aria-label="Clear search"
       onclick={() => (value = "")}
-      onkeydown={(e: KeyboardEvent) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          value = "";
-        }
-      }}
+      {@attach attachAsButton}
     ></wa-icon>
   {/if}
 </wa-input>
