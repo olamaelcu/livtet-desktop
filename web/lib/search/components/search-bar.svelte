@@ -25,14 +25,17 @@
 >
   <wa-icon slot="start" name="magnifying-glass"></wa-icon>
   {#if value}
-    <!-- svelte-ignore a11y_click_events_have_key_events,a11y_no_static_element_interactions -->
-    <!--   attachAsButton adds a keydown listener + role="button" + tabindex="0"
-         at runtime; Svelte's static analyzer cannot see them on the <wa-icon>
-         custom element. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!--   role="button" + tabindex="0" are inline so Svelte re-applies them on
+         every render of the {#if value} block; the runtime keydown listener
+         is added by attachAsButton (attachActivate) and Svelte's analyzer
+         can't see it. -->
     <wa-icon
       slot="end"
       name="xmark"
       class="clear-button"
+      role="button"
+      tabindex="0"
       aria-label="Clear search"
       onclick={() => (value = "")}
       {@attach attachAsButton}
