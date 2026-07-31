@@ -25,10 +25,9 @@ jobs:
           curl https://mise.run | sh
           echo "$HOME/.local/share/mise/bin" >> "$GITHUB_PATH"
           echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
-          # Skip dev-only tools that aren't needed in CI and aren't in mise's registry.
-          # taskwarrior-mcp isn't published; taskwarrior would need the cargo backend.
-          # Both remain available locally because mise.toml is unchanged.
-          MISE_SKIP_TOOLS="taskwarrior pipx:taskwarrior-mcp" mise install
+          # Skip dev-only tools that aren't in the mise registry. These remain
+          # available locally because mise.toml is unchanged.
+          MISE_DISABLE_TOOLS="taskwarrior pipx:taskwarrior-mcp" mise install
 
       - name: Cache pnpm store
         uses: actions/cache@v4
