@@ -1320,9 +1320,9 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "crypto-common"
-version = "0.1.7"
+version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
+checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
@@ -1525,7 +1525,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer 0.10.4",
- "crypto-common 0.1.7",
+ "crypto-common 0.1.6",
 ]
 
 [[package]]
@@ -2244,9 +2244,9 @@ dependencies = [
 
 [[package]]
 name = "generic-array"
-version = "0.14.7"
+version = "0.14.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
+checksum = "4bb6743198531e02858aeaea5398fcc883e71851fcbcb5a2f773e2fb6cb1edf2"
 dependencies = [
  "typenum",
  "version_check",
@@ -2597,9 +2597,9 @@ checksum = "e9025058dae765dee5070ec375f591e2ba14638c63feff74f13805a72e523163"
 
 [[package]]
 name = "http"
-version = "1.4.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6970f50e31d6fc17d3fa27329444bfa74e196cf62e95052a3f6fee181dba6425"
+checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
 dependencies = [
  "bytes",
  "itoa",
@@ -2636,9 +2636,9 @@ checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "818356c5132c1fede50f837ca96afbe78ff42413047f4abb886217845e1b6c8c"
+checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
 dependencies = [
  "typenum",
 ]
@@ -3393,7 +3393,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 [[package]]
 name = "livtet-core"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#cbbd69360065f17ed2b65045ee5c615add91ceb8"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#65a96cc947da213918a1ef6466964dd5b2fe4817"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3423,7 +3423,7 @@ dependencies = [
 [[package]]
 name = "livtet-covers"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#cbbd69360065f17ed2b65045ee5c615add91ceb8"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#65a96cc947da213918a1ef6466964dd5b2fe4817"
 dependencies = [
  "async-trait",
  "blurhash",
@@ -3439,7 +3439,7 @@ dependencies = [
 [[package]]
 name = "livtet-data"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#cbbd69360065f17ed2b65045ee5c615add91ceb8"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#65a96cc947da213918a1ef6466964dd5b2fe4817"
 dependencies = [
  "async-trait",
  "camino-tempfile",
@@ -3495,7 +3495,7 @@ dependencies = [
 [[package]]
 name = "livtet-search"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#cbbd69360065f17ed2b65045ee5c615add91ceb8"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#65a96cc947da213918a1ef6466964dd5b2fe4817"
 dependencies = [
  "async-trait",
  "camino",
@@ -3518,7 +3518,7 @@ dependencies = [
 [[package]]
 name = "livtet-types"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#cbbd69360065f17ed2b65045ee5c615add91ceb8"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#65a96cc947da213918a1ef6466964dd5b2fe4817"
 dependencies = [
  "async-trait",
  "camino",
@@ -3537,8 +3537,6 @@ dependencies = [
  "tantivy-query-grammar",
  "thiserror 2.0.19",
  "time",
- "tracing",
- "tracing-subscriber",
  "ulid",
 ]
 

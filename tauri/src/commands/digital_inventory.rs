@@ -133,6 +133,7 @@ mod tests {
             dominant_color: Set(Some("#6b7e8a".into())),
             file_hash: Set(Some("abc12345def67890".into())),
             file_size_bytes: Set(Some(1024)),
+            file_format: Set(Some("EPUB".into())),
             notes: Set(None),
             added_at: Set(now()),
             updated_at: Set(None),
