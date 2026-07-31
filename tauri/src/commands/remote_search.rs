@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use thiserror::Error;
 
-use crate::commands::search::SearchHitRow;
+use crate::commands::search::{SearchHitRow, enrich_catalog_status};
 
 pub mod chain;
 pub mod google_books;
@@ -100,6 +100,8 @@ impl From<RawSearchHit> for SearchHitRow {
             isbn_13: r.isbn_13,
             blurhash: None,
             dominant_color: None,
+            in_catalog: false,
+            in_catalog_edition_id: None,
         }
     }
 }
@@ -154,8 +156,10 @@ pub async fn remote_search(
     request_id: String,
 ) -> Result<RemoteSearchResult, String> {
     let token = state.search_registry.begin(request_id.clone()).await;
-    let result = run_chain(&state, &app, &query, limit, &request_id, token).await;
+    let mut result = run_chain(&state, &app, &query, limit, &request_id, token).await;
     state.search_registry.finish().await;
+
+    enrich_catalog_status(&state.db.db_conn(), &mut result.results).await;
     Ok(result)
 }
 
