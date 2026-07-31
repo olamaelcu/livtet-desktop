@@ -6,14 +6,31 @@
   let activeTab = $state("local");
 
   onMount(() => {
-    function onShow(e: Event) {
-      const tab = e.target as HTMLElement;
-      const panel = tab.getAttribute("panel");
-      if (panel === "local") activeTab = "local";
-      if (panel === "remote") activeTab = "remote";
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type === "attributes" && m.attributeName === "active") {
+          const panel = m.target as HTMLElement;
+          if (panel.hasAttribute("active")) {
+            const name = panel.getAttribute("name");
+            if (name === "local" || name === "remote") activeTab = name;
+          }
+        }
+      }
+    });
+
+    const panels = document.querySelectorAll("wa-tab-panel");
+    panels.forEach((p) => observer.observe(p, { attributes: true, attributeFilter: ["active"] }));
+
+    // Sync initial state — WA may have activated a tab before observer was set up
+    for (const p of panels) {
+      if (p.hasAttribute("active")) {
+        const name = p.getAttribute("name");
+        if (name === "local" || name === "remote") activeTab = name;
+        break;
+      }
     }
-    document.addEventListener("wa-show", onShow);
-    return () => document.removeEventListener("wa-show", onShow);
+
+    return () => observer.disconnect();
   });
 </script>
 
