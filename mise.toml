@@ -21,6 +21,8 @@ run = ["cargo run --bin generate-bindings", "pnpm tauri dev"]
 
 depends = ["secrets-export-env"]
 
+# --- Local parity with CI ---
+
 [tasks.lint]
 description = "Run all lint checks (Rust + JS/TS)"
 run = [
