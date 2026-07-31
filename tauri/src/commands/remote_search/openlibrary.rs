@@ -196,6 +196,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "live HTTP test — requires network; run via `cargo test -- --ignored`"]
     async fn live_search_returns_hits() {
         let http = crate::http::build_client();
         let provider = OpenLibrary::new(http);

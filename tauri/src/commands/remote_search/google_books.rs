@@ -225,6 +225,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "live HTTP test — requires network and a valid API key; run via `cargo test -- --ignored`"]
     async fn live_search_returns_hits() {
         let key = crate::secrets::GOOGLE_BOOKS_API_KEY;
         if key.is_empty() {

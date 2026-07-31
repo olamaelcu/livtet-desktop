@@ -250,6 +250,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "live HTTP test — requires network and a valid API key; run via `cargo test -- --ignored`"]
     async fn live_search_returns_hits() {
         let key = match std::env::var("HARDCOVER_API_KEY") {
             Ok(k) if !k.is_empty() => k,
