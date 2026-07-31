@@ -49,10 +49,11 @@ async fn enrich_with_cover_metadata(
 
     for row in rows.iter_mut() {
         if let Some(ref edition_id) = row.edition_id
-            && let Some((blurhash, dominant_color)) = cover_map.get(edition_id.as_str()) {
-                row.blurhash = blurhash.clone();
-                row.dominant_color = dominant_color.clone();
-            }
+            && let Some((blurhash, dominant_color)) = cover_map.get(edition_id.as_str())
+        {
+            row.blurhash = blurhash.clone();
+            row.dominant_color = dominant_color.clone();
+        }
     }
 
     Ok(())

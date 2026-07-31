@@ -175,9 +175,10 @@ impl CoverFetcher for Hardcover {
             };
             if identifier.kind == "hardcover"
                 && let Some(id_str) = identifier.value.strip_prefix("urn:hardcover:")
-                    && let Ok(id) = id_str.parse::<i64>() {
-                        hardcover_ids.push(id);
-                    }
+                && let Ok(id) = id_str.parse::<i64>()
+            {
+                hardcover_ids.push(id);
+            }
         }
 
         if hardcover_ids.is_empty() {

@@ -48,11 +48,11 @@ tokio       = { version = "1", features = ["sync", "macros", "rt-multi-thread"] 
 tokio-util  = { version = "0.7", features = ["rt"] }
 keyring     = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }
 time        = { version = "0.3", features = ["formatting"] }
-tauri-plugin-playwright = { version = "0.4", optional = true }
+tauri-plugin-playwright = "0.4"
 
 [features]
-default = ["custom-protocol"]
-e2e-testing = ["tauri-plugin-playwright"]
+default = ["tauri/custom-protocol"]
+e2e-testing = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
