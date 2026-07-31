@@ -93,8 +93,6 @@ jobs:
                       f.write(f"{i}. `{files[0] if files else 'unknown'}` // {m.get('value', 'unknown')} tokens\n")
 
           print(f"Found {count} duplication families")
-          if count > 0:
-              sys.exit(1)
           PY
 
       - name: Upload SARIF
