@@ -16,6 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
+    env:
+      # Skip dev-only tools (taskwarrior and its MCP wrapper) that aren't in
+      # the mise registry on CI. Available locally via the asdf plugin.
+      MISE_DISABLE_TOOLS: taskwarrior,pipx:taskwarrior-mcp
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -29,11 +34,17 @@ jobs:
           curl https://mise.run | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
-          # Skip dev-only tools that aren't in the mise registry. These remain
-          # available locally because mise.toml is unchanged.
-          MISE_DISABLE_TOOLS=taskwarrior,pipx:taskwarrior-mcp mise install
+          mise install
           # Expose mise-managed tool bin paths to subsequent steps.
           eval "$(mise activate --sh)" && echo "PATH=$PATH" >> "$GITHUB_ENV"
+
+      - name: Decrypt mise secrets
+        env:
+          # Age private key for the CI recipient. Decrypts
+          # .mise/secrets.json.sops so that mise's [env] `_.file` works
+          # in subsequent steps.
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: mise run secrets-export-env
 
       - name: Cache pnpm store
         uses: actions/cache@v4
