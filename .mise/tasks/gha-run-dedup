@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-mise exec -- nose query . --mode syntax 'lines>15' --format json --fail-on first > check-dupes.json 2>/dev/null || true
