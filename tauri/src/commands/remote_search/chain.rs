@@ -185,7 +185,6 @@ mod tests {
         ErrRateLimited,
         ErrAuth,
         ErrHttp,
-        ErrCancelled,
     }
 
     #[async_trait]
@@ -205,7 +204,6 @@ mod tests {
                     status: 503,
                     body: "down".into(),
                 }),
-                StubBehaviour::ErrCancelled => Err(ProviderError::Auth), // sentinel — match arm checks is_cancelled
             }
         }
     }
