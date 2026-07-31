@@ -149,7 +149,9 @@ pub async fn remove_book(
         .one(&db)
         .await
         .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("book with digital_inventory_id {digital_inventory_id} not found"))?;
+        .ok_or_else(|| {
+            format!("book with digital_inventory_id {digital_inventory_id} not found")
+        })?;
 
     let edition_id = row.edition_id;
 
@@ -167,12 +169,10 @@ pub async fn remove_book(
             .map_err(|e| e.to_string())?;
     }
 
-    let result = livtet_core::data::entities::digital_inventory::Entity::delete_by_id(
-        inventory_id,
-    )
-    .exec(&db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let result = livtet_core::data::entities::digital_inventory::Entity::delete_by_id(inventory_id)
+        .exec(&db)
+        .await
+        .map_err(|e| e.to_string())?;
 
     if result.rows_affected == 0 {
         return Err(format!(

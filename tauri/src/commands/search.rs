@@ -42,7 +42,11 @@ async fn enrich_with_cover_metadata(
         .map(|r| {
             (
                 r.edition_id.to_string(),
-                (r.blurhash.clone(), r.dominant_color.clone(), r.id.to_string()),
+                (
+                    r.blurhash.clone(),
+                    r.dominant_color.clone(),
+                    r.id.to_string(),
+                ),
             )
         })
         .collect();

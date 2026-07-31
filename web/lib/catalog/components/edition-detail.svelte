@@ -1,4 +1,5 @@
 <script lang="ts">
+import { untrack } from 'svelte'
 import EditionTabAuthors from './edition-tab-authors.svelte'
 import EditionTabCovers from './edition-tab-covers.svelte'
 import EditionTabFiles from './edition-tab-files.svelte'
@@ -26,23 +27,16 @@ let { editionId, initialTab }: Props = $props()
 // because Svelte flags that pattern as a stale-value trap.
 let active = $state<TabId>('overview')
 
-// If `initialTab` changes after mount (e.g. user navigates from
-// ?tab=files to ?tab=authors on the route), keep the tabs in sync.
+// Sync active tab when `initialTab` changes (e.g. URL ?tab= query
+// param changes). `untrack` keeps this effect from reacting to
+// user-initiated tab clicks — without it the effect fights every
+// manual tab change and snaps back to whatever `initialTab` says.
 $effect(() => {
-  if (initialTab && initialTab !== active) active = initialTab
+  if (initialTab && initialTab !== untrack(() => active)) active = initialTab
 })
 
 function onTabShow(event: CustomEvent<{ name: string }>): void {
-  const next = event.detail.name
-  if (
-    next === 'overview' ||
-    next === 'files' ||
-    next === 'covers' ||
-    next === 'authors' ||
-    next === 'identifiers'
-  ) {
-    active = next
-  }
+  active = event.detail.name as TabId
 }
 </script>
 
@@ -77,3 +71,4 @@ function onTabShow(event: CustomEvent<{ name: string }>): void {
     padding: var(--wa-space-m, 1rem) 0;
   }
 </style>
+

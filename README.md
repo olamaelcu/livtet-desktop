@@ -4,7 +4,7 @@
 
 A coherent interface for daily work, shipped as a Tauri desktop app.
 
-The frontend is SvelteKit with [WebAwesome](https://webawesome.com/) custom elements and the Geist font family. The shell is Rust, talking to the webview through a single `greet` command today and a growing surface of Tauri plugins.
+Search, browse, and manage a personal library of books. Livtet indexes local and remote catalogues, fetches cover art and edition details, and surfaces metadata through a fast command palette. The frontend is SvelteKit with [WebAwesome](https://webawesome.com/) custom elements and the Geist font family. The shell is Rust, talking to the webview through Tauri IPC.
 
 ## Stack
 
