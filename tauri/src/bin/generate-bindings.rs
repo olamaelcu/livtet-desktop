@@ -13,12 +13,9 @@ use miette::IntoDiagnostic;
 fn main() -> miette::Result<()> {
     let specta_builder = livtet_desktop_lib::specta();
 
-    let bindings_path = fs_err::canonicalize(
-        PathBuf::new()
-            .join(env!("CARGO_MANIFEST_DIR"))
-            .join("../web/lib/bindings.ts"),
-    )
-    .into_diagnostic()?;
+    let bindings_path = PathBuf::new()
+        .join(env!("CARGO_MANIFEST_DIR"))
+        .join("../web/lib/bindings.ts");
 
     specta_builder
         .export(specta_typescript::Typescript::default(), &bindings_path)
