@@ -13,7 +13,10 @@
     "tauri:dev": "tauri dev --config tauri/tauri.conf.json",
     "tauri:build": "tauri build --config tauri/tauri.conf.json",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "format:check": "biome format ."
   },
   "license": "MPL-2.0",
   "dependencies": {
@@ -27,6 +30,7 @@
     "ulid": "^2.3.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.6",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.65.1",
     "@sveltejs/vite-plugin-svelte": "^7.1.2",

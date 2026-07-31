@@ -1,35 +1,32 @@
 <script lang="ts">
-  import {
-    formatForDisplay,
-    getHotkeyRegistrations,
-  } from "@tanstack/svelte-hotkeys";
-  import { useCommandRegistry } from "../registry.svelte";
-  import { defaultBindings } from "../defaults";
-  import { helpState } from "../dialog-state.svelte";
-  import type { Command } from "../types";
+import { formatForDisplay, getHotkeyRegistrations } from '@tanstack/svelte-hotkeys'
+import { defaultBindings } from '../defaults'
+import { helpState } from '../dialog-state.svelte'
+import { useCommandRegistry } from '../registry.svelte'
+import type { Command } from '../types'
 
-  const registry = useCommandRegistry();
-  const registrations = getHotkeyRegistrations();
+const registry = useCommandRegistry()
+const registrations = getHotkeyRegistrations()
 
-  const grouped = $derived.by(() => {
-    const out = new Map<string, Command[]>();
-    for (const c of registry.all()) {
-      const list = out.get(c.category) ?? [];
-      list.push(c);
-      out.set(c.category, list);
-    }
-    return Array.from(out.entries());
-  });
-
-  function bindingFor(c: Command): string {
-    const reg = registrations.hotkeys.find((r) => r.id === c.id);
-    if (reg) return reg.hotkey;
-    const seq = registrations.sequences.find((r) => r.id === c.id);
-    if (seq) return seq.sequence.join(" ");
-    const fallback = defaultBindings[c.id];
-    if (Array.isArray(fallback)) return fallback.join(" ");
-    return fallback ?? "";
+const grouped = $derived.by(() => {
+  const out = new Map<string, Command[]>()
+  for (const c of registry.all()) {
+    const list = out.get(c.category) ?? []
+    list.push(c)
+    out.set(c.category, list)
   }
+  return Array.from(out.entries())
+})
+
+function bindingFor(c: Command): string {
+  const reg = registrations.hotkeys.find((r) => r.id === c.id)
+  if (reg) return reg.hotkey
+  const seq = registrations.sequences.find((r) => r.id === c.id)
+  if (seq) return seq.sequence.join(' ')
+  const fallback = defaultBindings[c.id]
+  if (Array.isArray(fallback)) return fallback.join(' ')
+  return fallback ?? ''
+}
 </script>
 
 <wa-dialog

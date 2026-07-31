@@ -1,108 +1,105 @@
 <script lang="ts">
-  import {
-    formatForDisplay,
-    getHotkeyRegistrations,
-  } from "@tanstack/svelte-hotkeys";
-  import { useCommandRegistry } from "../registry.svelte";
-  import { defaultBindings } from "../defaults";
-  import { paletteState } from "../dialog-state.svelte";
-  import type { HotkeyBridge } from "../hotkey-bridge.svelte";
-  import KeyRecorder from "./key-recorder.svelte";
-  import type { Command, CommandId } from "../types";
+import { formatForDisplay, getHotkeyRegistrations } from '@tanstack/svelte-hotkeys'
+import { defaultBindings } from '../defaults'
+import { paletteState } from '../dialog-state.svelte'
+import type { HotkeyBridge } from '../hotkey-bridge.svelte'
+import { useCommandRegistry } from '../registry.svelte'
+import type { Command, CommandId } from '../types'
+import KeyRecorder from './key-recorder.svelte'
 
-  interface Props {
-    bridge: HotkeyBridge;
+interface Props {
+  bridge: HotkeyBridge
+}
+
+let { bridge }: Props = $props()
+
+const registry = useCommandRegistry()
+const registrations = getHotkeyRegistrations()
+
+let query = $state('')
+let focusedId: CommandId | null = $state(null)
+
+const visible = $derived.by(() => {
+  const q = query.trim().toLowerCase()
+  const all = registry.all()
+  if (q === '') return all
+  return all.filter(
+    (c) =>
+      c.label.toLowerCase().includes(q) ||
+      c.id.toLowerCase().includes(q) ||
+      (c.description ?? '').toLowerCase().includes(q),
+  )
+})
+
+const grouped = $derived.by(() => {
+  const out = new Map<string, Command[]>()
+  for (const c of visible) {
+    const list = out.get(c.category) ?? []
+    list.push(c)
+    out.set(c.category, list)
   }
+  return Array.from(out.entries())
+})
 
-  let { bridge }: Props = $props();
-
-  const registry = useCommandRegistry();
-  const registrations = getHotkeyRegistrations();
-
-  let query = $state("");
-  let focusedId: CommandId | null = $state(null);
-
-  const visible = $derived.by(() => {
-    const q = query.trim().toLowerCase();
-    const all = registry.all();
-    if (q === "") return all;
-    return all.filter(
-      (c) =>
-        c.label.toLowerCase().includes(q) ||
-        c.id.toLowerCase().includes(q) ||
-        (c.description ?? "").toLowerCase().includes(q),
-    );
-  });
-
-  const grouped = $derived.by(() => {
-    const out = new Map<string, Command[]>();
-    for (const c of visible) {
-      const list = out.get(c.category) ?? [];
-      list.push(c);
-      out.set(c.category, list);
-    }
-    return Array.from(out.entries());
-  });
-
-  $effect(() => {
-    if (paletteState.open && visible.length > 0 && focusedId === null) {
-      focusedId = visible[0]?.id ?? null;
-    }
-  });
-
-  function runAndClose(c: Command) {
-    c.run();
-    paletteState.open = false;
-    query = "";
-    focusedId = null;
+$effect(() => {
+  if (paletteState.open && visible.length > 0 && focusedId === null) {
+    focusedId = visible[0]?.id ?? null
   }
+})
 
-  function onKeydown(event: KeyboardEvent) {
-    if (!paletteState.open) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      paletteState.open = false;
-      query = "";
-      focusedId = null;
-      return;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      const idx = visible.findIndex((c) => c.id === focusedId);
-      const next = visible[idx + 1] ?? visible[0];
-      if (next) focusedId = next.id;
-      return;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      const idx = visible.findIndex((c) => c.id === focusedId);
-      const prev = idx <= 0 ? visible[visible.length - 1] : visible[idx - 1];
-      if (prev) focusedId = prev.id;
-      return;
-    }
-    if (event.key === "Enter") {
-      event.preventDefault();
-      const target = visible.find((c) => c.id === focusedId);
-      if (target) runAndClose(target);
-      return;
-    }
-  }
+function runAndClose(c: Command) {
+  c.run()
+  paletteState.open = false
+  query = ''
+  focusedId = null
+}
 
-  function bindingFor(c: Command): string {
-    const reg = registrations.hotkeys.find((r) => r.id === c.id);
-    if (reg) return reg.hotkey;
-    const seq = registrations.sequences.find((r) => r.id === c.id);
-    if (seq) return seq.sequence.join(" ");
-    const fallback = defaultBindings[c.id];
-    if (Array.isArray(fallback)) return fallback.join(" ");
-    return fallback ?? "";
+function onKeydown(event: KeyboardEvent) {
+  if (!paletteState.open) return
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    paletteState.open = false
+    query = ''
+    focusedId = null
+    return
   }
+  if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    const idx = visible.findIndex((c) => c.id === focusedId)
+    const next = visible[idx + 1] ?? visible[0]
+    if (next) focusedId = next.id
+    return
+  }
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    const idx = visible.findIndex((c) => c.id === focusedId)
+    const prev = idx <= 0 ? visible[visible.length - 1] : visible[idx - 1]
+    if (prev) focusedId = prev.id
+    return
+  }
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    const target = visible.find((c) => c.id === focusedId)
+    if (target) runAndClose(target)
+    return
+  }
+}
 
-  function recorderBindingFor(c: Command) {
-    const resolved = bridge.resolved[c.id];
-    if (Array.isArray(resolved)) return "Mod+?";
-    return (resolved as string | undefined) ?? (defaultBindings[c.id] as string) ?? "";
-  }
+function bindingFor(c: Command): string {
+  const reg = registrations.hotkeys.find((r) => r.id === c.id)
+  if (reg) return reg.hotkey
+  const seq = registrations.sequences.find((r) => r.id === c.id)
+  if (seq) return seq.sequence.join(' ')
+  const fallback = defaultBindings[c.id]
+  if (Array.isArray(fallback)) return fallback.join(' ')
+  return fallback ?? ''
+}
+
+function recorderBindingFor(c: Command) {
+  const resolved = bridge.resolved[c.id]
+  if (Array.isArray(resolved)) return 'Mod+?'
+  return (resolved as string | undefined) ?? (defaultBindings[c.id] as string) ?? ''
+}
 </script>
 
 <svelte:window onkeydown={onKeydown} />

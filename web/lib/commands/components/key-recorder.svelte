@@ -1,28 +1,24 @@
 <script lang="ts">
-  import {
-    createHotkeyRecorder,
-    formatForDisplay,
-    type Hotkey,
-  } from "@tanstack/svelte-hotkeys";
-  import type { CommandId } from "../types";
+import { createHotkeyRecorder, formatForDisplay, type Hotkey } from '@tanstack/svelte-hotkeys'
+import type { CommandId } from '../types'
 
-  interface Props {
-    commandId: CommandId;
-    currentBinding: Hotkey;
-    onSave: (commandId: CommandId, newBinding: Hotkey) => void;
-  }
+interface Props {
+  commandId: CommandId
+  currentBinding: Hotkey
+  onSave: (commandId: CommandId, newBinding: Hotkey) => void
+}
 
-  let { commandId, currentBinding, onSave }: Props = $props();
+let { commandId, currentBinding, onSave }: Props = $props()
 
-  const recorder = createHotkeyRecorder({
-    onRecord: (hotkey) => {
-      onSave(commandId, hotkey);
-    },
-  });
+const recorder = createHotkeyRecorder({
+  onRecord: (hotkey) => {
+    onSave(commandId, hotkey)
+  },
+})
 
-  function start() {
-    recorder.startRecording();
-  }
+function start() {
+  recorder.startRecording()
+}
 </script>
 
 <button

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { peekState, closePeek } from "../peek-state.svelte";
-  import EditionDetail from "./edition-detail.svelte";
+import { closePeek, peekState } from '../peek-state.svelte'
+import EditionDetail from './edition-detail.svelte'
 </script>
 
 <wa-dialog

@@ -1,34 +1,26 @@
 <script lang="ts">
-  import {
-    createHotkey,
-    createHotkeySequence,
-  } from "@tanstack/svelte-hotkeys";
-  import { useCommandRegistry } from "../registry.svelte";
-  import { useScopeRegistry } from "../scope.svelte";
-  import { defaultBindings } from "../defaults";
-  import {
-    deriveActive,
-    resolvedBinding,
-    type ActiveRegistration,
-  } from "../hotkey-bridge.svelte";
-  import type { Binding, CommandId } from "../types";
+import { createHotkey, createHotkeySequence } from '@tanstack/svelte-hotkeys'
+import { type ActiveRegistration, deriveActive } from '../hotkey-bridge.svelte'
+import { useCommandRegistry } from '../registry.svelte'
+import { useScopeRegistry } from '../scope.svelte'
+import type { Binding, CommandId } from '../types'
 
-  interface Props {
-    /** Reactive snapshot of the custom profile. */
-    customProfile: Readonly<Record<CommandId, Binding>>;
-  }
+interface Props {
+  /** Reactive snapshot of the custom profile. */
+  customProfile: Readonly<Record<CommandId, Binding>>
+}
 
-  let { customProfile }: Props = $props();
+let { customProfile }: Props = $props()
 
-  const registry = useCommandRegistry();
-  const scopes = useScopeRegistry();
+const registry = useCommandRegistry()
+const scopes = useScopeRegistry()
 
-  // Active registrations keyed by `${id}::${binding-json}` so a binding
-  // change unmounts the old row and mounts the new one. The adapter
-  // auto-unregisters the unmounted row.
-  const activeRegistrations = $derived.by((): ActiveRegistration[] => {
-    return [...deriveActive(registry.all(), scopes.active, customProfile)];
-  });
+// Active registrations keyed by `${id}::${binding-json}` so a binding
+// change unmounts the old row and mounts the new one. The adapter
+// auto-unregisters the unmounted row.
+const activeRegistrations = $derived.by((): ActiveRegistration[] => {
+  return [...deriveActive(registry.all(), scopes.active, customProfile)]
+})
 </script>
 
 {#each activeRegistrations as reg (`${reg.id}::${JSON.stringify(reg.binding)}`)}

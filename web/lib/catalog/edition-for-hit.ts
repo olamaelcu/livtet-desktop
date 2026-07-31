@@ -1,5 +1,5 @@
-import type { DigitalInventoryRow } from "$lib/bindings";
-import type { SearchHit } from "$lib/search/types";
+import type { DigitalInventoryRow } from '$lib/bindings'
+import type { SearchHit } from '$lib/search/types'
 
 /**
  * Best-effort resolver for which edition a search hit should open
@@ -12,6 +12,6 @@ export function editionForHit(
   hit: SearchHit,
   files?: DigitalInventoryRow | null,
 ): { editionId: string | null } {
-  if (files) return { editionId: files.edition_id };
-  return { editionId: hit.edition_id };
+  if (files) return { editionId: files.edition_id }
+  return { editionId: hit.edition_id }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import HardcoverKeyForm from "$lib/settings/hardcover-key-form.svelte";
+import HardcoverKeyForm from '$lib/settings/hardcover-key-form.svelte'
 </script>
 
 <svelte:head>

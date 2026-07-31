@@ -1,19 +1,18 @@
 <script lang="ts">
-  import { attachAsButton } from "$lib/a11y/attachments";
+import { attachAsButton } from '$lib/a11y/attachments'
 
-  interface Props {
-    value: string;
-    placeholder?: string;
-  }
+interface Props {
+  value: string
+  placeholder?: string
+}
 
-  let { value = $bindable(""), placeholder = "Search the library…" }: Props =
-    $props();
+let { value = $bindable(''), placeholder = 'Search the library…' }: Props = $props()
 
-  // TS-only cast: the runtime target is the <wa-input> custom element.
-  function oninput(e: Event) {
-    const target = e.target as HTMLInputElement | null;
-    if (target) value = target.value;
-  }
+// TS-only cast: the runtime target is the <wa-input> custom element.
+function oninput(e: Event) {
+  const target = e.target as HTMLInputElement | null
+  if (target) value = target.value
+}
 </script>
 
 <wa-input

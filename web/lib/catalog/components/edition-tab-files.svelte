@@ -1,44 +1,44 @@
 <script lang="ts">
-  import { commands, type DigitalInventoryRow } from "$lib/bindings";
-  import FileRow from "./file-row.svelte";
+import { commands, type DigitalInventoryRow } from '$lib/bindings'
+import FileRow from './file-row.svelte'
 
-  interface Props {
-    editionId: string;
+interface Props {
+  editionId: string
+}
+
+let { editionId }: Props = $props()
+
+let file = $state<DigitalInventoryRow | null>(null)
+let loading = $state(true)
+let error = $state<string | null>(null)
+
+$effect(() => {
+  let cancelled = false
+  loading = true
+  error = null
+  file = null
+  commands
+    .findFilesByEdition(editionId)
+    .then((res) => {
+      if (cancelled) return
+      if (res.status === 'ok') {
+        file = res.data
+        error = null
+      } else {
+        error = res.error
+        file = null
+      }
+      loading = false
+    })
+    .catch((e: unknown) => {
+      if (cancelled) return
+      error = String(e)
+      loading = false
+    })
+  return () => {
+    cancelled = true
   }
-
-  let { editionId }: Props = $props();
-
-  let file = $state<DigitalInventoryRow | null>(null);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-
-  $effect(() => {
-    let cancelled = false;
-    loading = true;
-    error = null;
-    file = null;
-    commands
-      .findFilesByEdition(editionId)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.status === "ok") {
-          file = res.data;
-          error = null;
-        } else {
-          error = res.error;
-          file = null;
-        }
-        loading = false;
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        error = String(e);
-        loading = false;
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
+})
 </script>
 
 {#if loading}

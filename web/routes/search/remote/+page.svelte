@@ -1,8 +1,8 @@
 <script lang="ts">
-  import SearchView from "$lib/search/components/search-view.svelte";
-  import { runSearch } from "$lib/remote/chain";
+import { runSearch } from '$lib/remote/chain'
+import SearchView from '$lib/search/components/search-view.svelte'
 
-  const LIMIT = 50;
+const LIMIT = 50
 </script>
 
 <SearchView

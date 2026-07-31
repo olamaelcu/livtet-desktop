@@ -1,56 +1,56 @@
 <script lang="ts">
-  import { commands, type IdentifierRow } from "$lib/bindings";
+import { commands, type IdentifierRow } from '$lib/bindings'
 
-  interface Props {
-    editionId: string;
+interface Props {
+  editionId: string
+}
+
+let { editionId }: Props = $props()
+
+let identifiers = $state<IdentifierRow[]>([])
+let loading = $state(true)
+let error = $state<string | null>(null)
+let copiedId = $state<string | null>(null)
+
+$effect(() => {
+  let cancelled = false
+  loading = true
+  error = null
+  identifiers = []
+  commands
+    .findIdentifiersByEdition(editionId)
+    .then((res) => {
+      if (cancelled) return
+      if (res.status === 'ok') {
+        identifiers = res.data
+        error = null
+      } else {
+        error = res.error
+        identifiers = []
+      }
+      loading = false
+    })
+    .catch((e: unknown) => {
+      if (cancelled) return
+      error = String(e)
+      loading = false
+    })
+  return () => {
+    cancelled = true
   }
+})
 
-  let { editionId }: Props = $props();
-
-  let identifiers = $state<IdentifierRow[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-  let copiedId = $state<string | null>(null);
-
-  $effect(() => {
-    let cancelled = false;
-    loading = true;
-    error = null;
-    identifiers = [];
-    commands
-      .findIdentifiersByEdition(editionId)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.status === "ok") {
-          identifiers = res.data;
-          error = null;
-        } else {
-          error = res.error;
-          identifiers = [];
-        }
-        loading = false;
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        error = String(e);
-        loading = false;
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
-
-  async function copy(identifier: IdentifierRow): Promise<void> {
-    try {
-      await navigator.clipboard.writeText(identifier.value);
-      copiedId = identifier.id;
-      setTimeout(() => {
-        if (copiedId === identifier.id) copiedId = null;
-      }, 1500);
-    } catch {
-      // Clipboard unavailable (Tauri sandbox, etc.) — silently ignore.
-    }
+async function copy(identifier: IdentifierRow): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(identifier.value)
+    copiedId = identifier.id
+    setTimeout(() => {
+      if (copiedId === identifier.id) copiedId = null
+    }, 1500)
+  } catch {
+    // Clipboard unavailable (Tauri sandbox, etc.) — silently ignore.
   }
+}
 </script>
 
 {#if loading}
