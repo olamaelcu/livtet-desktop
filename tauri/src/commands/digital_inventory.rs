@@ -29,6 +29,8 @@ pub struct DigitalInventoryRow {
     /// specta-typescript can export it as a JSON `number`; values up
     /// to 2^53 (~9 PB) round-trip exactly, which covers any real file.
     pub file_size_bytes: Option<f64>,
+    /// File format (e.g., "EPUB", "PDF"). Derived from editions.format_id.
+    pub file_format: Option<String>,
     pub notes: Option<String>,
     pub added_at: String,
     pub updated_at: Option<String>,
@@ -45,6 +47,7 @@ impl From<livtet_core::data::entities::digital_inventory::Model> for DigitalInve
             dominant_color: m.dominant_color,
             file_hash: m.file_hash,
             file_size_bytes: m.file_size_bytes.map(|n| n as f64),
+            file_format: m.file_format,
             notes: m.notes,
             added_at: m.added_at.to_string(),
             updated_at: m.updated_at.map(|d| d.to_string()),
