@@ -19,4 +19,3 @@ pub fn build_client() -> reqwest::Client {
         .build()
         .expect("failed to build reqwest client")
 }
-

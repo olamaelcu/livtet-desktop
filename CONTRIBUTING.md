@@ -24,9 +24,9 @@ Keep the subject under 72 characters, imperative mood ("add", not "added"), and 
 
 ## Code style
 
-**TypeScript and Svelte.** The SvelteKit defaults apply: 2-space indent, single quotes, no semicolons in component `<script>` blocks. Run `pnpm check` before pushing; CI runs the same.
+**TypeScript and Svelte.** The SvelteKit defaults apply: 2-space indent, single quotes, no semicolons in component `<script>` blocks. Run `pnpm check` and `pnpm lint` before pushing; CI runs the same.
 
-**Rust.** Standard `rustfmt` output plus `clippy` defaults. Run `cargo fmt --all` and `cargo clippy --workspace --all-targets` locally. The workspace targets Rust 1.85 with edition 2021.
+**Rust.** Standard `rustfmt` output plus `clippy` defaults. Run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo-machete` locally (or `mise run lint`). The workspace targets Rust 1.85 with edition 2021.
 
 **Naming.** Match what already exists in the file. Don't introduce a new convention in a one-line change.
 
@@ -38,10 +38,14 @@ Keep the subject under 72 characters, imperative mood ("add", not "added"), and 
 
 ## Tests
 
-There is no test suite yet. Add coverage when you add behavior:
+The repo ships with inline Rust tests in `tauri/src/commands/**` and a Vitest runner wired up for the frontend. Both run as part of `mise run test`, which the GitHub Actions CI also invokes.
 
-- Frontend logic: prefer small Svelte 5 runes over extracting testable helpers, but write a unit test for any pure function worth sharing.
-- Tauri commands: integration tests under `tauri/src/` are the path forward.
+- Frontend logic: prefer small Svelte 5 runes over extracting testable helpers, but write a Vitest unit test for any pure function worth sharing. Tests live next to the code as `*.test.ts`.
+- Tauri commands: integration tests go in `tauri/tests/` (none yet) and inline `#[test]` / `#[tokio::test]` modules next to the command implementation.
+
+Run the full suite locally with `mise run ci`. CI runs the same command on every PR and every push to `main`.
+
+Live HTTP search tests (Hardcover, Google Books, OpenLibrary) are marked `#[ignore]` so CI doesn't hit external APIs. Opt in with `cargo test -- --ignored` when you have API keys.
 
 ## Pull request process
 

@@ -1,43 +1,43 @@
 <script lang="ts">
-  import { commands, type AuthorWithRole } from "$lib/bindings";
+import { type AuthorWithRole, commands } from '$lib/bindings'
 
-  interface Props {
-    editionId: string;
+interface Props {
+  editionId: string
+}
+
+let { editionId }: Props = $props()
+
+let authors = $state<AuthorWithRole[]>([])
+let loading = $state(true)
+let error = $state<string | null>(null)
+
+$effect(() => {
+  let cancelled = false
+  loading = true
+  error = null
+  authors = []
+  commands
+    .findAuthorsByEdition(editionId)
+    .then((res) => {
+      if (cancelled) return
+      if (res.status === 'ok') {
+        authors = res.data
+        error = null
+      } else {
+        error = res.error
+        authors = []
+      }
+      loading = false
+    })
+    .catch((e: unknown) => {
+      if (cancelled) return
+      error = String(e)
+      loading = false
+    })
+  return () => {
+    cancelled = true
   }
-
-  let { editionId }: Props = $props();
-
-  let authors = $state<AuthorWithRole[]>([]);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-
-  $effect(() => {
-    let cancelled = false;
-    loading = true;
-    error = null;
-    authors = [];
-    commands
-      .findAuthorsByEdition(editionId)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.status === "ok") {
-          authors = res.data;
-          error = null;
-        } else {
-          error = res.error;
-          authors = [];
-        }
-        loading = false;
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        error = String(e);
-        loading = false;
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
+})
 </script>
 
 {#if loading}

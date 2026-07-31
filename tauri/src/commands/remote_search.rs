@@ -128,7 +128,7 @@ pub enum ProviderError {
 
 use tauri::{AppHandle, State};
 
-use crate::commands::remote_search::chain::{run_chain, RemoteSearchResult};
+use crate::commands::remote_search::chain::{RemoteSearchResult, run_chain};
 use crate::state::AppState;
 
 #[tauri::command]

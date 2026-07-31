@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { getHeldKeys, formatForDisplay } from "@tanstack/svelte-hotkeys";
+import { formatForDisplay, getHeldKeys } from '@tanstack/svelte-hotkeys'
 
-  const held = getHeldKeys();
+const held = getHeldKeys()
 </script>
 
 {#if held.keys.length > 0}

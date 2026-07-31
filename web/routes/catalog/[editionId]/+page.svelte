@@ -1,34 +1,29 @@
 <script lang="ts">
-  import { page } from "$app/state";
-  import { goto } from "$app/navigation";
-  import EditionDetail from "$lib/catalog/components/edition-detail.svelte";
+import { goto } from '$app/navigation'
+import { page } from '$app/state'
+import EditionDetail from '$lib/catalog/components/edition-detail.svelte'
 
-  interface Props {
-    params: { editionId: string };
+interface Props {
+  params: { editionId: string }
+}
+
+let { params }: Props = $props()
+
+type TabId = 'overview' | 'files' | 'authors' | 'identifiers'
+
+const ALLOWED_TABS: TabId[] = ['overview', 'files', 'authors', 'identifiers']
+
+const initialTab = $derived.by<TabId>(() => {
+  const raw = page.url.searchParams.get('tab')
+  if (raw && (ALLOWED_TABS as string[]).includes(raw)) {
+    return raw as TabId
   }
+  return 'overview'
+})
 
-  let { params }: Props = $props();
-
-  type TabId = "overview" | "files" | "authors" | "identifiers";
-
-  const ALLOWED_TABS: TabId[] = [
-    "overview",
-    "files",
-    "authors",
-    "identifiers",
-  ];
-
-  const initialTab = $derived.by<TabId>(() => {
-    const raw = page.url.searchParams.get("tab");
-    if (raw && (ALLOWED_TABS as string[]).includes(raw)) {
-      return raw as TabId;
-    }
-    return "overview";
-  });
-
-  function back(): void {
-    void goto("/search");
-  }
+function back(): void {
+  void goto('/search')
+}
 </script>
 
 <svelte:head>

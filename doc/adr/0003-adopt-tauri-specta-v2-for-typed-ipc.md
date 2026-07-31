@@ -6,7 +6,7 @@ Date: 2026-07-30
 
 Accepted
 
-Amended by 5 [5. Pin digital_inventory edition_id to UNIQUE; add edition-detail IPC surface](0005-pin-digital-inventory-edition-id-to-unique-add-edition-detail-ipc-surface.md)
+Extended by 5 [5. Pin digital_inventory edition_id UNIQUE; extend tauri-specta edition-detail IPC](0005-pin-digital-inventory-edition-id-to-unique-add-edition-detail-ipc-surface.md)
 
 ## Context
 

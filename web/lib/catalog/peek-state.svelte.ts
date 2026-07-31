@@ -5,13 +5,13 @@
 export const peekState = $state({
   open: false,
   editionId: null as string | null,
-});
+})
 
 export function openPeek(editionId: string): void {
-  peekState.editionId = editionId;
-  peekState.open = true;
+  peekState.editionId = editionId
+  peekState.open = true
 }
 
 export function closePeek(): void {
-  peekState.open = false;
+  peekState.open = false
 }

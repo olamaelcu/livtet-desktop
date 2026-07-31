@@ -5,6 +5,8 @@
 adr-tools = "latest"
 taskwarrior = "3.4.2"
 "pipx:taskwarrior-mcp" = "0.2.0"
+pnpm = "10"
+"cargo:cargo-machete" = "0.7"
 
 [env]
 _.file = ".mise/secrets.env"
@@ -13,10 +15,29 @@ TASKRC = "{{ [config_root, '.taskrc']   | join_path }}"
 TASKDATA = "{{ [config_root, '.taskdata'] | join_path }}"
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
-[tasks.tauri-gen-bindings]
-depends = ["secrets-export-env"]
-run = "cargo run --bin generate-bindings"
-
 [tasks.dev]
-run = "pnpm tauri dev"
-depends = ["secrets-export-env", "tauri-gen-bindings"]
+run = ["cargo run --bin generate-bindings", "pnpm tauri dev"]
+
+depends = ["secrets-export-env"]
+
+# --- Local parity with CI ---
+
+[tasks.lint]
+description = "Run all lint checks (Rust + JS/TS)"
+run = [
+  "cargo fmt --all --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo-machete",
+  "pnpm lint",
+]
+
+[tasks.test]
+description = "Run all tests (Rust + JS/TS)"
+run = [
+  "cargo test --workspace --all-targets",
+  "pnpm test",
+]
+
+[tasks.ci]
+description = "Full CI suite (lint + test) — same as GitHub Actions"
+depends = ["lint", "test"]

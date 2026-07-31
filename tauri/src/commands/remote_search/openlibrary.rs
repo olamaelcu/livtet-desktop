@@ -23,7 +23,9 @@ impl OpenLibrary {
 
 #[async_trait]
 impl Provider for OpenLibrary {
-    fn id(&self) -> ProviderId { ProviderId::OpenLibrary }
+    fn id(&self) -> ProviderId {
+        ProviderId::OpenLibrary
+    }
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
         let url = format!(
@@ -31,18 +33,18 @@ impl Provider for OpenLibrary {
             urlencoding::encode(query),
             limit,
         );
-        let res = self.http
-            .get(&url)
-            .send()
-            .await?;
+        let res = self.http.get(&url).send().await?;
         let status = res.status();
         if status.as_u16() == 429 {
-            let retry = res.headers()
+            let retry = res
+                .headers()
                 .get("Retry-After")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(60);
-            return Err(ProviderError::RateLimited { retry_after_seconds: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_seconds: retry,
+            });
         }
         if !status.is_success() {
             return Err(ProviderError::Http {
@@ -50,10 +52,15 @@ impl Provider for OpenLibrary {
                 body: res.text().await.unwrap_or_default(),
             });
         }
-        let body: OpenLibraryResponse = res.json()
+        let body: OpenLibraryResponse = res
+            .json()
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
-        Ok(body.docs.into_iter().filter_map(map_openlibrary_hit).collect())
+        Ok(body
+            .docs
+            .into_iter()
+            .filter_map(map_openlibrary_hit)
+            .collect())
     }
 }
 
@@ -83,10 +90,28 @@ fn map_openlibrary_hit(doc: OpenLibraryDoc) -> Option<RawSearchHit> {
     let authors = doc.author_name.unwrap_or_default();
     let isbns = doc.isbn.unwrap_or_default();
     let isbn_13 = isbns.iter().find(|s| s.len() == 13).cloned();
-    let isbn = isbns.iter().find(|s| s.len() == 10).cloned().or_else(|| isbn_13.clone());
-    let cover_url = doc.cover_i.map(|i| format!("https://covers.openlibrary.org/b/id/{i}-M.jpg"));
-    let publisher = doc.publisher.and_then(|mut p| if p.is_empty() { None } else { Some(p.remove(0)) });
-    let language = doc.language.and_then(|mut l| if l.is_empty() { None } else { Some(l.remove(0)) });
+    let isbn = isbns
+        .iter()
+        .find(|s| s.len() == 10)
+        .cloned()
+        .or_else(|| isbn_13.clone());
+    let cover_url = doc
+        .cover_i
+        .map(|i| format!("https://covers.openlibrary.org/b/id/{i}-M.jpg"));
+    let publisher = doc.publisher.and_then(|mut p| {
+        if p.is_empty() {
+            None
+        } else {
+            Some(p.remove(0))
+        }
+    });
+    let language = doc.language.and_then(|mut l| {
+        if l.is_empty() {
+            None
+        } else {
+            Some(l.remove(0))
+        }
+    });
     Some(RawSearchHit {
         provider_id: ProviderId::OpenLibrary,
         provider_work_id: key,
@@ -142,7 +167,8 @@ mod tests {
     fn drops_hit_without_key() {
         let doc: OpenLibraryDoc = serde_json::from_value(serde_json::json!({
             "title": "Orphan"
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(map_openlibrary_hit(doc).is_none());
     }
 
@@ -152,7 +178,8 @@ mod tests {
             "key": "/works/x",
             "publisher": ["First", "Second"],
             "language": ["en", "de"]
-        })).unwrap();
+        }))
+        .unwrap();
         let hit = map_openlibrary_hit(doc).unwrap();
         assert_eq!(hit.publisher.as_deref(), Some("First"));
         assert_eq!(hit.language.as_deref(), Some("en"));
@@ -163,11 +190,13 @@ mod tests {
         let doc: OpenLibraryDoc = serde_json::from_value(serde_json::json!({
             "key": "/works/x",
             "future_field_we_dont_know_about": {"nested": [1, 2, 3]}
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(map_openlibrary_hit(doc).is_some());
     }
 
     #[tokio::test]
+    #[ignore = "live HTTP test — requires network; run via `cargo test -- --ignored`"]
     async fn live_search_returns_hits() {
         let http = crate::http::build_client();
         let provider = OpenLibrary::new(http);
@@ -184,7 +213,9 @@ mod tests {
             hit.title
         );
         assert!(
-            hit.authors.iter().any(|a| a.to_lowercase().contains("tolkien")),
+            hit.authors
+                .iter()
+                .any(|a| a.to_lowercase().contains("tolkien")),
             "expected an author containing 'tolkien', got {:?}",
             hit.authors
         );

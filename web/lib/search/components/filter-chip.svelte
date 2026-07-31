@@ -1,15 +1,15 @@
 <script lang="ts">
-  import { attachActivate } from "$lib/a11y/attachments";
+import { attachActivate } from '$lib/a11y/attachments'
 
-  interface Props {
-    label: string;
-    selected: boolean;
-    ontoggle: () => void;
-    /** Stable id used by both the <wa-button> and its associated <wa-tooltip>. */
-    id: string;
-  }
+interface Props {
+  label: string
+  selected: boolean
+  ontoggle: () => void
+  /** Stable id used by both the <wa-button> and its associated <wa-tooltip>. */
+  id: string
+}
 
-  let { label, selected, ontoggle, id }: Props = $props();
+let { label, selected, ontoggle, id }: Props = $props()
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions,a11y_click_events_have_key_events -->

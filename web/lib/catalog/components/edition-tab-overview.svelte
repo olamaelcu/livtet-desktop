@@ -1,43 +1,43 @@
 <script lang="ts">
-  import { commands, type EditionRow } from "$lib/bindings";
+import { commands, type EditionRow } from '$lib/bindings'
 
-  interface Props {
-    editionId: string;
+interface Props {
+  editionId: string
+}
+
+let { editionId }: Props = $props()
+
+let row = $state<EditionRow | null>(null)
+let loading = $state(true)
+let error = $state<string | null>(null)
+
+$effect(() => {
+  let cancelled = false
+  loading = true
+  error = null
+  row = null
+  commands
+    .findEditionById(editionId)
+    .then((res) => {
+      if (cancelled) return
+      if (res.status === 'ok') {
+        row = res.data
+        error = null
+      } else {
+        error = res.error
+        row = null
+      }
+      loading = false
+    })
+    .catch((e: unknown) => {
+      if (cancelled) return
+      error = String(e)
+      loading = false
+    })
+  return () => {
+    cancelled = true
   }
-
-  let { editionId }: Props = $props();
-
-  let row = $state<EditionRow | null>(null);
-  let loading = $state(true);
-  let error = $state<string | null>(null);
-
-  $effect(() => {
-    let cancelled = false;
-    loading = true;
-    error = null;
-    row = null;
-    commands
-      .findEditionById(editionId)
-      .then((res) => {
-        if (cancelled) return;
-        if (res.status === "ok") {
-          row = res.data;
-          error = null;
-        } else {
-          error = res.error;
-          row = null;
-        }
-        loading = false;
-      })
-      .catch((e: unknown) => {
-        if (cancelled) return;
-        error = String(e);
-        loading = false;
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
+})
 </script>
 
 {#if loading}

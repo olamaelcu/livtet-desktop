@@ -5,43 +5,31 @@
 // the bridge's derived state and calls createHotkey/createHotkeySequence
 // via {#each} rows that auto-unregister on unmount.
 
-import {
-  type HotkeyCallback,
-} from "@tanstack/svelte-hotkeys";
-
-import { useCommandRegistry } from "./registry.svelte";
-import { useScopeRegistry } from "./scope.svelte";
-import { defaultBindings } from "./defaults";
-import { loadCustomProfile, saveCustomProfile } from "./storage";
-import type {
-  Binding,
-  Command,
-  CommandId,
-  CommandScope,
-} from "./types";
+import type { HotkeyCallback } from '@tanstack/svelte-hotkeys'
+import { defaultBindings } from './defaults'
+import { useCommandRegistry } from './registry.svelte'
+import { useScopeRegistry } from './scope.svelte'
+import { loadCustomProfile, saveCustomProfile } from './storage'
+import type { Binding, Command, CommandId, CommandScope } from './types'
 
 export type ActiveRegistration = {
-  readonly id: CommandId;
-  readonly binding: Binding;
-  readonly command: Command;
-};
+  readonly id: CommandId
+  readonly binding: Binding
+  readonly command: Command
+}
 
 export function resolvedBinding(
   id: CommandId,
   custom: Readonly<Record<CommandId, Binding>>,
 ): Binding | null {
-  return custom[id] ?? defaultBindings[id] ?? null;
+  return custom[id] ?? defaultBindings[id] ?? null
 }
 
-export function isActive(
-  command: Command,
-  activeScopes: ReadonlySet<CommandScope>,
-): boolean {
-  const inScope =
-    command.scope === "global" || activeScopes.has(command.scope);
-  if (!inScope) return false;
-  if (command.when && !command.when()) return false;
-  return true;
+export function isActive(command: Command, activeScopes: ReadonlySet<CommandScope>): boolean {
+  const inScope = command.scope === 'global' || activeScopes.has(command.scope)
+  if (!inScope) return false
+  if (command.when && !command.when()) return false
+  return true
 }
 
 /**
@@ -53,14 +41,14 @@ export function deriveActive(
   activeScopes: ReadonlySet<CommandScope>,
   custom: Readonly<Record<CommandId, Binding>>,
 ): readonly ActiveRegistration[] {
-  const out: ActiveRegistration[] = [];
+  const out: ActiveRegistration[] = []
   for (const c of commands) {
-    if (!isActive(c, activeScopes)) continue;
-    const binding = resolvedBinding(c.id, custom);
-    if (binding === null) continue;
-    out.push({ id: c.id, binding, command: c });
+    if (!isActive(c, activeScopes)) continue
+    const binding = resolvedBinding(c.id, custom)
+    if (binding === null) continue
+    out.push({ id: c.id, binding, command: c })
   }
-  return out;
+  return out
 }
 
 /**
@@ -77,44 +65,44 @@ export function deriveActive(
  *   - `getCustomProfile()`: snapshot of the current custom profile.
  */
 export function initHotkeyBridge() {
-  const registry = useCommandRegistry();
-  const scopes = useScopeRegistry();
+  const registry = useCommandRegistry()
+  const scopes = useScopeRegistry()
 
   // Custom profile is the only piece of state the bridge owns directly;
   // we mutate it via `saveBinding` and the reconciler watches it via
   // the snapshot below.
-  let customProfile = $state<Record<CommandId, Binding>>(loadCustomProfile());
+  let customProfile = $state<Record<CommandId, Binding>>(loadCustomProfile())
 
   const resolved = $derived.by(() => {
-    const out: Record<CommandId, Binding> = {};
+    const out: Record<CommandId, Binding> = {}
     for (const c of registry.all()) {
-      const b = resolvedBinding(c.id, customProfile);
-      if (b !== null) out[c.id] = b;
+      const b = resolvedBinding(c.id, customProfile)
+      if (b !== null) out[c.id] = b
     }
-    return out;
-  });
+    return out
+  })
 
   const conflicts = $derived.by(() => {
-    const byBinding = new Map<string, CommandId[]>();
+    const byBinding = new Map<string, CommandId[]>()
     for (const c of registry.all()) {
-      if (!isActive(c, scopes.active)) continue;
-      const b = resolvedBinding(c.id, customProfile);
-      if (b === null) continue;
-      const key = JSON.stringify(b);
-      const list = byBinding.get(key) ?? [];
-      list.push(c.id);
-      byBinding.set(key, list);
+      if (!isActive(c, scopes.active)) continue
+      const b = resolvedBinding(c.id, customProfile)
+      if (b === null) continue
+      const key = JSON.stringify(b)
+      const list = byBinding.get(key) ?? []
+      list.push(c.id)
+      byBinding.set(key, list)
     }
-    const conflictKeys = new Set<string>();
+    const conflictKeys = new Set<string>()
     for (const [key, ids] of byBinding) {
-      if (ids.length > 1) conflictKeys.add(key);
+      if (ids.length > 1) conflictKeys.add(key)
     }
-    return conflictKeys;
-  });
+    return conflictKeys
+  })
 
   function saveBinding(id: CommandId, binding: Binding): void {
-    customProfile = { ...customProfile, [id]: binding };
-    saveCustomProfile(customProfile);
+    customProfile = { ...customProfile, [id]: binding }
+    saveCustomProfile(customProfile)
   }
 
   return {
@@ -122,14 +110,14 @@ export function initHotkeyBridge() {
     conflicts,
     saveBinding,
     getCustomProfile: (): Readonly<Record<CommandId, Binding>> => customProfile,
-  };
+  }
 }
 
-export type HotkeyBridge = ReturnType<typeof initHotkeyBridge>;
+export type HotkeyBridge = ReturnType<typeof initHotkeyBridge>
 
 /** Build a callback that runs the command's run function. */
 export function buildCallback(command: Command): HotkeyCallback {
   return (_event, _ctx) => {
-    command.run(_event);
-  };
+    command.run(_event)
+  }
 }

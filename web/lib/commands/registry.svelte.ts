@@ -4,37 +4,37 @@
 // rows. Removing a command on unmount is the consumer's responsibility
 // (component teardown handles it for our definitions/* modules).
 
-import type { Command, CommandId } from "./types";
+import type { Command, CommandId } from './types'
 
 class CommandRegistry {
-  commands = $state<Map<CommandId, Command>>(new Map());
+  commands = $state<Map<CommandId, Command>>(new Map())
 
   register(command: Command): void {
-    if (this.commands.has(command.id)) return;
-    const next = new Map(this.commands);
-    next.set(command.id, command);
-    this.commands = next;
+    if (this.commands.has(command.id)) return
+    const next = new Map(this.commands)
+    next.set(command.id, command)
+    this.commands = next
   }
 
   unregister(id: CommandId): void {
-    if (!this.commands.has(id)) return;
-    const next = new Map(this.commands);
-    next.delete(id);
-    this.commands = next;
+    if (!this.commands.has(id)) return
+    const next = new Map(this.commands)
+    next.delete(id)
+    this.commands = next
   }
 
   get(id: CommandId): Command | undefined {
-    return this.commands.get(id);
+    return this.commands.get(id)
   }
 
   /** Snapshot of all commands in insertion order. */
   all(): readonly Command[] {
-    return Array.from(this.commands.values());
+    return Array.from(this.commands.values())
   }
 }
 
-const registry = new CommandRegistry();
+const registry = new CommandRegistry()
 
 export function useCommandRegistry(): CommandRegistry {
-  return registry;
+  return registry
 }

@@ -1,73 +1,79 @@
 <script lang="ts">
-  import { commands } from "$lib/bindings";
-  import { toast } from "svelte-sonner";
+import { toast } from 'svelte-sonner'
+import { commands } from '$lib/bindings'
 
-  let status = $state<{ configured: boolean; last_set_at: string | null } | null>(null);
-  let apiKey = $state("");
-  let showKey = $state(false);
-  let verifying = $state(false);
-  let saving = $state(false);
-  let clearing = $state(false);
+let status = $state<{ configured: boolean; last_set_at: string | null } | null>(null)
+let apiKey = $state('')
+let showKey = $state(false)
+let verifying = $state(false)
+let saving = $state(false)
+let clearing = $state(false)
 
-  $effect(() => {
-    commands.getHardcoverKey().then((r) => {
-      if (r.status === "ok") status = r.data;
-    });
-  });
+$effect(() => {
+  commands.getHardcoverKey().then((r) => {
+    if (r.status === 'ok') status = r.data
+  })
+})
 
-  async function onVerify() {
-    if (!apiKey.trim()) return;
-    verifying = true;
-    try {
-      const r = await commands.verifyHardcoverKey(apiKey);
-      if (r.status === "ok") {
-        if (r.data.valid) {
-          toast.success(`Verified — connected to Hardcover as ${r.data.username ?? "unknown"}.`);
-        } else {
-          toast.error(r.data.error ?? "Verification failed.");
-        }
+async function onVerify() {
+  if (!apiKey.trim()) return
+  verifying = true
+  try {
+    const r = await commands.verifyHardcoverKey(apiKey)
+    if (r.status === 'ok') {
+      if (r.data.valid) {
+        toast.success(`Verified — connected to Hardcover as ${r.data.username ?? 'unknown'}.`)
       } else {
-        toast.error(r.error);
+        toast.error(r.data.error ?? 'Verification failed.')
       }
-    } finally { verifying = false; }
+    } else {
+      toast.error(r.error)
+    }
+  } finally {
+    verifying = false
   }
+}
 
-  async function onSave() {
-    saving = true;
-    try {
-      const r = await commands.setHardcoverKey(apiKey);
-      if (r.status === "ok") {
-        status = r.data;
-        apiKey = "";
-        toast.success("Hardcover API key saved.");
-      } else {
-        toast.error(r.error);
-      }
-    } finally { saving = false; }
+async function onSave() {
+  saving = true
+  try {
+    const r = await commands.setHardcoverKey(apiKey)
+    if (r.status === 'ok') {
+      status = r.data
+      apiKey = ''
+      toast.success('Hardcover API key saved.')
+    } else {
+      toast.error(r.error)
+    }
+  } finally {
+    saving = false
   }
+}
 
-  async function onClear() {
-    clearing = true;
-    try {
-      const r = await commands.clearHardcoverKey();
-      if (r.status === "ok") {
-        status = r.data;
-        toast.success("Hardcover API key removed.");
-      } else {
-        toast.error(r.error);
-      }
-    } finally { clearing = false; }
+async function onClear() {
+  clearing = true
+  try {
+    const r = await commands.clearHardcoverKey()
+    if (r.status === 'ok') {
+      status = r.data
+      toast.success('Hardcover API key removed.')
+    } else {
+      toast.error(r.error)
+    }
+  } finally {
+    clearing = false
   }
+}
 
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleString();
-  }
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
 
-  // TS-only cast: the runtime target is the <wa-input> custom element.
-  function onKeyInput(e: Event) {
-    const target = e.target as HTMLInputElement | null;
-    if (target) apiKey = target.value;
-  }
+// TS-only cast: the runtime target is the <wa-input> custom element.
+function onKeyInput(e: Event) {
+  const target = e.target as HTMLInputElement | null
+  if (target) apiKey = target.value
+}
 </script>
 
 <section class="card">

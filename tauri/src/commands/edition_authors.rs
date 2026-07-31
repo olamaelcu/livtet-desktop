@@ -6,8 +6,10 @@
 //! boundary, with the derive macros needed for tauri-specta to
 //! generate a TS type.
 
-use livtet_core::data::orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use livtet_core::DbId;
+use livtet_core::data::orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -90,10 +92,10 @@ pub(crate) async fn find_authors_by_edition_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use livtet_core::DbId;
+    use livtet_core::data::TestDb;
     use livtet_core::data::entities::{authors, edition_authors, editions, works};
     use livtet_core::data::orm::{ActiveModelTrait, DatabaseConnection, Set};
-    use livtet_core::data::TestDb;
-    use livtet_core::DbId;
     use time::PrimitiveDateTime;
 
     fn now() -> PrimitiveDateTime {
@@ -159,7 +161,9 @@ mod tests {
         .await
         .unwrap();
 
-        let found = find_authors_by_edition_for_test(&sea, edition.id).await.unwrap();
+        let found = find_authors_by_edition_for_test(&sea, edition.id)
+            .await
+            .unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].id, author.id.to_string());
         assert_eq!(found[0].name, "Ursula K. Le Guin");
@@ -170,7 +174,9 @@ mod tests {
     async fn find_authors_by_edition_returns_empty_when_no_authors() {
         let test_db = TestDb::new(None).await.unwrap();
         let sea = test_db.state().db_conn();
-        let result = find_authors_by_edition_for_test(&sea, DbId::new()).await.unwrap();
+        let result = find_authors_by_edition_for_test(&sea, DbId::new())
+            .await
+            .unwrap();
         assert!(result.is_empty());
     }
 

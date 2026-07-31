@@ -1,58 +1,58 @@
 <script lang="ts">
-  import { deriveFacets } from "$lib/search/deriveFacets";
-  import { filterHits } from "$lib/search/search";
-  import { emptyFilters, type FilterState } from "$lib/search/types";
-  import { commands, type SearchHitRow } from "$lib/bindings";
-  import SearchView from "$lib/search/components/search-view.svelte";
-  import FilterChip from "$lib/search/components/filter-chip.svelte";
-  import CoverGrid from "$lib/search/components/cover-grid.svelte";
-  import CommandScope from "$lib/commands/components/command-scope.svelte";
+import { commands, type SearchHitRow } from '$lib/bindings'
+import CommandScope from '$lib/commands/components/command-scope.svelte'
+import CoverGrid from '$lib/search/components/cover-grid.svelte'
+import FilterChip from '$lib/search/components/filter-chip.svelte'
+import SearchView from '$lib/search/components/search-view.svelte'
+import { deriveFacets } from '$lib/search/deriveFacets'
+import { filterHits } from '$lib/search/search'
+import { emptyFilters, type FilterState } from '$lib/search/types'
 
-  const SEARCH_LIMIT = 50;
+const SEARCH_LIMIT = 50
 
-  // Renamed from `filters` to `filterState` to avoid shadowing the
-  // `filters` snippet name in SearchView's child scope.
-  let filterState: FilterState = $state(emptyFilters());
+// Renamed from `filters` to `filterState` to avoid shadowing the
+// `filters` snippet name in SearchView's child scope.
+let filterState: FilterState = $state(emptyFilters())
 
-  function toggleFormat(label: string) {
-    const next = new Set(filterState.formats);
-    if (next.has(label)) next.delete(label);
-    else next.add(label);
-    filterState = { ...filterState, formats: next };
-  }
+function toggleFormat(label: string) {
+  const next = new Set(filterState.formats)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  filterState = { ...filterState, formats: next }
+}
 
-  function toggleLanguage(label: string) {
-    const next = new Set(filterState.languages);
-    if (next.has(label)) next.delete(label);
-    else next.add(label);
-    filterState = { ...filterState, languages: next };
-  }
+function toggleLanguage(label: string) {
+  const next = new Set(filterState.languages)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  filterState = { ...filterState, languages: next }
+}
 
-  // Extracted from the inline prop so the reference is stable across renders.
-  // An inline arrow on the consumer side would create a new closure each
-  // render; SearchView's search effect reads `runSearch`, so a fresh
-  // reference each render triggers reactive re-runs that feed back into its
-  // `allHits = []` reset path and trip effect_update_depth_exceeded.
-  async function runSearch(
-    q: string,
-    limit: number,
-    onResults: (hits: SearchHitRow[]) => void,
-    onError?: (err: string) => void,
-  ) {
-    await commands
-      .search(q, limit)
-      .then((r) => {
-        if (r.status === "ok") onResults(r.data);
-        else {
-          onError?.(r.error);
-          onResults([]);
-        }
-      })
-      .catch((e) => {
-        onError?.(String(e));
-        onResults([]);
-      });
-  }
+// Extracted from the inline prop so the reference is stable across renders.
+// An inline arrow on the consumer side would create a new closure each
+// render; SearchView's search effect reads `runSearch`, so a fresh
+// reference each render triggers reactive re-runs that feed back into its
+// `allHits = []` reset path and trip effect_update_depth_exceeded.
+async function runSearch(
+  q: string,
+  limit: number,
+  onResults: (hits: SearchHitRow[]) => void,
+  onError?: (err: string) => void,
+) {
+  await commands
+    .search(q, limit)
+    .then((r) => {
+      if (r.status === 'ok') onResults(r.data)
+      else {
+        onError?.(r.error)
+        onResults([])
+      }
+    })
+    .catch((e) => {
+      onError?.(String(e))
+      onResults([])
+    })
+}
 </script>
 
 <CommandScope id="search">

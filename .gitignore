@@ -16,6 +16,10 @@ vite.config.ts.timestamp-*
 web/lib/bindings.ts
 tauri/web/lib/bindings.ts
 
+# Biome — local cache, ignore shim
+.biome/
+*.biome.json~
+
 # SOPS / secrets (mirrors mobile/.gitignore:20-24)
 .mise/secrets.json
 .mise/secrets.env

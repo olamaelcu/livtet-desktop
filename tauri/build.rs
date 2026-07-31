@@ -7,7 +7,7 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 struct Secrets {
     google_books_api_key: String,
-    sentry_dsn:           String,
+    sentry_dsn: String,
 }
 
 fn parse_env_file(path: &Path) -> HashMap<String, String> {
@@ -24,11 +24,7 @@ fn parse_env_file(path: &Path) -> HashMap<String, String> {
             continue;
         };
         let key = k.trim().to_string();
-        let value = v
-            .trim()
-            .trim_matches('\'')
-            .trim_matches('"')
-            .to_string();
+        let value = v.trim().trim_matches('\'').trim_matches('"').to_string();
         map.insert(key, value);
     }
     map

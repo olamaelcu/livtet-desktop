@@ -1,42 +1,42 @@
 <script lang="ts">
-  import type { DigitalInventoryRow } from "$lib/bindings";
+import type { DigitalInventoryRow } from '$lib/bindings'
 
-  interface Props {
-    file: DigitalInventoryRow;
-  }
+interface Props {
+  file: DigitalInventoryRow
+}
 
-  let { file }: Props = $props();
+let { file }: Props = $props()
 
-  const basename = $derived.by(() => {
-    const path = file.file_path;
-    if (!path) return "(no path)";
-    const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    return idx >= 0 ? path.slice(idx + 1) : path;
-  });
+const basename = $derived.by(() => {
+  const path = file.file_path
+  if (!path) return '(no path)'
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return idx >= 0 ? path.slice(idx + 1) : path
+})
 
-  const parentDir = $derived.by(() => {
-    const path = file.file_path;
-    if (!path) return "";
-    const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-    return idx >= 0 ? path.slice(0, idx) : "";
-  });
+const parentDir = $derived.by(() => {
+  const path = file.file_path
+  if (!path) return ''
+  const idx = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+  return idx >= 0 ? path.slice(0, idx) : ''
+})
 
-  const sizeLabel = $derived.by(() => {
-    if (file.file_size_bytes == null) return "";
-    const fmt = new Intl.NumberFormat(undefined, {
-      style: "unit",
-      unit: "byte",
-      unitDisplay: "narrow",
-      maximumFractionDigits: 1,
-    });
-    return fmt.format(file.file_size_bytes);
-  });
+const sizeLabel = $derived.by(() => {
+  if (file.file_size_bytes == null) return ''
+  const fmt = new Intl.NumberFormat(undefined, {
+    style: 'unit',
+    unit: 'byte',
+    unitDisplay: 'narrow',
+    maximumFractionDigits: 1,
+  })
+  return fmt.format(file.file_size_bytes)
+})
 
-  const truncatedHash = $derived.by(() => {
-    const h = file.file_hash;
-    if (!h) return "";
-    return h.length > 12 ? `${h.slice(0, 6)}…${h.slice(-4)}` : h;
-  });
+const truncatedHash = $derived.by(() => {
+  const h = file.file_hash
+  if (!h) return ''
+  return h.length > 12 ? `${h.slice(0, 6)}…${h.slice(-4)}` : h
+})
 </script>
 
 <article class="file-row">

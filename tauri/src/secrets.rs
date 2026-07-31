@@ -17,4 +17,4 @@
 //! ```
 
 pub const GOOGLE_BOOKS_API_KEY: &str = env!("GOOGLE_BOOKS_API_KEY");
-pub const SENTRY_DSN: &str           = env!("SENTRY_DSN");
+pub const SENTRY_DSN: &str = env!("SENTRY_DSN");

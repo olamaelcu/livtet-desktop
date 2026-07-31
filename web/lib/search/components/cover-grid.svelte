@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { SearchHit } from "../types";
-  import CoverCard from "./cover-card.svelte";
+import type { SearchHit } from '../types'
+import CoverCard from './cover-card.svelte'
 
-  interface Props {
-    hits: SearchHit[];
-  }
+interface Props {
+  hits: SearchHit[]
+}
 
-  let { hits }: Props = $props();
+let { hits }: Props = $props()
 </script>
 
 <div class="cover-grid">
