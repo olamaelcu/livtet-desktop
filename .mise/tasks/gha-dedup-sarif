@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+python3 << 'PY'
+import json, os, sys
+try:
+    with open("check-dupes.json") as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {"items": []}
+
+items = data.get("items", [])[:5]
+sarif = {
+    "version": "2.1.0",
+    "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+    "runs": [{
+        "tool": {"driver": {"name": "nose", "version": "0.20.0", "informationUri": "https://github.com/corca-ai/nose"}},
+        "results": [{
+            "ruleId": "duplicate-code",
+            "message": {"text": f"Exact duplicate of {len(i.get('files', []))} files ({i.get('metrics', {}).get('value', 'unknown')} tokens)"},
+            "locations": [{"physicalLocation": {"artifactLocation": {"uri": f.get('files', ['unknown'])[0]}}} for f in i.get('files', [])[:3]]
+        } for i in items]
+    }]
+}
+with open("check-dupes.sarif", "w") as f:
+    json.dump(sarif, f)
+PY

@@ -7,6 +7,7 @@ taskwarrior = "3.4.2"
 "pipx:taskwarrior-mcp" = "0.2.0"
 pnpm = "10"
 "cargo:cargo-machete" = "0.7"
+"aqua:corca-ai/nose" = "v0.20.0"
 
 [env]
 _.file = ".mise/secrets.env"
@@ -19,8 +20,6 @@ RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 run = ["cargo run --bin generate-bindings", "pnpm tauri dev"]
 
 depends = ["secrets-export-env"]
-
-# --- Local parity with CI ---
 
 [tasks.lint]
 description = "Run all lint checks (Rust + JS/TS)"
@@ -41,3 +40,8 @@ run = [
 [tasks.ci]
 description = "Full CI suite (lint + test) — same as GitHub Actions"
 depends = ["lint", "test"]
+
+[tasks.check-dupes]
+description = "Detect copy-paste duplication (15+ lines)"
+run = "nose query . --mode syntax 'lines>15' --format json --fail-on first"
+depends = ["secrets-export-env"]

@@ -1,0 +1,57 @@
+name: Code Quality
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  duplication:
+    name: Detect Duplication (15+ lines)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MISE_DISABLE_TOOLS: taskwarrior,pipx:taskwarrior-mcp
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install mise
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          curl https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
+          mise install
+          eval "$(mise activate --sh)" && echo "PATH=$PATH" >> "$GITHUB_ENV"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
+
+      - name: Decrypt secrets
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: mise run secrets-export-env
+
+      - name: Run duplication detection
+        run: mise run check-dupes
+        continue-on-error: true
+
+      - name: Generate SARIF
+        run: mise exec -- bash .mise/tasks/gha-dedup-sarif
+
+      - name: Write summary
+        run: mise exec -- bash .mise/tasks/gha-dedup-summary
+        continue-on-error: true
+
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: check-dupes.sarif
+          category: nose-duplication
