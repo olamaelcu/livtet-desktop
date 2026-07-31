@@ -69,13 +69,10 @@ impl Provider for OpenLibrary {
                 body: res.text().await.unwrap_or_default(),
             });
         }
-        let body: OpenLibraryResponse = res
-            .json()
-            .await
-            .map_err(|e| {
-                warn!(error = %e, provider = "openlibrary", "failed to parse response body");
-                ProviderError::Parse(e.to_string())
-            })?;
+        let body: OpenLibraryResponse = res.json().await.map_err(|e| {
+            warn!(error = %e, provider = "openlibrary", "failed to parse response body");
+            ProviderError::Parse(e.to_string())
+        })?;
         let hits: Vec<RawSearchHit> = body
             .docs
             .into_iter()

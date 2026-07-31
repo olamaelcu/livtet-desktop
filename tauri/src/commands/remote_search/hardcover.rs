@@ -99,13 +99,10 @@ impl Provider for Hardcover {
                 body: res.text().await.unwrap_or_default(),
             });
         }
-        let body: HardcoverResponse = res
-            .json()
-            .await
-            .map_err(|e| {
-                warn!(error = %e, provider = "hardcover", "failed to parse response body");
-                ProviderError::Parse(e.to_string())
-            })?;
+        let body: HardcoverResponse = res.json().await.map_err(|e| {
+            warn!(error = %e, provider = "hardcover", "failed to parse response body");
+            ProviderError::Parse(e.to_string())
+        })?;
         if let Some(errors) = body.errors {
             warn!(
                 provider = "hardcover",
