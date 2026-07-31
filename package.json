@@ -16,6 +16,10 @@
     "test:watch": "vitest",
     "test:unit": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
+    "test:e2e:browser": "playwright test --config e2e/playwright.config.ts --project=browser-only",
+    "test:e2e:browser:ui": "playwright test --config e2e/playwright.config.ts --project=browser-only --ui",
     "lint": "biome check .",
     "format": "biome format --write .",
     "format:check": "biome format ."
