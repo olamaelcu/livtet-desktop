@@ -6,7 +6,9 @@
 //! across the IPC boundary, with the derive macros needed for
 //! tauri-specta to generate a TS type.
 
-use livtet_core::data::orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait};
+use livtet_core::data::orm::{
+    ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -106,10 +108,10 @@ pub async fn find_edition_by_identifier(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use livtet_core::DbId;
+    use livtet_core::data::TestDb;
     use livtet_core::data::entities::{edition_identifiers, editions, identifiers, works};
     use livtet_core::data::orm::{ActiveModelTrait, DatabaseConnection, Set};
-    use livtet_core::data::TestDb;
-    use livtet_core::DbId;
     use time::PrimitiveDateTime;
 
     fn now() -> PrimitiveDateTime {
@@ -194,10 +196,9 @@ mod tests {
         .await
         .unwrap();
 
-        let found =
-            find_edition_by_identifier_for_test(&sea, "urn:isbn:9780061120084".into())
-                .await
-                .unwrap();
+        let found = find_edition_by_identifier_for_test(&sea, "urn:isbn:9780061120084".into())
+            .await
+            .unwrap();
         assert_eq!(found.unwrap().id, edition.id.to_string());
     }
 
@@ -205,10 +206,9 @@ mod tests {
     async fn find_edition_by_identifier_returns_none_for_unknown_urn() {
         let test_db = TestDb::new(None).await.unwrap();
         let sea = test_db.state().db_conn();
-        let result =
-            find_edition_by_identifier_for_test(&sea, "urn:isbn:0000000000000".into())
-                .await
-                .unwrap();
+        let result = find_edition_by_identifier_for_test(&sea, "urn:isbn:0000000000000".into())
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -289,10 +289,7 @@ mod tests {
         }
         .insert(&sea)
         .await;
-        assert!(
-            dup.is_err(),
-            "identifiers.value must reject duplicate URN"
-        );
+        assert!(dup.is_err(), "identifiers.value must reject duplicate URN");
     }
 
     // Test-only helpers: bypass Tauri's `State<'_, AppState>` so we

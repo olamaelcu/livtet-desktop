@@ -39,7 +39,9 @@ impl Hardcover {
 
 #[async_trait]
 impl Provider for Hardcover {
-    fn id(&self) -> ProviderId { ProviderId::Hardcover }
+    fn id(&self) -> ProviderId {
+        ProviderId::Hardcover
+    }
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
         let key = self.api_key.as_deref().ok_or(ProviderError::Auth)?;
@@ -47,7 +49,8 @@ impl Provider for Hardcover {
             "query": HARDCOVER_QUERY,
             "variables": { "query": query, "per_page": limit },
         });
-        let res = self.http
+        let res = self
+            .http
             .post(HARDCOVER_URL)
             .header("Authorization", format!("Bearer {key}"))
             .json(&body)
@@ -55,12 +58,15 @@ impl Provider for Hardcover {
             .await?;
         let status = res.status();
         if status.as_u16() == 429 {
-            let retry = res.headers()
+            let retry = res
+                .headers()
                 .get("Retry-After")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(60);
-            return Err(ProviderError::RateLimited { retry_after_seconds: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_seconds: retry,
+            });
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ProviderError::Auth);
@@ -71,7 +77,8 @@ impl Provider for Hardcover {
                 body: res.text().await.unwrap_or_default(),
             });
         }
-        let body: HardcoverResponse = res.json()
+        let body: HardcoverResponse = res
+            .json()
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
         if let Some(errors) = body.errors {
@@ -79,8 +86,15 @@ impl Provider for Hardcover {
                 messages: errors.into_iter().map(|e| e.message).collect(),
             });
         }
-        let Some(data) = body.data else { return Ok(Vec::new()); };
-        Ok(data.search.results.into_iter().filter_map(map_hardcover_hit).collect())
+        let Some(data) = body.data else {
+            return Ok(Vec::new());
+        };
+        Ok(data
+            .search
+            .results
+            .into_iter()
+            .filter_map(map_hardcover_hit)
+            .collect())
     }
 }
 
@@ -90,11 +104,17 @@ struct HardcoverResponse {
     errors: Option<Vec<HardcoverError>>,
 }
 #[derive(Deserialize)]
-struct HardcoverData { search: HardcoverSearch }
+struct HardcoverData {
+    search: HardcoverSearch,
+}
 #[derive(Deserialize)]
-struct HardcoverSearch { results: Vec<HardcoverBookDoc> }
+struct HardcoverSearch {
+    results: Vec<HardcoverBookDoc>,
+}
 #[derive(Deserialize)]
-struct HardcoverError { message: String }
+struct HardcoverError {
+    message: String,
+}
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
@@ -112,7 +132,9 @@ struct HardcoverBookDoc {
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
-struct HardcoverImage { url: Option<String> }
+struct HardcoverImage {
+    url: Option<String>,
+}
 
 fn map_hardcover_hit(doc: HardcoverBookDoc) -> Option<RawSearchHit> {
     let id = doc.id?;
@@ -120,7 +142,8 @@ fn map_hardcover_hit(doc: HardcoverBookDoc) -> Option<RawSearchHit> {
     let authors = doc.author_names.unwrap_or_default();
     let isbns = doc.isbns.unwrap_or_default();
     let isbn_13 = isbns.iter().find(|s| s.len() == 13).cloned();
-    let isbn = isbns.iter()
+    let isbn = isbns
+        .iter()
         .find(|s| s.len() == 10)
         .cloned()
         .or_else(|| isbn_13.clone());
@@ -163,21 +186,32 @@ mod tests {
         assert_eq!(hit.provider_work_id, "hcv-1");
         assert_eq!(hit.title, "The Lord of the Rings");
         assert_eq!(hit.authors, vec!["J.R.R. Tolkien"]);
-        assert_eq!(hit.isbn.as_deref(), Some("0000000000"), "ISBN-10 wins as primary");
+        assert_eq!(
+            hit.isbn.as_deref(),
+            Some("0000000000"),
+            "ISBN-10 wins as primary"
+        );
         assert_eq!(hit.isbn_13.as_deref(), Some("9780000000000"));
         assert_eq!(hit.page_count, Some(1200));
         assert_eq!(hit.published_date.as_deref(), Some("1954"));
-        assert_eq!(hit.cover_url.as_deref(), Some("https://cdn.hardcover.example/lotr.jpg"));
-        assert_eq!(hit.description.as_deref(), Some("One ring to rule them all."));
+        assert_eq!(
+            hit.cover_url.as_deref(),
+            Some("https://cdn.hardcover.example/lotr.jpg")
+        );
+        assert_eq!(
+            hit.description.as_deref(),
+            Some("One ring to rule them all.")
+        );
         assert_eq!(hit.publisher, None, "not in the Book search doc");
-        assert_eq!(hit.language,  None, "not in the Book search doc");
+        assert_eq!(hit.language, None, "not in the Book search doc");
     }
 
     #[test]
     fn drops_hit_without_id() {
         let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
             "title": "Orphan"
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(map_hardcover_hit(doc).is_none());
     }
 
@@ -186,7 +220,8 @@ mod tests {
         let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
             "id": "x",
             "future_field_we_dont_know_about": { "nested": [1, 2, 3] }
-        })).unwrap();
+        }))
+        .unwrap();
         assert!(map_hardcover_hit(doc).is_some());
     }
 
@@ -195,7 +230,8 @@ mod tests {
         let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
             "id": "x",
             "isbns": ["1234567890123"]
-        })).unwrap();
+        }))
+        .unwrap();
         let hit = map_hardcover_hit(doc).unwrap();
         assert_eq!(hit.isbn.as_deref(), Some("1234567890123"));
         assert_eq!(hit.isbn_13.as_deref(), Some("1234567890123"));
@@ -206,7 +242,8 @@ mod tests {
         let doc: HardcoverBookDoc = serde_json::from_value(serde_json::json!({
             "id": "x",
             "isbns": []
-        })).unwrap();
+        }))
+        .unwrap();
         let hit = map_hardcover_hit(doc).unwrap();
         assert_eq!(hit.isbn, None);
         assert_eq!(hit.isbn_13, None);
@@ -244,7 +281,9 @@ mod tests {
             hit.title
         );
         assert!(
-            hit.authors.iter().any(|a| a.to_lowercase().contains("tolkien")),
+            hit.authors
+                .iter()
+                .any(|a| a.to_lowercase().contains("tolkien")),
             "expected an author containing 'tolkien', got {:?}",
             hit.authors
         );

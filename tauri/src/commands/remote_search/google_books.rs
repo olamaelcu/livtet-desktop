@@ -21,7 +21,9 @@ impl GoogleBooks {
 
 #[async_trait]
 impl Provider for GoogleBooks {
-    fn id(&self) -> ProviderId { ProviderId::GoogleBooks }
+    fn id(&self) -> ProviderId {
+        ProviderId::GoogleBooks
+    }
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
         let url = format!(
@@ -30,18 +32,18 @@ impl Provider for GoogleBooks {
             limit,
             self.api_key,
         );
-        let res = self.http
-            .get(&url)
-            .send()
-            .await?;
+        let res = self.http.get(&url).send().await?;
         let status = res.status();
         if status.as_u16() == 429 {
-            let retry = res.headers()
+            let retry = res
+                .headers()
                 .get("Retry-After")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(60);
-            return Err(ProviderError::RateLimited { retry_after_seconds: retry });
+            return Err(ProviderError::RateLimited {
+                retry_after_seconds: retry,
+            });
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
             return Err(ProviderError::Auth);
@@ -52,10 +54,12 @@ impl Provider for GoogleBooks {
                 body: res.text().await.unwrap_or_default(),
             });
         }
-        let body: GoogleBooksResponse = res.json()
+        let body: GoogleBooksResponse = res
+            .json()
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
-        Ok(body.items
+        Ok(body
+            .items
             .unwrap_or_default()
             .into_iter()
             .filter_map(map_google_books_hit)
@@ -111,14 +115,17 @@ fn map_google_books_hit(item: GoogleBooksItem) -> Option<RawSearchHit> {
     let title = info.title.unwrap_or_default();
     let authors = info.authors.unwrap_or_default();
     let identifiers = info.industry_identifiers.unwrap_or_default();
-    let isbn_13 = identifiers.iter()
+    let isbn_13 = identifiers
+        .iter()
         .find(|id| id.kind.as_deref() == Some("ISBN_13"))
         .and_then(|id| id.identifier.clone());
-    let isbn_10 = identifiers.iter()
+    let isbn_10 = identifiers
+        .iter()
         .find(|id| id.kind.as_deref() == Some("ISBN_10"))
         .and_then(|id| id.identifier.clone());
     let isbn = isbn_10.or_else(|| isbn_13.clone());
-    let cover_url = info.image_links
+    let cover_url = info
+        .image_links
         .and_then(|i| i.thumbnail.or(i.small_thumbnail))
         .map(|s| s.replace("http://", "https://"));
     Some(RawSearchHit {
@@ -247,7 +254,9 @@ mod tests {
             hit.title
         );
         assert!(
-            hit.authors.iter().any(|a| a.to_lowercase().contains("tolkien")),
+            hit.authors
+                .iter()
+                .any(|a| a.to_lowercase().contains("tolkien")),
             "expected an author containing 'tolkien', got {:?}",
             hit.authors
         );

@@ -9,8 +9,10 @@
 //! wikidata Q-id, …), so this returns `Vec<IdentifierRow>`, not
 //! `Option<…`.
 
-use livtet_core::data::orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 use livtet_core::DbId;
+use livtet_core::data::orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -98,12 +100,10 @@ pub(crate) async fn find_identifiers_by_edition_for_test(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use livtet_core::data::entities::{
-        edition_identifiers, editions, identifiers, works,
-    };
-    use livtet_core::data::orm::{ActiveModelTrait, DatabaseConnection, Set};
-    use livtet_core::data::TestDb;
     use livtet_core::DbId;
+    use livtet_core::data::TestDb;
+    use livtet_core::data::entities::{edition_identifiers, editions, identifiers, works};
+    use livtet_core::data::orm::{ActiveModelTrait, DatabaseConnection, Set};
     use time::PrimitiveDateTime;
 
     fn now() -> PrimitiveDateTime {
@@ -179,8 +179,9 @@ mod tests {
         link(&sea, edition.id, isbn.id).await;
         link(&sea, edition.id, wikidata.id).await;
 
-        let found =
-            find_identifiers_by_edition_for_test(&sea, edition.id).await.unwrap();
+        let found = find_identifiers_by_edition_for_test(&sea, edition.id)
+            .await
+            .unwrap();
         assert_eq!(found.len(), 2);
         let kinds: Vec<&str> = found.iter().map(|i| i.kind.as_str()).collect();
         assert!(kinds.contains(&"isbn"));
@@ -197,8 +198,9 @@ mod tests {
         // Seed an identifier but don't link it to anything — must not leak.
         let _orphan = seed_identifier(&sea, "isbn", "urn:isbn:0000000000000").await;
 
-        let result =
-            find_identifiers_by_edition_for_test(&sea, DbId::new()).await.unwrap();
+        let result = find_identifiers_by_edition_for_test(&sea, DbId::new())
+            .await
+            .unwrap();
         assert!(result.is_empty());
     }
 }

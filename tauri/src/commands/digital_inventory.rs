@@ -73,10 +73,10 @@ pub async fn find_files_by_edition(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use livtet_core::DbId;
+    use livtet_core::data::TestDb;
     use livtet_core::data::entities::{digital_inventory, editions, works};
     use livtet_core::data::orm::{ActiveModelTrait, DatabaseConnection, Set};
-    use livtet_core::data::TestDb;
-    use livtet_core::DbId;
     use time::PrimitiveDateTime;
 
     fn now() -> PrimitiveDateTime {
@@ -151,17 +151,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(found.as_ref().unwrap().id, file.id.to_string());
-        assert_eq!(found.as_ref().unwrap().file_path.as_deref(), Some("/tmp/book.epub"));
+        assert_eq!(
+            found.as_ref().unwrap().file_path.as_deref(),
+            Some("/tmp/book.epub")
+        );
     }
 
     #[tokio::test]
     async fn find_files_by_edition_returns_none_when_no_files() {
         let test_db = TestDb::new(None).await.unwrap();
         let sea = test_db.state().db_conn();
-        let result =
-            find_files_by_edition_for_test(&sea, DbId::new().to_string())
-                .await
-                .unwrap();
+        let result = find_files_by_edition_for_test(&sea, DbId::new().to_string())
+            .await
+            .unwrap();
         assert!(result.is_none());
     }
 
