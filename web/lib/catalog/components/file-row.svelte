@@ -49,7 +49,14 @@ const truncatedHash = $derived.by(() => {
   </div>
 
   <div class="meta">
-    <div class="filename" title={file.file_path ?? ""}>{basename}</div>
+    <div class="filename" title={file.file_path ?? ""}>
+      {basename}
+      {#if file.file_format}
+        <wa-badge variant="neutral" appearance="outlined" class="format-badge"
+          >{file.file_format}</wa-badge
+        >
+      {/if}
+    </div>
     {#if parentDir}
       <div class="parent" title={parentDir}>{parentDir}</div>
     {/if}
@@ -107,6 +114,15 @@ const truncatedHash = $derived.by(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+  }
+
+  .format-badge {
+    --wa-badge-font-size: 0.6875rem;
+    --wa-badge-padding: 0 0.375rem;
+    flex-shrink: 0;
   }
 
   .parent {
