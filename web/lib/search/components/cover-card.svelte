@@ -1,6 +1,6 @@
 <script lang="ts">
 import { attachAsButton } from '$lib/a11y/attachments'
-import { commands } from '$lib/bindings'
+import { commands, type ImportRequest } from '$lib/bindings'
 import { editionForHit } from '$lib/catalog/edition-for-hit'
 import { openPeek } from '$lib/catalog/peek-state.svelte'
 import { coverLetter, dominantColorFor } from '../cover-art'
@@ -15,8 +15,10 @@ let { hit }: Props = $props()
 const bg = $derived(dominantColorFor(hit.title))
 const letter = $derived(coverLetter(hit.title))
 const authorsLine = $derived(hit.authors.length === 0 ? '' : hit.authors.join(', '))
+const isRemote = $derived(hit.source !== 'local')
 
 let activating = $state(false)
+let importing = $state(false)
 
 async function onActivate(): Promise<void> {
   if (activating) return
@@ -38,6 +40,31 @@ async function onActivate(): Promise<void> {
     openPeek(editionId)
   } finally {
     activating = false
+  }
+}
+
+async function onImport(e: Event): Promise<void> {
+  e.stopPropagation()
+  if (importing) return
+  importing = true
+  try {
+    const request: ImportRequest = {
+      title: hit.title,
+      authors: hit.authors,
+      isbn: hit.isbn,
+      isbn_13: hit.isbn_13,
+      publisher: hit.publisher,
+      page_count: hit.page_count,
+      language: hit.language,
+      published_date: hit.published_date,
+      description: hit.description,
+      provider: hit.source,
+      provider_work_id: hit.work_id,
+      provider_edition_url: null,
+    }
+    await commands.importEdition(request)
+  } finally {
+    importing = false
   }
 }
 </script>
@@ -75,6 +102,20 @@ async function onActivate(): Promise<void> {
       <div class="cover-authors">{authorsLine}</div>
     {/if}
   </div>
+  {#if isRemote}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <!--   wa-button is interactive (button semantics + native Enter/Space) -->
+    <div class="import-action">
+      <wa-button
+        size="s"
+        appearance="outlined"
+        disabled={importing}
+        onclick={onImport}
+      >
+        {importing ? "…" : "Import"}
+      </wa-button>
+    </div>
+  {/if}
 </article>
 
 <style>
@@ -150,5 +191,19 @@ async function onActivate(): Promise<void> {
     font-size: 0.8125rem;
     opacity: 0.85;
     line-height: 1.2;
+  }
+
+  .import-action {
+    position: absolute;
+    bottom: 0.5rem;
+    right: 0.5rem;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  .cover-card:hover .import-action,
+  .cover-card:focus-visible .import-action,
+  .cover-card:focus-within .import-action {
+    opacity: 1;
   }
 </style>

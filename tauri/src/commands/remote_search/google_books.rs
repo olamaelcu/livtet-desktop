@@ -27,6 +27,12 @@ impl Provider for GoogleBooks {
         ProviderId::GoogleBooks
     }
 
+    /// Google Books API rejects `maxResults` greater than 40 with
+    /// HTTP 400. See <https://developers.google.com/docs/api-parameters>.
+    fn max_limit(&self) -> u32 {
+        40
+    }
+
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
         debug!(
             query = %query,
@@ -156,7 +162,7 @@ fn map_google_books_hit(item: GoogleBooksItem) -> Option<RawSearchHit> {
     let cover_url = info
         .image_links
         .and_then(|i| i.thumbnail.or(i.small_thumbnail))
-        .map(|s| s.replace("http://", "https://"));
+        .map(|s| s.replace("http://", "https://").replace("&edge=curl", ""));
     Some(RawSearchHit {
         provider_id: ProviderId::GoogleBooks,
         provider_work_id: id,

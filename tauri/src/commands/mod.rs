@@ -8,6 +8,7 @@ pub mod digital_inventory;
 pub mod edition;
 pub mod edition_authors;
 pub mod edition_identifiers;
+pub mod import_edition;
 pub mod keyring;
 pub mod remote_search;
 pub mod search;

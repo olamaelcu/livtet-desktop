@@ -21,6 +21,7 @@ pub mod _bindings_export {
     pub use crate::commands::edition;
     pub use crate::commands::edition_authors;
     pub use crate::commands::edition_identifiers;
+    pub use crate::commands::import_edition;
     pub use crate::commands::keyring;
     pub use crate::commands::remote_search;
     pub use crate::commands::search;
@@ -42,6 +43,7 @@ pub mod _bindings_export {
             commands::keyring::set_hardcover_key,
             commands::keyring::clear_hardcover_key,
             commands::keyring::verify_hardcover_key,
+            commands::import_edition::import_edition,
         ])
     }
 }

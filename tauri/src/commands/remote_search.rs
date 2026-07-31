@@ -41,6 +41,16 @@ impl ProviderId {
 #[async_trait]
 pub trait Provider: Send + Sync {
     fn id(&self) -> ProviderId;
+
+    /// The maximum `limit` this provider will accept. The chain
+    /// clamps the caller's requested limit to this value before
+    /// invoking [`search`][Self::search]. Defaults to `u32::MAX`
+    /// (no cap); providers backed by an API with a page-size ceiling
+    /// should override.
+    fn max_limit(&self) -> u32 {
+        u32::MAX
+    }
+
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError>;
 }
 

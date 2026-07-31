@@ -4,7 +4,7 @@
 //! provenance by storing the provider's work ID and edition URL as identifiers.
 
 use livtet_core::DbId;
-use livtet_types::{Isbn, CommonLanguages};
+use livtet_core::{Isbn, CommonLanguages};
 use livtet_core::data::orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use livtet_core::data::entities::{
     authors, edition_authors, edition_identifiers, editions, identifiers,
@@ -30,14 +30,17 @@ pub async fn import_edition(
     request: ImportRequest,
 ) -> Result<ImportResult, String> {
     let db = state.db.db_conn();
-    import_edition_impl(&db, request).await
+Ok(import_edition_impl(&db, request).await)
 }
 
 pub async fn import_edition_impl(
     db: &DatabaseConnection,
     request: ImportRequest,
 ) -> ImportResult {
-    let isbn_urn = request.isbn_13.as_ref().map(|i| format!("urn:isbn:{i}"));
+    let isbn_urn = request.isbn_13.as_ref()
+        .and_then(|i| Isbn::parse(i).ok())
+        .map(|isbn| format!("urn:isbn:{}", isbn.as_str()));
+
     if let Some(ref urn) = isbn_urn {
         let existing: Option<identifiers::Model> = identifiers::Entity::find()
             .filter(identifiers::Column::Value.eq(urn))
@@ -94,21 +97,19 @@ pub async fn import_edition_impl(
         edition_author.insert(db).await.unwrap();
     }
 
-    if let Some(ref isbn13) = request.isbn_13 {
-        if let Ok(isbn) = Isbn::parse(isbn13) {
-            let identifier = identifiers::ActiveModel {
-                id: Set(DbId::new()),
-                kind: Set("isbn".into()),
-                value: Set(format!("urn:isbn:{}", isbn.as_str())),
-            };
-            let inserted = identifier.insert(db).await.unwrap();
+    if let Some(ref urn) = isbn_urn {
+        let identifier = identifiers::ActiveModel {
+            id: Set(DbId::new()),
+            kind: Set("isbn".into()),
+            value: Set(urn.clone()),
+        };
+        let inserted = identifier.insert(db).await.unwrap();
 
-            let edition_identifier = edition_identifiers::ActiveModel {
-                edition_id: Set(edition_id),
-                identifier_id: Set(inserted.id),
-            };
-            edition_identifier.insert(db).await.unwrap();
-        }
+        let edition_identifier = edition_identifiers::ActiveModel {
+            edition_id: Set(edition_id),
+            identifier_id: Set(inserted.id),
+        };
+        edition_identifier.insert(db).await.unwrap();
     }
 
     let work_identifier = identifiers::ActiveModel {
@@ -315,7 +316,7 @@ mod tests {
             title: "Test Book".to_string(),
             authors: vec!["Test Author".to_string()],
             isbn: None,
-            isbn_13: Some("9780000000000".to_string()),
+            isbn_13: Some("9780000000002".to_string()),
             publisher: None,
             page_count: None,
             language: None,

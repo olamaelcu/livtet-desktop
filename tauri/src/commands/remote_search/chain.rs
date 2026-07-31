@@ -138,15 +138,17 @@ pub async fn run_chain(
         }
 
         let pid = provider.id();
+        let clamped = limit.min(provider.max_limit());
         tracing::info!(
             provider = pid.as_str(),
             query = %query,
             limit,
+            clamped,
             "trying provider"
         );
 
         let result = tokio::select! {
-            r = provider.search(query, limit) => r,
+            r = provider.search(query, clamped) => r,
             _ = token.cancelled() => Err(ProviderError::Auth),
         };
 
@@ -354,8 +356,9 @@ mod tests {
                     used_provider: None,
                 };
             }
+            let clamped = limit.min(provider.max_limit());
             let result = tokio::select! {
-                r = provider.search(query, limit) => r,
+                r = provider.search(query, clamped) => r,
                 _ = token.cancelled() => Err(ProviderError::Auth),
             };
             match result {
