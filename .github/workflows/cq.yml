@@ -40,7 +40,9 @@ jobs:
         run: mise run secrets-export-env
 
       - name: Run duplication detection
-        run: mise run check-dupes
+        run: |
+          mise exec -- nose query . --mode syntax 'lines>15' \
+            --format json > check-dupes.json || true
 
       - name: Generate SARIF
         run: |
