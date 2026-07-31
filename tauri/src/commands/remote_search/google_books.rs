@@ -9,6 +9,10 @@ use tracing::debug;
 use tracing::warn;
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
+use livtet_core::DbId;
+use livtet_core::covers::{CacheKey, CoverFetcher, FetchError, FetchedCover};
+use livtet_core::data::entities::{editions, identifiers, work_identifiers};
+use livtet_core::data::orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 pub struct GoogleBooks {
     http: reqwest::Client,
@@ -18,6 +22,92 @@ pub struct GoogleBooks {
 impl GoogleBooks {
     pub fn new(http: reqwest::Client, api_key: String) -> Self {
         Self { http, api_key }
+    }
+
+    // cover fetcher key encoding helpers
+    fn content_key_for_volume(volume_id: &str, zoom: u8) -> String {
+        format!("google_books::google_books_id::{volume_id}::{zoom}::jpg")
+    }
+}
+
+#[async_trait]
+impl CoverFetcher for GoogleBooks {
+    fn priority(&self) -> u8 {
+        0
+    }
+
+    async fn keys_for(
+        &self,
+        edition_id: DbId,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<CacheKey>, livtet_core::data::orm::DbErr> {
+        let edition = editions::Entity::find_by_id(edition_id).one(db).await?;
+        let Some(edition) = edition else {
+            return Ok(Vec::new());
+        };
+
+        let work_idents = work_identifiers::Entity::find()
+            .filter(work_identifiers::Column::WorkId.eq(edition.work_id))
+            .all(db)
+            .await?;
+
+        let mut keys = Vec::new();
+        for wi in work_idents {
+            let identifier = identifiers::Entity::find_by_id(wi.identifier_id)
+                .one(db)
+                .await?;
+            let Some(identifier) = identifier else {
+                continue;
+            };
+
+            if identifier.kind != "google_books" {
+                continue;
+            }
+
+            let volume_id = match identifier.value.strip_prefix("urn:google_books:") {
+                Some(v) => v.to_string(),
+                None => continue,
+            };
+
+            keys.push(CacheKey {
+                key: Self::content_key_for_volume(&volume_id, 1),
+                provider: "google_books".into(),
+                identifier_type: "google_books_id".into(),
+                identifier_value: volume_id,
+                size: "1".into(),
+            });
+        }
+
+        Ok(keys)
+    }
+
+    async fn fetch(&self, key: &CacheKey) -> Result<FetchedCover, FetchError> {
+        let url = format!(
+            "https://books.google.com/books/content?id={}&printsec=frontcover&img=1&zoom={}",
+            key.identifier_value, key.size,
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(FetchError::NotFound);
+        }
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        Ok(FetchedCover {
+            bytes: bytes.to_vec(),
+            content_type,
+        })
     }
 }
 

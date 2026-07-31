@@ -1,4 +1,5 @@
 <script lang="ts">
+import { toast } from 'svelte-sonner'
 import { attachAsButton } from '$lib/a11y/attachments'
 import { commands, type ImportRequest } from '$lib/bindings'
 import { editionForHit } from '$lib/catalog/edition-for-hit'
@@ -12,7 +13,7 @@ interface Props {
 
 let { hit }: Props = $props()
 
-const bg = $derived(dominantColorFor(hit.title))
+const bg = $derived(hit.dominant_color ?? dominantColorFor(hit.title))
 const letter = $derived(coverLetter(hit.title))
 const authorsLine = $derived(hit.authors.length === 0 ? '' : hit.authors.join(', '))
 const isRemote = $derived(hit.source !== 'local')
@@ -62,7 +63,17 @@ async function onImport(e: Event): Promise<void> {
       provider_work_id: hit.work_id,
       provider_edition_url: null,
     }
-    await commands.importEdition(request)
+    const res = await commands.importEdition(request)
+    if (res.status === 'error') {
+      toast.error(res.error)
+    } else if (res.data === 'AlreadyExists') {
+      toast.warning('Already in your catalog')
+    } else {
+      toast.success(`Imported "${request.title}" to your catalog`)
+      openPeek(res.data.Created.edition_id)
+    }
+  } catch (e) {
+    toast.error(e instanceof Error ? e.message : 'Import failed')
   } finally {
     importing = false
   }

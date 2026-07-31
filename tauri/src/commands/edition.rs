@@ -53,6 +53,7 @@ impl From<livtet_core::data::entities::editions::Model> for EditionRow {
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(id))]
 pub async fn find_edition_by_id(
     state: State<'_, AppState>,
     id: String,
@@ -70,6 +71,7 @@ pub async fn find_edition_by_id(
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(urn))]
 pub async fn find_edition_by_identifier(
     state: State<'_, AppState>,
     urn: String,

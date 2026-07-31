@@ -57,6 +57,7 @@ impl From<livtet_core::data::entities::digital_inventory::Model> for DigitalInve
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(edition_id))]
 pub async fn find_files_by_edition(
     state: State<'_, AppState>,
     edition_id: String,

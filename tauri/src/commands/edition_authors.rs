@@ -28,6 +28,7 @@ pub struct AuthorWithRole {
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(edition_id))]
 pub async fn find_authors_by_edition(
     state: State<'_, AppState>,
     edition_id: String,

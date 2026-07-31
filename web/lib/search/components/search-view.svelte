@@ -15,6 +15,7 @@
     limit?: number;
     prompt: string;
     noResults: string;
+    searchOnEmpty?: boolean;
     filters?: import("svelte").Snippet<
       [{ hits: readonly SearchHit[]; query: string }]
     >;
@@ -34,6 +35,7 @@
     filters,
     result,
     footer,
+    searchOnEmpty = false,
   }: Props = $props();
 
   let rawQuery = $state("");
@@ -47,20 +49,19 @@
   // cancelled when rawQuery mutates again (effect re-runs).
   $effect(() => {
     const next = rawQuery;
-    console.log("[search-view] debounce effect run, rawQuery=", next, "query=", query);
     const id = setTimeout(() => {
       query = next;
     }, 750);
     return () => clearTimeout(id);
   });
 
-  // Search: runs whenever the debounced query changes. Empty query resets
-  // state. Non-empty invokes runSearch with a cancelled flag so in-flight
-  // work is dropped on cleanup.
+  // Search: runs whenever the debounced query changes. When searchOnEmpty
+  // is true (e.g. local catalog), even an empty query triggers a search to
+  // show all items. When false (e.g. remote search), empty queries reset
+  // state. A cancelled flag drops in-flight work on cleanup.
   $effect(() => {
     const q = query.trim();
-    console.log("[search-view] search effect run, query=", q);
-    if (q === "") {
+    if (q === "" && !searchOnEmpty) {
       allHits = [];
       searchError = null;
       loading = false;
@@ -107,15 +108,15 @@
           <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
           Search failed: {searchError}
         </wa-callout>
-      {:else if query.trim() === ""}
-        <wa-callout variant="neutral">
-          <wa-icon slot="icon" name="circle-info"></wa-icon>
-          {prompt}
-        </wa-callout>
       {:else if loading && allHits.length === 0}
         <wa-callout variant="neutral">
           <wa-icon slot="icon" name="hourglass"></wa-icon>
           Searching…
+        </wa-callout>
+      {:else if query.trim() === "" && !searchOnEmpty}
+        <wa-callout variant="neutral">
+          <wa-icon slot="icon" name="circle-info"></wa-icon>
+          {prompt}
         </wa-callout>
       {:else if result}
         {@render result({ hits: allHits, query })}
@@ -146,12 +147,15 @@
     padding: var(--wa-space-s);
     margin: 0;
     flex: 1 1;
-    min-height: max-content;
   }
 
   div[slot="main-header"] {
     padding: var(--wa-space-m);
     margin: 0;
     flex-basis: 100%;
+  }
+  wa-page {
+    height: min-content;
+    min-height: min-content;
   }
 </style>

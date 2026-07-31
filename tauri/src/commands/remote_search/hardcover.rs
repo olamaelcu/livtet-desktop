@@ -17,6 +17,10 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
+use livtet_core::DbId;
+use livtet_core::covers::{CacheKey, CoverFetcher, FetchError, FetchedCover};
+use livtet_core::data::entities::{editions, identifiers, work_identifiers};
+use livtet_core::data::orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 const HARDCOVER_URL: &str = "https://api.hardcover.app/v1/graphql";
 
@@ -35,6 +39,10 @@ pub struct Hardcover {
 impl Hardcover {
     pub fn new(http: reqwest::Client, api_key: Option<String>) -> Self {
         Self { http, api_key }
+    }
+
+    fn content_key_for_url(url: &str) -> String {
+        format!("hardcover::url::{url}::original::jpg")
     }
 }
 
@@ -128,6 +136,160 @@ impl Provider for Hardcover {
             "search completed"
         );
         Ok(hits)
+    }
+}
+
+#[async_trait]
+impl CoverFetcher for Hardcover {
+    fn priority(&self) -> u8 {
+        1
+    }
+
+    async fn keys_for(
+        &self,
+        edition_id: DbId,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<CacheKey>, livtet_core::data::orm::DbErr> {
+        let api_key = match self.api_key.as_deref() {
+            Some(k) => k,
+            None => return Ok(Vec::new()),
+        };
+
+        let edition = editions::Entity::find_by_id(edition_id).one(db).await?;
+        let Some(edition) = edition else {
+            return Ok(Vec::new());
+        };
+
+        let work_idents = work_identifiers::Entity::find()
+            .filter(work_identifiers::Column::WorkId.eq(edition.work_id))
+            .all(db)
+            .await?;
+
+        let mut hardcover_ids = Vec::new();
+        for wi in work_idents {
+            let identifier = identifiers::Entity::find_by_id(wi.identifier_id)
+                .one(db)
+                .await?;
+            let Some(identifier) = identifier else {
+                continue;
+            };
+            if identifier.kind == "hardcover" {
+                if let Some(id_str) = identifier.value.strip_prefix("urn:hardcover:") {
+                    if let Ok(id) = id_str.parse::<i64>() {
+                        hardcover_ids.push(id);
+                    }
+                }
+            }
+        }
+
+        if hardcover_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query = r#"
+            query BookImage($id: Int!) {
+              books(where: {id: {_eq: $id}}) {
+                image {
+                  url
+                }
+              }
+            }"#;
+
+        let mut keys = Vec::new();
+        for book_id in hardcover_ids {
+            let body = serde_json::json!({
+                "query": query,
+                "variables": { "id": book_id },
+            });
+            let resp = match self
+                .http
+                .post(HARDCOVER_URL)
+                .header("Authorization", format!("Bearer {api_key}"))
+                .json(&body)
+                .send()
+                .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(error = %e, "Hardcover book-by-id GraphQL request failed");
+                    continue;
+                }
+            };
+            let status = resp.status();
+            if !status.is_success() {
+                warn!(status = status.as_u16(), book_id = %book_id, "Hardcover book-by-id request failed");
+                continue;
+            }
+
+            #[derive(Deserialize)]
+            struct BookByIdResponse {
+                data: Option<BookByIdData>,
+            }
+            #[derive(Deserialize)]
+            struct BookByIdData {
+                books: Vec<BookByIdBook>,
+            }
+            #[derive(Deserialize)]
+            struct BookByIdBook {
+                image: Option<BookByIdImage>,
+            }
+            #[derive(Deserialize)]
+            struct BookByIdImage {
+                url: Option<String>,
+            }
+
+            let parsed: BookByIdResponse = match resp.json().await {
+                Ok(p) => p,
+                Err(e) => {
+                    warn!(error = %e, "Failed to parse Hardcover book-by-id response");
+                    continue;
+                }
+            };
+
+            let Some(url) = parsed
+                .data
+                .and_then(|d| d.books.into_iter().next())
+                .and_then(|b| b.image)
+                .and_then(|i| i.url)
+            else {
+                continue;
+            };
+
+            keys.push(CacheKey {
+                key: Self::content_key_for_url(&url),
+                provider: "hardcover".into(),
+                identifier_type: "url".into(),
+                identifier_value: url.clone(),
+                size: "original".into(),
+            });
+        }
+
+        Ok(keys)
+    }
+
+    async fn fetch(&self, key: &CacheKey) -> Result<FetchedCover, FetchError> {
+        let resp = self
+            .http
+            .get(&key.identifier_value)
+            .send()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(FetchError::NotFound);
+        }
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        Ok(FetchedCover {
+            bytes: bytes.to_vec(),
+            content_type,
+        })
     }
 }
 

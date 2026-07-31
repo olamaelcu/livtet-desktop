@@ -1,37 +1,28 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import LocalCatalogSearch from "$lib/search/components/local-catalog-search.svelte";
-  import RemoteCatalogSearch from "$lib/search/components/remote-catalog-search.svelte";
+  import { onMount } from 'svelte'
+  import { on } from 'svelte/events'
+  import LocalCatalogSearch from '$lib/search/components/local-catalog-search.svelte'
+  import RemoteCatalogSearch from '$lib/search/components/remote-catalog-search.svelte'
 
-  let activeTab = $state("local");
+  let activeTab = $state('local')
 
   onMount(() => {
-    const observer = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        if (m.type === "attributes" && m.attributeName === "active") {
-          const panel = m.target as HTMLElement;
-          if (panel.hasAttribute("active")) {
-            const name = panel.getAttribute("name");
-            if (name === "local" || name === "remote") activeTab = name;
-          }
-        }
-      }
-    });
+    const group = document.querySelector('wa-tab-group')
+    if (!group) return
 
-    const panels = document.querySelectorAll("wa-tab-panel");
-    panels.forEach((p) => observer.observe(p, { attributes: true, attributeFilter: ["active"] }));
+    const off = on(group, 'wa-tab-show', (e: Event) => {
+      const name = (e as CustomEvent).detail?.name
+      if (name === 'local' || name === 'remote') activeTab = name
+    })
 
-    // Sync initial state — WA may have activated a tab before observer was set up
-    for (const p of panels) {
-      if (p.hasAttribute("active")) {
-        const name = p.getAttribute("name");
-        if (name === "local" || name === "remote") activeTab = name;
-        break;
-      }
+    const activePanel = group.querySelector('wa-tab-panel[active]')
+    if (activePanel) {
+      const name = activePanel.getAttribute('name')
+      if (name === 'local' || name === 'remote') activeTab = name
     }
 
-    return () => observer.disconnect();
-  });
+    return off
+  })
 </script>
 
 <wa-tab-group>

@@ -98,6 +98,8 @@ impl From<RawSearchHit> for SearchHitRow {
             cover_url: r.cover_url,
             description: r.description,
             isbn_13: r.isbn_13,
+            blurhash: None,
+            dominant_color: None,
         }
     }
 }
@@ -143,6 +145,7 @@ use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state, app), err, fields(query, limit, request_id))]
 pub async fn remote_search(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -158,6 +161,7 @@ pub async fn remote_search(
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(request_id))]
 pub async fn cancel_remote_search(
     state: State<'_, AppState>,
     request_id: String,

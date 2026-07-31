@@ -1,10 +1,8 @@
 //! Edition-level search command.
 //!
 //! Wraps `livtet_core::search::SearchIndex::search` (re-exported
-//! from `livtet-search`). Returns `Vec<SearchHitRow>` so the
-//! generated TS bindings can ship the highlighted byte ranges
-//! as `number[]` instead of refusing the bigint (`usize`) wrapper
-//! that the upstream `SearchHit` uses.
+//! from `livtet-search`). Returns `Vec<SearchHitRow>` with extra
+//! cover metadata and remote-search fields added.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -12,8 +10,57 @@ use tauri::State;
 
 use crate::state::AppState;
 
-/// Mirror of `livtet_core::search::SearchHit` whose bigint-bearing
-/// field is re-typed for the IPC boundary.
+async fn enrich_with_cover_metadata(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    rows: &mut [SearchHitRow],
+) -> Result<(), livtet_core::data::orm::DbErr> {
+    use std::collections::HashMap;
+    use std::str::FromStr;
+
+    use livtet_core::DbId;
+    use livtet_core::data::entities::digital_inventory;
+    use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+    let ids: Vec<DbId> = rows
+        .iter()
+        .filter(|r| r.source == "local")
+        .filter_map(|r| r.edition_id.as_deref())
+        .filter_map(|s| DbId::from_str(s).ok())
+        .collect();
+
+    if ids.is_empty() {
+        return Ok(());
+    }
+
+    let inventory_rows = digital_inventory::Entity::find()
+        .filter(digital_inventory::Column::EditionId.is_in(ids.clone()))
+        .all(db)
+        .await?;
+
+    let cover_map: HashMap<String, (Option<String>, Option<String>)> = inventory_rows
+        .iter()
+        .map(|r| {
+            (
+                r.edition_id.to_string(),
+                (r.blurhash.clone(), r.dominant_color.clone()),
+            )
+        })
+        .collect();
+
+    for row in rows.iter_mut() {
+        if let Some(ref edition_id) = row.edition_id {
+            if let Some((blurhash, dominant_color)) = cover_map.get(edition_id.as_str()) {
+                row.blurhash = blurhash.clone();
+                row.dominant_color = dominant_color.clone();
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Mirror of `livtet_core::search::SearchHit` with extra fields
+/// for remote search results and cover metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SearchHitRow {
     pub kind: livtet_core::search::HitKind,
@@ -31,9 +78,7 @@ pub struct SearchHitRow {
     pub score: f32,
     pub explanation: Option<String>,
     pub snippet_text: Option<String>,
-    /// `[start, end]` byte ranges into `snippet_text`. The upstream
-    /// `Range<usize>` is re-expressed as `[u32; 2]` so the specta
-    /// exporter can ship it as `number[]` instead of refusing.
+    /// `[start, end]` byte ranges into `snippet_text`.
     pub snippet_highlighted: Vec<[u32; 2]>,
     pub grouped_edition_ids: Vec<String>,
     pub source: String,
@@ -42,15 +87,12 @@ pub struct SearchHitRow {
     pub cover_url: Option<String>,
     pub description: Option<String>,
     pub isbn_13: Option<String>,
+    pub blurhash: Option<String>,
+    pub dominant_color: Option<String>,
 }
 
 impl From<livtet_core::search::SearchHit> for SearchHitRow {
     fn from(h: livtet_core::search::SearchHit) -> Self {
-        let snippet_highlighted = h
-            .snippet_highlighted
-            .into_iter()
-            .map(|r| [r.start as u32, r.end as u32])
-            .collect();
         Self {
             kind: h.kind,
             edition_id: h.edition_id,
@@ -67,7 +109,7 @@ impl From<livtet_core::search::SearchHit> for SearchHitRow {
             score: h.score,
             explanation: h.explanation,
             snippet_text: h.snippet_text,
-            snippet_highlighted,
+            snippet_highlighted: h.snippet_highlighted,
             grouped_edition_ids: h.grouped_edition_ids,
             source: h.source,
             publisher: None,
@@ -75,23 +117,33 @@ impl From<livtet_core::search::SearchHit> for SearchHitRow {
             cover_url: None,
             description: None,
             isbn_13: None,
+            blurhash: None,
+            dominant_color: None,
         }
     }
 }
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(query, limit))]
 pub async fn search(
     state: State<'_, AppState>,
     query: String,
     limit: u32,
 ) -> Result<Vec<SearchHitRow>, String> {
-    state
-        .search
+    let search = state.search.read().await;
+    let hits = search
         .search(&query, limit as usize)
         .await
-        .map(|hits| hits.into_iter().map(SearchHitRow::from).collect())
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    let mut rows: Vec<SearchHitRow> = hits.into_iter().map(SearchHitRow::from).collect();
+
+    enrich_with_cover_metadata(&state.db.db_conn(), &mut rows)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(rows)
 }
 
 // End-to-end search is exercised by the integration tests in

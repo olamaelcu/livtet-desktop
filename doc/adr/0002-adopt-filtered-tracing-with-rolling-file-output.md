@@ -125,29 +125,64 @@ resolved.
 
 ### What future implementation work can build on this
 
-* **Free use of `#[tracing::instrument]` on Tauri commands and async tasks.**
-  Filter directives can be added to `init_tracing` without touching any
-  call sites. Future modules may declare their own target name (e.g.
-  `livtet_core::sync`) and tune verbosity via `RUST_LOG=livtet_core=debug`.
-* **Per-subsystem rolling files.** The same pattern (`RollingFileAppender` +
-  `non_blocking` + `fmt::layer().with_writer(...)`) extends naturally.
-  A future verbose-subsystem logger could write to
-  `logs/<subsystem>/<name>.log.YYYY-MM-DD` by composing another `fmt::layer`
-  onto the registry, gated by an additional `EnvFilter` with its own
-  directive set.
-* **Structured / JSON logs for shippers.** Swap the file `fmt::layer()` for
-  `tracing_subscriber::fmt::layer().json()` to emit structured events. The
-  registry composition stays the same; only the file-layer builder changes.
-* **In-app log export.** A Tauri command can read `paths.logs_dir` (already
-  available via `app.state::<…>()` once we publish it) and zip recent files
-  for a "Send diagnostics" affordance. No new infrastructure needed.
-* **Sampling / rate limits.** A custom Layer placed before `ForestLayer` and
-  the file layer can drop or sample events for known-noisy targets without
-  rewriting existing instrumentation.
-* **Crash on panic.** `tracing-subscriber` has a panic hook that flushes the
-  non-blocking writer before the process dies; enabling it would make sure
-  the last events before a panic reach disk. One-line addition inside
-  `init_tracing`.
-* **Test-mode switching.** `tracing_forest::test_init()` could replace the
-  registry during `cargo test` to avoid polluting the user's real log dir.
-  Same `init_tracing` shape, swap the body via a cfg gate.
+The items below were the original list.  Items marked **Done (2026-07-31)**
+were implemented in a single pass; the others remain as future work.
+
+* **~~Free use of `#[tracing::instrument]` on Tauri commands and async tasks.~~**
+  **Done (2026-07-31).**  All 14 Tauri commands now carry
+  `#[tracing::instrument(skip(state), err)]`.  Command-related
+  spans are recorded by name; ad-hoc `fields(...)` with display
+  sigils were not used because the proc-macro parser in the
+  edition-2024 crate rejects them (the sigil parses as an operator
+  inside the attribute).  Call-sites that need per-invocation
+  fields add `tracing::info!/debug!` calls manually.
+
+* **Per-subsystem rolling files.**  Infrastructure exists:
+  `SubsystemLogger { name, filter }` is defined in `lib.rs` and
+  the `init_tracing` signature accepts `&[SubsystemLogger]`, but
+  the loop body is a no-op today because `fmt::Layer::with_filter`
+  requires a static subscriber type and the subsystem layers
+  cannot be composed dynamically onto the same `Registry` chain.
+  Callers should create their own `fmt::layer()` with writer and
+  filter in their own init function; the `SubsystemLogger` type
+  serves as a structural contract.
+
+* **~~Structured / JSON logs for shippers.~~**  **Done (2026-07-31).**
+  Set `LIVTET_LOG_FORMAT=json` in the environment to swap the file
+  layer from plain `fmt::layer()` to `fmt::layer().json()`.
+  Requires `tracing-subscriber` feature `json` (added to
+  `tauri/Cargo.toml`).
+
+* **~~In-app log export.~~**  **Done (2026-07-31).**
+  `commands::diagnostics::export_logs` reads all `.log` files from
+  `logs_dir` (now stored in `AppState`) and returns
+  `Vec<LogFile>` (filename + content strings).  Uses
+  `tokio::task::spawn_blocking` with `std::fs::read_dir` to avoid
+  pulling in the `tokio` `fs` feature.  No compression yet; log
+  files are small enough to send as text.
+
+* **~~Sampling / rate limits.~~**  **Done (2026-07-31).**
+  `logging_rate_limit.rs` provides per-target token-bucket rate
+  limiting via env var:
+  `LIVTET_LOG_RATE_LIMIT=remote_search=10/s,import_edition=1/s`.
+  Implemented as a function-pointer `FilterFn` (closures cannot
+  capture state with `FilterFn::new`; the token buckets live in
+  `LazyLock<Mutex<HashMap<…>>>` statics).  Warnings and errors
+  always pass through regardless of rate limit.  The filter is
+  placed before `ForestLayer` and the file layer in the subscriber
+  chain.
+
+* **~~Crash on panic.~~**  **Done (2026-07-31).**
+  `init_tracing` sets a panic hook that logs the panic message
+  via `tracing::error!`, drops the `WorkerGuard` (triggering the
+  non-blocking writer's flush), sleeps 100ms, then calls the
+  previous hook + exit.  `LOG_FILE_GUARD` was changed from
+  `OnceLock<WorkerGuard>` to `Mutex<Option<WorkerGuard>>` to
+  allow the guard to be taken and dropped in the hook.
+
+* **~~Test-mode switching.~~**  **Done (2026-07-31).**
+  `init_test_tracing()` (gated on `#[cfg(test)]` in `lib.rs`)
+  initialises `ForestLayer::default()` at `warn` level (or
+  `RUST_LOG` if set).  Does not create a file layer, so tests
+  never write into the user's real `logs_dir`.  Test modules that
+  want trace output can call this in their test setup.

@@ -1,4 +1,5 @@
 <script lang="ts">
+import { untrack } from 'svelte'
 import { useScopeRegistry } from '../scope.svelte'
 import type { CommandScope } from '../types'
 
@@ -12,8 +13,8 @@ let { id, children }: Props = $props()
 const scopes = useScopeRegistry()
 
 $effect(() => {
-  scopes.activate(id)
-  return () => scopes.deactivate(id)
+  untrack(() => scopes.activate(id))
+  return () => untrack(() => scopes.deactivate(id))
 })
 </script>
 

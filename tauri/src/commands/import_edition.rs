@@ -4,12 +4,15 @@
 //! provenance by storing the provider's work ID and edition URL as identifiers.
 
 use livtet_core::DbId;
-use livtet_core::{Isbn, CommonLanguages};
-use livtet_core::data::orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use livtet_core::data::entities::{
-    authors, edition_authors, edition_identifiers, editions, identifiers,
-    languages, publishers, work_identifiers, works,
+    authors, edition_authors, edition_identifiers, editions, identifiers, languages, publishers,
+    work_identifiers, works,
 };
+use livtet_core::data::orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+};
+use livtet_core::{CommonLanguages, Isbn};
+use miette::IntoDiagnostic;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tauri::State;
@@ -25,19 +28,24 @@ pub enum ImportResult {
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state, request), err)]
 pub async fn import_edition(
     state: State<'_, AppState>,
     request: ImportRequest,
 ) -> Result<ImportResult, String> {
     let db = state.db.db_conn();
-Ok(import_edition_impl(&db, request).await)
+    import_edition_impl(&db, request)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 pub async fn import_edition_impl(
     db: &DatabaseConnection,
     request: ImportRequest,
-) -> ImportResult {
-    let isbn_urn = request.isbn_13.as_ref()
+) -> miette::Result<ImportResult> {
+    let isbn_urn = request
+        .isbn_13
+        .as_ref()
         .and_then(|i| Isbn::parse(i).ok())
         .map(|isbn| format!("urn:isbn:{}", isbn.as_str()));
 
@@ -46,17 +54,17 @@ pub async fn import_edition_impl(
             .filter(identifiers::Column::Value.eq(urn))
             .one(db)
             .await
-            .unwrap();
+            .into_diagnostic()?;
         if existing.is_some() {
-            return ImportResult::AlreadyExists;
+            tracing::info!("import skipped: ISBN already in catalog");
+            return Ok(ImportResult::AlreadyExists);
         }
     }
 
     let now = livtet_core::now_primitive();
 
-    let language_id = resolve_or_create_language(db, &request.language, now).await.unwrap();
-    let publisher_id = resolve_or_create_publisher(db, &request.publisher, now).await.unwrap();
-
+    let language_id = resolve_or_create_language(db, &request.language, now).await?;
+    let publisher_id = resolve_or_create_publisher(db, &request.publisher, now).await?;
     let work_id = DbId::new();
     let edition_id = DbId::new();
 
@@ -69,7 +77,7 @@ pub async fn import_edition_impl(
         language_id: Set(language_id),
         ..Default::default()
     };
-    work.insert(db).await.unwrap();
+    work.insert(db).await.into_diagnostic()?;
 
     let edition = editions::ActiveModel {
         id: Set(edition_id),
@@ -84,17 +92,21 @@ pub async fn import_edition_impl(
         updated_at: Set(None),
         group_id: Set(None),
     };
-    edition.insert(db).await.unwrap();
+    edition.insert(db).await.into_diagnostic()?;
 
     for (idx, author_name) in request.authors.iter().enumerate() {
-        let author_id = create_author(db, author_name).await.unwrap();
+        let author_id = create_author(db, author_name).await?;
 
         let edition_author = edition_authors::ActiveModel {
             edition_id: Set(edition_id),
             author_id: Set(author_id),
-            role: Set(if idx == 0 { "author".into() } else { "contributor".into() }),
+            role: Set(if idx == 0 {
+                "author".into()
+            } else {
+                "contributor".into()
+            }),
         };
-        edition_author.insert(db).await.unwrap();
+        edition_author.insert(db).await.into_diagnostic()?;
     }
 
     if let Some(ref urn) = isbn_urn {
@@ -103,27 +115,30 @@ pub async fn import_edition_impl(
             kind: Set("isbn".into()),
             value: Set(urn.clone()),
         };
-        let inserted = identifier.insert(db).await.unwrap();
+        let inserted = identifier.insert(db).await.into_diagnostic()?;
 
         let edition_identifier = edition_identifiers::ActiveModel {
             edition_id: Set(edition_id),
             identifier_id: Set(inserted.id),
         };
-        edition_identifier.insert(db).await.unwrap();
+        edition_identifier.insert(db).await.into_diagnostic()?;
     }
 
     let work_identifier = identifiers::ActiveModel {
         id: Set(DbId::new()),
         kind: Set(request.provider.clone()),
-        value: Set(format!("urn:{}:{}", request.provider, request.provider_work_id)),
+        value: Set(format!(
+            "urn:{}:{}",
+            request.provider, request.provider_work_id
+        )),
     };
-    let wid = work_identifier.insert(db).await.unwrap();
+    let wid = work_identifier.insert(db).await.into_diagnostic()?;
 
     let work_ident = work_identifiers::ActiveModel {
         work_id: Set(work_id),
         identifier_id: Set(wid.id),
     };
-    work_ident.insert(db).await.unwrap();
+    work_ident.insert(db).await.into_diagnostic()?;
 
     if let Some(ref url) = request.provider_edition_url {
         let edition_identifier = identifiers::ActiveModel {
@@ -131,13 +146,13 @@ pub async fn import_edition_impl(
             kind: Set("http".into()),
             value: Set(url.clone()),
         };
-        let eid = edition_identifier.insert(db).await.unwrap();
+        let eid = edition_identifier.insert(db).await.into_diagnostic()?;
 
         let edition_ident = edition_identifiers::ActiveModel {
             edition_id: Set(edition_id),
             identifier_id: Set(eid.id),
         };
-        edition_ident.insert(db).await.unwrap();
+        edition_ident.insert(db).await.into_diagnostic()?;
     }
 
     if let Some(publisher_id) = publisher_id {
@@ -146,12 +161,13 @@ pub async fn import_edition_impl(
             edition_id: Set(edition_id),
             publisher_id: Set(publisher_id),
         };
-        edition_publisher.insert(db).await.unwrap();
+        edition_publisher.insert(db).await.into_diagnostic()?;
     }
 
-    ImportResult::Created {
+    tracing::info!(edition_id = %edition_id, "imported edition");
+    Ok(ImportResult::Created {
         edition_id: edition_id.to_string(),
-    }
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -174,34 +190,42 @@ async fn resolve_or_create_language(
     db: &DatabaseConnection,
     lang_code: &Option<String>,
     now: time::PrimitiveDateTime,
-) -> Result<Option<DbId>, String> {
-    let Some(code) = lang_code else { return Ok(None) };
+) -> miette::Result<Option<DbId>> {
+    let Some(code) = lang_code else {
+        return Ok(None);
+    };
+
+    let lang_info = CommonLanguages::normalize_language_code(code);
+
+    let lookup_code = lang_info
+        .as_ref()
+        .map(|li| li.code.as_str())
+        .unwrap_or(code.as_str());
 
     let existing: Option<languages::Model> = languages::Entity::find()
-        .filter(languages::Column::Code.eq(code))
+        .filter(languages::Column::Code.eq(lookup_code))
         .one(db)
         .await
-        .map_err(|e| e.to_string())?;
+        .into_diagnostic()?;
 
     if let Some(l) = existing {
         return Ok(Some(l.id));
     }
 
-    let lang_name = CommonLanguages::all()
-        .iter()
-        .find(|l| l.code() == code)
-        .map(|l| l.name().to_string())
-        .unwrap_or_else(|| code.clone());
+    let (lang_name, flag_emoji) = match lang_info {
+        Some(ref li) => (li.english_name.clone(), li.flag_emoji.clone()),
+        None => (code.clone(), None),
+    };
 
     let lang = languages::ActiveModel {
         id: Set(DbId::new()),
         name: Set(lang_name),
-        code: Set(code.clone()),
-        flag_emoji: Set(None),
+        code: Set(lookup_code.to_string()),
+        flag_emoji: Set(flag_emoji),
         created_at: Set(now),
         updated_at: Set(None),
     };
-    let lang = lang.insert(db).await.map_err(|e| e.to_string())?;
+    let lang = lang.insert(db).await.into_diagnostic()?;
 
     Ok(Some(lang.id))
 }
@@ -210,14 +234,16 @@ async fn resolve_or_create_publisher(
     db: &DatabaseConnection,
     publisher: &Option<String>,
     now: time::PrimitiveDateTime,
-) -> Result<Option<DbId>, String> {
-    let Some(name) = publisher else { return Ok(None) };
+) -> miette::Result<Option<DbId>> {
+    let Some(name) = publisher else {
+        return Ok(None);
+    };
 
     let existing: Option<publishers::Model> = publishers::Entity::find()
         .filter(publishers::Column::Name.eq(name))
         .one(db)
         .await
-        .map_err(|e| e.to_string())?;
+        .into_diagnostic()?;
 
     if let Some(p) = existing {
         return Ok(Some(p.id));
@@ -231,20 +257,17 @@ async fn resolve_or_create_publisher(
         created_at: Set(now),
         updated_at: Set(None),
     };
-    let publisher = publisher.insert(db).await.map_err(|e| e.to_string())?;
+    let publisher = publisher.insert(db).await.into_diagnostic()?;
 
     Ok(Some(publisher.id))
 }
 
-async fn create_author(
-    db: &DatabaseConnection,
-    name: &str,
-) -> Result<DbId, String> {
+async fn create_author(db: &DatabaseConnection, name: &str) -> miette::Result<DbId> {
     let existing: Option<authors::Model> = authors::Entity::find()
         .filter(authors::Column::Name.eq(name))
         .one(db)
         .await
-        .map_err(|e| e.to_string())?;
+        .into_diagnostic()?;
 
     if let Some(a) = existing {
         return Ok(a.id);
@@ -254,7 +277,7 @@ async fn create_author(
         id: Set(DbId::new()),
         name: Set(name.into()),
     };
-    let author = author.insert(db).await.map_err(|e| e.to_string())?;
+    let author = author.insert(db).await.into_diagnostic()?;
 
     Ok(author.id)
 }
@@ -288,7 +311,9 @@ mod tests {
             provider_edition_url: Some("https://books.google.com/books?id=test123".to_string()),
         };
 
-        let result = import_edition_impl(&db, request).await;
+        let result = import_edition_impl(&db, request)
+            .await
+            .expect("import should succeed");
         assert!(matches!(result, ImportResult::Created { .. }));
 
         let works_vec: Vec<works::Model> = works::Entity::find()
@@ -327,8 +352,12 @@ mod tests {
             provider_edition_url: None,
         };
 
-        let result1 = import_edition_impl(&db, request.clone()).await;
-        let result2 = import_edition_impl(&db, request).await;
+        let result1 = import_edition_impl(&db, request.clone())
+            .await
+            .expect("first import should succeed");
+        let result2 = import_edition_impl(&db, request)
+            .await
+            .expect("second import should succeed");
 
         assert!(matches!(result1, ImportResult::Created { .. }));
         assert!(matches!(result2, ImportResult::AlreadyExists));

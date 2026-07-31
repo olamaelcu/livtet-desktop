@@ -11,6 +11,10 @@ use serde::Deserialize;
 use tracing::{debug, warn};
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
+use livtet_core::DbId;
+use livtet_core::covers::{CacheKey, CoverFetcher, FetchError, FetchedCover};
+use livtet_core::data::entities::{edition_identifiers, editions, identifiers};
+use livtet_core::data::orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 pub struct OpenLibrary {
     http: reqwest::Client,
@@ -19,6 +23,93 @@ pub struct OpenLibrary {
 impl OpenLibrary {
     pub fn new(http: reqwest::Client) -> Self {
         Self { http }
+    }
+
+    fn content_key_for_isbn(isbn: &str, size: &str) -> String {
+        format!("openlibrary::isbn::{isbn}::{size}::jpg")
+    }
+}
+
+#[async_trait]
+impl CoverFetcher for OpenLibrary {
+    fn priority(&self) -> u8 {
+        2
+    }
+
+    async fn keys_for(
+        &self,
+        edition_id: DbId,
+        db: &DatabaseConnection,
+    ) -> Result<Vec<CacheKey>, livtet_core::data::orm::DbErr> {
+        let edition = editions::Entity::find_by_id(edition_id).one(db).await?;
+        if edition.is_none() {
+            return Ok(Vec::new());
+        }
+
+        let edition_idents = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(db)
+            .await?;
+
+        let mut keys = Vec::new();
+        for ei in edition_idents {
+            let identifier = identifiers::Entity::find_by_id(ei.identifier_id)
+                .one(db)
+                .await?;
+            let Some(identifier) = identifier else {
+                continue;
+            };
+
+            if identifier.kind != "isbn" {
+                continue;
+            }
+
+            let isbn = match identifier.value.strip_prefix("urn:isbn:") {
+                Some(v) => v.to_string(),
+                None => continue,
+            };
+
+            for size in &["S", "M", "L"] {
+                keys.push(CacheKey {
+                    key: Self::content_key_for_isbn(&isbn, size),
+                    provider: "openlibrary".into(),
+                    identifier_type: "isbn".into(),
+                    identifier_value: isbn.clone(),
+                    size: (*size).into(),
+                });
+            }
+        }
+
+        Ok(keys)
+    }
+
+    async fn fetch(&self, key: &CacheKey) -> Result<FetchedCover, FetchError> {
+        let url = format!(
+            "https://covers.openlibrary.org/b/{}/{}-{}.jpg",
+            key.identifier_type, key.identifier_value, key.size,
+        );
+        let resp = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        if !resp.status().is_success() {
+            return Err(FetchError::NotFound);
+        }
+        let content_type = resp
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| FetchError::Network(e.to_string()))?;
+        Ok(FetchedCover {
+            bytes: bytes.to_vec(),
+            content_type,
+        })
     }
 }
 

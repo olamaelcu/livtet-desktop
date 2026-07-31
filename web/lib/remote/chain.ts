@@ -1,7 +1,6 @@
-import { listen } from '@tauri-apps/api/event'
 import { toast } from 'svelte-sonner'
 import { ulid } from 'ulid'
-import { commands, type SearchHitRow } from '$lib/bindings'
+import { commands, events, type ProviderFailureEvent, type SearchHitRow } from '$lib/bindings'
 import { FAILURE_TOAST } from './types'
 
 let currentRequestId: string | null = null
@@ -9,11 +8,7 @@ let unlistenPromise: Promise<() => void> | null = null
 
 export async function subscribeProviderFailures(): Promise<() => void> {
   if (unlistenPromise) return unlistenPromise
-  unlistenPromise = listen<{
-    request_id: string
-    provider: 'google_books' | 'hardcover' | 'openlibrary'
-    reason: string
-  }>('provider-failure', (e) => {
+  unlistenPromise = events.providerFailureEvent.listen((e) => {
     if (e.payload.request_id !== currentRequestId) return
     toast.error(FAILURE_TOAST(e.payload.provider))
   })

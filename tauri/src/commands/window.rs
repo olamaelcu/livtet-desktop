@@ -7,6 +7,7 @@
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(window), err)]
 pub async fn sync_window_title(
     window: tauri::WebviewWindow,
     new_title: String,

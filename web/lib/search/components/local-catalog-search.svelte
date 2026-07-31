@@ -1,57 +1,57 @@
 <script lang="ts">
-  import { commands, type SearchHitRow } from '$lib/bindings'
-  import CommandScope from '$lib/commands/components/command-scope.svelte'
-  import CoverGrid from '$lib/search/components/cover-grid.svelte'
-  import FilterChip from '$lib/search/components/filter-chip.svelte'
-  import SearchView from '$lib/search/components/search-view.svelte'
-  import { deriveFacets } from '$lib/search/deriveFacets'
-  import { filterHits } from '$lib/search/search'
-  import { emptyFilters, type FilterState } from '$lib/search/types'
+import { commands, type SearchHitRow } from '$lib/bindings'
+import CommandScope from '$lib/commands/components/command-scope.svelte'
+import CoverGrid from '$lib/search/components/cover-grid.svelte'
+import FilterChip from '$lib/search/components/filter-chip.svelte'
+import SearchView from '$lib/search/components/search-view.svelte'
+import { deriveFacets } from '$lib/search/deriveFacets'
+import { filterHits } from '$lib/search/search'
+import { emptyFilters, type FilterState } from '$lib/search/types'
 
-  interface Props {
-    q?: string
-  }
+interface Props {
+  q?: string
+}
 
-  let { q = $bindable("") }: Props = $props()
+let { q = $bindable('') }: Props = $props()
 
-  const SEARCH_LIMIT = 50
+const SEARCH_LIMIT = 50
 
-  let filterState: FilterState = $state(emptyFilters())
+let filterState: FilterState = $state(emptyFilters())
 
-  function toggleFormat(label: string) {
-    const next = new Set(filterState.formats)
-    if (next.has(label)) next.delete(label)
-    else next.add(label)
-    filterState = { ...filterState, formats: next }
-  }
+function toggleFormat(label: string) {
+  const next = new Set(filterState.formats)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  filterState = { ...filterState, formats: next }
+}
 
-  function toggleLanguage(label: string) {
-    const next = new Set(filterState.languages)
-    if (next.has(label)) next.delete(label)
-    else next.add(label)
-    filterState = { ...filterState, languages: next }
-  }
+function toggleLanguage(label: string) {
+  const next = new Set(filterState.languages)
+  if (next.has(label)) next.delete(label)
+  else next.add(label)
+  filterState = { ...filterState, languages: next }
+}
 
-  async function runSearch(
-    query: string,
-    limit: number,
-    onResults: (hits: SearchHitRow[]) => void,
-    onError?: (err: string) => void,
-  ) {
-    await commands
-      .search(query, limit)
-      .then((r) => {
-        if (r.status === 'ok') onResults(r.data)
-        else {
-          onError?.(r.error)
-          onResults([])
-        }
-      })
-      .catch((e) => {
-        onError?.(String(e))
+async function runSearch(
+  query: string,
+  limit: number,
+  onResults: (hits: SearchHitRow[]) => void,
+  onError?: (err: string) => void,
+) {
+  await commands
+    .search(query, limit)
+    .then((r) => {
+      if (r.status === 'ok') onResults(r.data)
+      else {
+        onError?.(r.error)
         onResults([])
-      })
-  }
+      }
+    })
+    .catch((e) => {
+      onError?.(String(e))
+      onResults([])
+    })
+}
 </script>
 
 <CommandScope id="search">
@@ -61,6 +61,7 @@
     {runSearch}
     prompt="Type a query to search the catalog."
     noResults="No matches."
+    searchOnEmpty={true}
   >
     {#snippet filters({ hits })}
       {@const facets = deriveFacets(hits)}
@@ -108,7 +109,11 @@
       {#if filtered.length === 0}
         <wa-callout variant="neutral">
           <wa-icon slot="icon" name="circle-info"></wa-icon>
-          No matches for "{query}". Try fewer filters or a shorter query.
+          {#if query.trim().length === 0}
+            No items in the catalog yet.
+          {:else}
+            No matches for "{query}". Try fewer filters or a shorter query.
+          {/if}
         </wa-callout>
       {:else}
         <CoverGrid hits={filtered} />

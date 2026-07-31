@@ -81,6 +81,7 @@ fn now_iso() -> String {
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(app), err)]
 pub async fn get_hardcover_key(app: AppHandle) -> Result<HardcoverKeyStatus, String> {
     let configured = entry()?.get_password().is_ok();
     Ok(HardcoverKeyStatus {
@@ -91,6 +92,7 @@ pub async fn get_hardcover_key(app: AppHandle) -> Result<HardcoverKeyStatus, Str
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(app, state), err)]
 pub async fn set_hardcover_key(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -113,6 +115,7 @@ pub async fn set_hardcover_key(
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(app), err)]
 pub async fn clear_hardcover_key(app: AppHandle) -> Result<HardcoverKeyStatus, String> {
     match entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => {}
@@ -129,6 +132,7 @@ pub async fn clear_hardcover_key(app: AppHandle) -> Result<HardcoverKeyStatus, S
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err)]
 pub async fn verify_hardcover_key(
     state: State<'_, AppState>,
     api_key: String,

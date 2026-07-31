@@ -11,8 +11,10 @@ use std::sync::Arc;
 use camino::Utf8PathBuf;
 use miette::IntoDiagnostic;
 use tauri::{App, Manager};
+use tokio::sync::RwLock;
 
 use crate::Error;
+use crate::cover_storage::CacacheStorage;
 
 #[derive(Debug)]
 pub struct AppDirectories {
@@ -20,6 +22,10 @@ pub struct AppDirectories {
     pub logs_dir: Utf8PathBuf,
     /// Parent directory that will contain the tantivy index.
     pub search_index_path: Utf8PathBuf,
+    /// cacache content-addressable cache for covers.
+    pub covers_cache_dir: Utf8PathBuf,
+    /// Permanent directory for resolved cover files.
+    pub covers_permanent_dir: Utf8PathBuf,
 }
 
 impl AppDirectories {
@@ -44,11 +50,15 @@ impl AppDirectories {
         let logs_dir = local_data_dir_path.join("logs");
         let database_path = local_data_dir_path.join("livtet.sqlite");
         let search_index_path = cache_dir_path.join("search_index");
+        let covers_cache_dir = cache_dir_path.join("covers");
+        let covers_permanent_dir = local_data_dir_path.join("covers");
 
         Ok(Self {
             database_path,
             logs_dir,
             search_index_path,
+            covers_cache_dir,
+            covers_permanent_dir,
         })
     }
 }
@@ -62,7 +72,10 @@ impl AppDirectories {
 /// `livtet-core` (also a git dep) already pulls it transitively.
 pub struct AppState {
     pub db: livtet_core::data::SharedState,
-    pub search: Arc<livtet_core::search::SearchIndex>,
+    pub search: Arc<RwLock<livtet_core::search::SearchIndex>>,
     pub http: reqwest::Client,
     pub search_registry: crate::commands::remote_search::chain::SearchRegistry,
+    pub covers: Arc<CacacheStorage>,
+    pub logs_dir: Utf8PathBuf,
+    pub search_index_path: Utf8PathBuf,
 }

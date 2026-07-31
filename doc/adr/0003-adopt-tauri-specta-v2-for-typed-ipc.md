@@ -4,7 +4,10 @@ Date: 2026-07-30
 
 ## Status
 
-Accepted
+Accepted.
+
+Future-work items implemented 2026-07-31 (see "Extensions landed"
+below).
 
 Extended by 5 [5. Pin digital_inventory edition_id UNIQUE; extend tauri-specta edition-detail IPC](0005-pin-digital-inventory-edition-id-to-unique-add-edition-detail-ipc-surface.md)
 
@@ -49,7 +52,12 @@ A `generate-bindings` bin (`cargo run --bin generate-bindings`) reproduces the e
 `AppState` (in `tauri/src/state.rs`) carries the runtime state commands receive via `tauri::State<'_, AppState>`:
 
 - `db: livtet_core::data::SharedState` — the SQLite connection pool.
-- `search: Arc<livtet_core::search::SearchIndex>` — the Tantivy index held open for the process lifetime.
+- `search: Arc<tokio::sync::RwLock<livtet_core::search::SearchIndex>>` — the Tantivy index, held behind a `tokio::sync::RwLock` so a `reindex` command can swap the index live without restarting the app.
+- `http: reqwest::Client` — shared HTTP client.
+- `search_registry: SearchRegistry` — single-slot cancellation registry for remote search chains.
+- `covers: Arc<CacacheStorage>` — hash-keyed file-based cover storage.
+- `logs_dir: Utf8PathBuf` — for the `export_logs` diagnostics command.
+- `search_index_path: Utf8PathBuf` — directory path consumed by the `reindex` command.
 
 `AppDirectories::resolve(app)` (now `async`) constructs both paths via `app.path()`:
 
@@ -61,7 +69,19 @@ The `use tauri::Manager;` import is required for `app.path()` to resolve — the
 
 ### Type boundary
 
-The `search` command returns a desktop-local `SearchHitRow` wrapper, not the upstream `livtet_search::SearchHit` directly. The wrapper's only purpose is to re-express `snippet_highlighted: Vec<Range<usize>>` (which `specta-typescript = 0.0.12` refuses to export, since `usize` is a bigint-style type) as `Vec<[u32; 2]>`. The `From<livtet_search::SearchHit>` impl is the only spot where the conversion happens.
+The `search` command returns a desktop-local `SearchHitRow` wrapper,
+not the upstream `livtet_search::SearchHit` directly.  The wrapper
+**originally** re-expressed `snippet_highlighted: Vec<Range<usize>>`
+as `Vec<[u32; 2]>` because `specta-typescript = 0.0.12` refuses
+`usize` (a bigint-style type).  **As of 2026-07-31** the upstream
+`livtet-search` crate changed `snippet_highlighted` to
+`Vec<[u32; 2]>`, so the conversion in `From<SearchHit> for
+SearchHitRow` is now identity for that field.  `SearchHitRow` still
+exists because it carries extra fields the upstream `SearchHit`
+does not: `publisher`, `page_count`, `cover_url`, `description`,
+`isbn_13` (populated for remote-search results), and
+`blurhash`/`dominant_color` (populated by `enrich_with_cover_metadata`
+for local catalog hits).
 
 The `find_edition_by_identifier` command uses a two-hop lookup: `SELECT * FROM identifiers WHERE value = ?` (URN UNIQUE) → `SELECT editions.* FROM editions JOIN edition_identifiers ON … WHERE identifier_id = ? ORDER BY editions.id ASC LIMIT 1`. The `edition_identifiers` junction is N-to-N (composite PK on `(edition_id, identifier_id)`, not unique on `identifier_id` alone), so the original spec's "deterministic single-row lookup" assumption was wrong; the actual schema reality is captured in the test plan.
 
@@ -101,9 +121,40 @@ The `commands::search` module has a compile-only sentinel test that fires if the
 - **Two output formats in play after the search hit wrapping.** The Rust side keeps `Range<usize>` internally; the IPC side ships `[u32; 2]`. Anyone debugging a serialization mismatch has to remember which boundary they're on.
 - **`document.title` is not a Svelte reactive signal.** The first version of `+layout.svelte` had a `\$effect` that read `document.title` and pushed it to the OS chrome. It ran once on mount and never re-fired. The fix is a `MutationObserver` on the `<title>` element (see `+layout.svelte`). Any future "do X on Y DOM change" pattern needs a similar observer; Svelte 5 reactivity tracks runes, not raw DOM mutations.
 
-### What future implementation work can build on this
+### Extensions landed (2026-07-31)
 
-- **Free use of `#[tracing::instrument]` on every new Tauri command.** The `init_tracing` filter and `AppState` seam make middleware like cross-command tracing, span propagation, or per-command log levels a one-line change.
-- **Typed event payloads.** `tauri-specta` derives `Event` for typed payloads. The `mount_events(app)` call in `run()` currently mounts nothing; the moment we need to emit something (e.g. `ReadingProgressUpdate`), the type is auto-generated.
-- **A `reindex` command.** Wraps `livtet_search::SearchIndex::migrate_to` so users can recover from a corrupt index without restarting the app. Today `app_setup` is fail-fast; a command-mode recovery is friendlier.
-- **Drop the `SearchHitRow` indirection once upstream shapes stabilize.** If `livtet-search` moves `Range<usize>` to `Range<u32>` (or `specta-typescript` ships a `bigint` toggle), the adapter can be removed and the upstream type used directly.
+The three items originally listed below were implemented in a single
+pass:
+
+* **~~Free use of `#[tracing::instrument]` on every new Tauri command.~~**
+  All 14 Tauri commands now carry `#[tracing::instrument]`.  See
+  [ADR-0002](0002-adopt-filtered-tracing-with-rolling-file-output.md)
+  for details.
+
+* **~~Typed event payloads.~~**  `ProviderFailureEvent` now derives
+  `tauri_specta::Event` and is registered via
+  `collect_events![ProviderFailureEvent, ReindexComplete]` in the
+  specta builder (both `lib.rs` and `generate-bindings.rs`).  The
+  frontend imports `events` from `$lib/bindings` and calls
+  `events.providerFailureEvent.listen(...)` instead of the raw
+  `listen('provider-failure', ...)`.  The event name changed from
+  `"provider-failure"` to `"provider-failure-event"` (specta
+  derives the name from the struct's snake-case).  A new
+  `ReindexComplete` event fires after the `reindex` command
+  finishes.
+
+* **~~A `reindex` command.~~**  `commands::reindex::reindex` calls
+  `SearchIndex::migrate_to(path, db)`, opens a fresh `SearchIndex`,
+  and swaps it live into `AppState.search` via
+  `tokio::sync::RwLock::write().await`.  `tokio::sync::RwLock` was
+  chosen over `std::sync::RwLock` because the read-guard is held
+  across `.await` points in the `search` command, requiring
+  `Send`-safe async guards.
+
+* **~~Drop the `SearchHitRow` indirection.~~**  `livtet-search`'s
+  `SearchHit.snippet_highlighted` was changed from
+  `Vec<Range<usize>>` to `Vec<[u32; 2]>`.  The `From<SearchHit>
+  for SearchHitRow` conversion is now identity for that field.
+  `SearchHitRow` still exists as a desktop-local extension layer
+  for remote-search metadata and cover enrichment; it is no longer
+  a workaround for specta type limitations.

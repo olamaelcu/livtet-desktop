@@ -41,6 +41,7 @@ impl From<livtet_core::data::entities::identifiers::Model> for IdentifierRow {
 
 #[tauri::command]
 #[specta::specta]
+#[tracing::instrument(skip(state), err, fields(edition_id))]
 pub async fn find_identifiers_by_edition(
     state: State<'_, AppState>,
     edition_id: String,

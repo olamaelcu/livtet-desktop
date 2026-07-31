@@ -1,19 +1,19 @@
 <script lang="ts">
-  import { onMount } from 'svelte'
-  import { runSearch, subscribeProviderFailures } from '$lib/remote/chain'
-  import SearchView from '$lib/search/components/search-view.svelte'
+import { onMount } from 'svelte'
+import { runSearch, subscribeProviderFailures } from '$lib/remote/chain'
+import SearchView from '$lib/search/components/search-view.svelte'
 
-  interface Props {
-    f?: string
-  }
+interface Props {
+  f?: string
+}
 
-  let { f = $bindable("") }: Props = $props()
+let { f = $bindable('') }: Props = $props()
 
-  const LIMIT = 50
+const LIMIT = 50
 
-  onMount(() => {
-    subscribeProviderFailures()
-  })
+onMount(() => {
+  subscribeProviderFailures()
+})
 </script>
 
 <SearchView

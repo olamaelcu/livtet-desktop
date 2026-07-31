@@ -23,9 +23,9 @@ use crate::commands::search::SearchHitRow;
 use crate::secrets;
 use crate::state::AppState;
 
-pub const PROVIDER_FAILURE_EVENT: &str = "provider-failure";
+pub const PROVIDER_FAILURE_EVENT: &str = "provider-failure-event";
 
-#[derive(Debug, Clone, Serialize, Type)]
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
 pub struct ProviderFailureEvent {
     pub request_id: String,
     pub provider: ProviderId,

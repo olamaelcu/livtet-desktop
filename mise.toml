@@ -39,6 +39,15 @@ run = [
   "pnpm test",
 ]
 
+[tasks.fix]
+description = "Auto-fix formatting and clippy issues"
+run = [
+  "cargo fmt",
+  "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -D warnings",
+  "cargo-machete",
+  "pnpm lint --fix || pnpm lint",
+]
+
 [tasks.ci]
 description = "Full CI suite (lint + test) — same as GitHub Actions"
 depends = ["lint", "test"]
