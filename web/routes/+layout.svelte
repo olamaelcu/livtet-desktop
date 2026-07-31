@@ -14,6 +14,7 @@
   import HelpOverlay from "$lib/commands/components/help-overlay.svelte";
   import CommandReconciler from "$lib/commands/components/command-reconciler.svelte";
   import HeldKeysIndicator from "$lib/commands/components/held-keys-indicator.svelte";
+  import PeekDialog from "$lib/catalog/components/peek-dialog.svelte";
   import { Toaster } from "svelte-sonner";
   import { subscribeProviderFailures } from "$lib/remote/chain";
 
@@ -61,6 +62,7 @@
 <CommandPalette {bridge} />
 <HelpOverlay />
 <HeldKeysIndicator />
+<PeekDialog />
 
 <style>
   main {

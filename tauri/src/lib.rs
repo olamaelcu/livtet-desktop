@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use camino::Utf8Path;
 use miette::IntoDiagnostic;
-use tauri::{App, Manager, Wry};
+use tauri::{App, Manager};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
@@ -17,6 +17,14 @@ pub mod state;
 pub mod _bindings_export {
     //! Public re-exports for the `generate-bindings` bin.
     use crate::commands;
+    pub use crate::commands::digital_inventory;
+    pub use crate::commands::edition;
+    pub use crate::commands::edition_authors;
+    pub use crate::commands::edition_identifiers;
+    pub use crate::commands::keyring;
+    pub use crate::commands::remote_search;
+    pub use crate::commands::search;
+    pub use crate::commands::window;
     pub use crate::state;
 
     pub fn specta() -> tauri_specta::Builder<tauri::Wry> {
@@ -25,6 +33,9 @@ pub mod _bindings_export {
             commands::search::search,
             commands::edition::find_edition_by_id,
             commands::edition::find_edition_by_identifier,
+            commands::digital_inventory::find_files_by_edition,
+            commands::edition_authors::find_authors_by_edition,
+            commands::edition_identifiers::find_identifiers_by_edition,
             commands::remote_search::remote_search,
             commands::remote_search::cancel_remote_search,
             commands::keyring::get_hardcover_key,

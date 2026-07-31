@@ -1,7 +1,10 @@
 <script lang="ts">
+  import { commands } from "$lib/bindings";
   import type { SearchHit } from "../types";
   import { coverLetter, dominantColorFor } from "../cover-art";
   import { attachAsButton } from "$lib/a11y/attachments";
+  import { editionForHit } from "$lib/catalog/edition-for-hit";
+  import { openPeek } from "$lib/catalog/peek-state.svelte";
 
   interface Props {
     hit: SearchHit;
@@ -14,6 +17,32 @@
   const authorsLine = $derived(
     hit.authors.length === 0 ? "" : hit.authors.join(", "),
   );
+
+  let activating = $state(false);
+
+  async function onActivate(): Promise<void> {
+    if (activating) return;
+    activating = true;
+    try {
+      // Prefer the digital_inventory lookup: an edition can carry
+      // multiple files and only the inventory row tells us which
+      // edition is the canonical "view detail" target for this
+      // search hit. If the lookup errors out (no row, transient DB
+      // hiccup, …) we fall back to the hit's own edition_id so the
+      // user is never locked out of detail view.
+      const filesRes =
+        hit.work_id && hit.edition_id
+          ? await commands.findFilesByEdition(hit.edition_id).catch(() => null)
+          : null;
+      const files =
+        filesRes && filesRes.status === "ok" ? filesRes.data : null;
+      const { editionId } = editionForHit(hit, files);
+      if (!editionId) return;
+      openPeek(editionId);
+    } finally {
+      activating = false;
+    }
+  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -21,10 +50,14 @@
        analyzer cannot see it. role="button" + tabindex="0" set by the
        attachment silence a11y_no_noninteractive_tabindex and
        a11y_no_static_element_interactions on their own. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_role_supports_aria_props_implicit -->
 <article
   class="cover-card"
   style:--dominant={bg}
   aria-label={hit.title}
+  aria-haspopup="dialog"
+  onclick={onActivate}
   {@attach attachAsButton}
 >
   <div class="cover" aria-hidden="true">

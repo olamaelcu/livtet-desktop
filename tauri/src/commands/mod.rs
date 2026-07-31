@@ -4,7 +4,10 @@
 //! macro drives the tauri-specta Builder that wires the invoke
 //! handler in `lib.rs`.
 
+pub mod digital_inventory;
 pub mod edition;
+pub mod edition_authors;
+pub mod edition_identifiers;
 pub mod keyring;
 pub mod remote_search;
 pub mod search;
