@@ -9,8 +9,9 @@ test.describe('Search', () => {
     const searchBar = tauriPage.locator('wa-input[type="search"]')
     await expect(searchBar).toBeVisible()
 
-    await searchBar.locator('input').fill('test query')
-    expect(await searchBar.inputValue()).toBe('test query')
+    const input = searchBar.locator('input')
+    await input.fill('test query')
+    expect(await input.inputValue()).toBe('test query')
   })
 
   test('search triggers results area', async ({ tauriPage }) => {
@@ -19,7 +20,7 @@ test.describe('Search', () => {
     const searchBar = tauriPage.locator('wa-input[type="search"]')
     await searchBar.locator('input').fill('some text')
 
-    await tauriPage.waitForTimeout(1000)
+    await new Promise(r => setTimeout(r, 1000))
     const results = tauriPage.getByText(/No matches|No items|results?/)
     await expect(results.first()).toBeVisible()
   })

@@ -5,7 +5,7 @@ import { commands, type ImportRequest } from '$lib/bindings'
 import { editionForHit } from '$lib/catalog/edition-for-hit'
 import { openPeek } from '$lib/catalog/peek-state.svelte'
 import { coverLetter, dominantColorFor } from '../cover-art'
-import { consumeCoverRefresh, coverRefreshVersion } from '../cover-refresh.svelte'
+import { consumeCoverRefresh, refreshState } from '../cover-refresh.svelte'
 import type { SearchHit } from '../types'
 
 interface Props {
@@ -37,7 +37,7 @@ function bytesToUrl(bytes: number[]): string {
 }
 
 $effect(() => {
-  void coverRefreshVersion
+  void refreshState.version
   if (!hit.edition_id || isRemote) return
   if (coverSrc && !consumeCoverRefresh(hit.edition_id)) return
   let cancelled = false
