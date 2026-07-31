@@ -7,6 +7,7 @@ import { setHotkeysContext } from '@tanstack/svelte-hotkeys'
 import { Toaster } from 'svelte-sonner'
 import { commands } from '$lib/bindings'
 import PeekDialog from '$lib/catalog/components/peek-dialog.svelte'
+import AlreadyInCatalogDialog from '$lib/catalog/components/already-in-catalog-dialog.svelte'
 import { defaultCommands, initHotkeyBridge, useCommandRegistry } from '$lib/commands'
 import CommandPalette from '$lib/commands/components/command-palette.svelte'
 import CommandReconciler from '$lib/commands/components/command-reconciler.svelte'
@@ -57,6 +58,7 @@ subscribeProviderFailures()
 <HelpOverlay />
 <HeldKeysIndicator />
 <PeekDialog />
+<AlreadyInCatalogDialog />
 
 <style>
   main {
