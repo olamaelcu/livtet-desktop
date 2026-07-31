@@ -1,0 +1,3 @@
+# cargo-machete.toml
+# False positives that the detector cannot trace (typically feature-gated deps).
+ignore = []
