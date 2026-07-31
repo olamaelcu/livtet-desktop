@@ -21,6 +21,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install mise
+        env:
+          # Use the auto-provided workflow token to avoid GitHub API rate limits
+          # when mise fetches aqua-tool release metadata.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl https://mise.run | sh
           echo "$HOME/.local/share/mise/bin" >> "$GITHUB_PATH"
