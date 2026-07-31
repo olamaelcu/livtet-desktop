@@ -27,7 +27,7 @@ jobs:
           echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
           # Skip dev-only tools that aren't in the mise registry. These remain
           # available locally because mise.toml is unchanged.
-          MISE_DISABLE_TOOLS="taskwarrior pipx:taskwarrior-mcp" mise install
+          MISE_DISABLE_TOOLS=taskwarrior,pipx:taskwarrior-mcp mise install
 
       - name: Cache pnpm store
         uses: actions/cache@v4
