@@ -42,8 +42,10 @@ const grouped = $derived.by(() => {
 })
 
 $effect(() => {
+  console.log("[command-palette] focus effect run, open=", paletteState.open, "visibleLen=", visible.length, "focusedId=", focusedId);
   if (paletteState.open && visible.length > 0 && focusedId === null) {
     focusedId = visible[0]?.id ?? null
+    console.log("[command-palette] focus effect SET focusedId=", focusedId);
   }
 })
 

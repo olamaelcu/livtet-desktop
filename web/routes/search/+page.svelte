@@ -1,37 +1,33 @@
 <script lang="ts">
-  import LocalCatalogSearch from '$lib/search/components/local-catalog-search.svelte'
-  import RemoteCatalogSearch from '$lib/search/components/remote-catalog-search.svelte'
+  import { onMount } from "svelte";
+  import LocalCatalogSearch from "$lib/search/components/local-catalog-search.svelte";
+  import RemoteCatalogSearch from "$lib/search/components/remote-catalog-search.svelte";
 
-  let selectedTab = $state("local")
+  let activeTab = $state("local");
+
+  onMount(() => {
+    function onShow(e: Event) {
+      const tab = e.target as HTMLElement;
+      const panel = tab.getAttribute("panel");
+      if (panel === "local") activeTab = "local";
+      if (panel === "remote") activeTab = "remote";
+    }
+    document.addEventListener("wa-show", onShow);
+    return () => document.removeEventListener("wa-show", onShow);
+  });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<!-- svelte-ignore a11y_click_events_have_key_events -->
 <wa-tab-group>
-  <wa-tab
-    slot="nav"
-    panel="local"
-    active={selectedTab === "local"}
-    onclick={() => (selectedTab = "local")}
-  >
-    Local Catalog
-  </wa-tab>
-  <wa-tab
-    slot="nav"
-    panel="remote"
-    active={selectedTab === "remote"}
-    onclick={() => (selectedTab = "remote")}
-  >
-    Remote Search
-  </wa-tab>
+  <wa-tab slot="nav" panel="local">Local Catalog</wa-tab>
+  <wa-tab slot="nav" panel="remote">Remote Search</wa-tab>
 
   <wa-tab-panel name="local">
-    {#if selectedTab === "local"}
+    {#if activeTab === "local"}
       <LocalCatalogSearch />
     {/if}
   </wa-tab-panel>
   <wa-tab-panel name="remote">
-    {#if selectedTab === "remote"}
+    {#if activeTab === "remote"}
       <RemoteCatalogSearch />
     {/if}
   </wa-tab-panel>

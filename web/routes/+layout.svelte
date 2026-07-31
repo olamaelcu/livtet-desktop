@@ -1,39 +1,43 @@
 <script lang="ts">
-import '@awesome.me/webawesome/dist/styles/webawesome.css'
-import '../app.wa.js'
-import '../app.css'
+  import "@awesome.me/webawesome/dist/styles/webawesome.css";
+  import "../app.wa.js";
+  import "../app.css";
 
-import { setHotkeysContext } from '@tanstack/svelte-hotkeys'
-import { Toaster } from 'svelte-sonner'
-import { commands } from '$lib/bindings'
-import PeekDialog from '$lib/catalog/components/peek-dialog.svelte'
-import { defaultCommands, initHotkeyBridge, useCommandRegistry } from '$lib/commands'
-import CommandPalette from '$lib/commands/components/command-palette.svelte'
-import CommandReconciler from '$lib/commands/components/command-reconciler.svelte'
-import HeldKeysIndicator from '$lib/commands/components/held-keys-indicator.svelte'
-import HelpOverlay from '$lib/commands/components/help-overlay.svelte'
-import { subscribeProviderFailures } from '$lib/remote/chain'
+  import { setHotkeysContext } from "@tanstack/svelte-hotkeys";
+  import { Toaster } from "svelte-sonner";
+  import { commands } from "$lib/bindings";
+  import PeekDialog from "$lib/catalog/components/peek-dialog.svelte";
+  import {
+    defaultCommands,
+    initHotkeyBridge,
+    useCommandRegistry,
+  } from "$lib/commands";
+  import CommandPalette from "$lib/commands/components/command-palette.svelte";
+  import CommandReconciler from "$lib/commands/components/command-reconciler.svelte";
+  import HeldKeysIndicator from "$lib/commands/components/held-keys-indicator.svelte";
+  import HelpOverlay from "$lib/commands/components/help-overlay.svelte";
+  import { subscribeProviderFailures } from "$lib/remote/chain";
 
-let { children } = $props()
+  let { children } = $props();
 
-setHotkeysContext({
-  hotkey: {
-    preventDefault: true,
-    stopPropagation: true,
-    ignoreInputs: true,
-  },
-  hotkeySequence: {
-    timeout: 1500,
-  },
-})
+  setHotkeysContext({
+    hotkey: {
+      preventDefault: true,
+      stopPropagation: true,
+      ignoreInputs: true,
+    },
+    hotkeySequence: {
+      timeout: 1500,
+    },
+  });
 
-const bridge = initHotkeyBridge()
-const registry = useCommandRegistry()
+  const bridge = initHotkeyBridge();
+  const registry = useCommandRegistry();
 
-// Register the default command set once at startup.
-for (const c of defaultCommands) registry.register(c)
+  // Register the default command set once at startup.
+  for (const c of defaultCommands) registry.register(c);
 
-subscribeProviderFailures()
+  subscribeProviderFailures();
 </script>
 
 <CommandReconciler customProfile={bridge.getCustomProfile()} />
@@ -44,9 +48,7 @@ subscribeProviderFailures()
   <wa-button slot="navigation-header" href="/">Home</wa-button>
   <nav slot="navigation">
     <wa-button-group class="nav">
-      <wa-button href="/search">Search</wa-button>
-      <wa-button href="/search/remote">Remote Search</wa-button>
-      <wa-button href="/catalog">Catalog</wa-button>
+      <wa-button href="/search">Catalog</wa-button>
       <wa-button href="/settings">Settings</wa-button>
     </wa-button-group>
   </nav>

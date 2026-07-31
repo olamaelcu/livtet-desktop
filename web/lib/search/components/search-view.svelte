@@ -47,6 +47,7 @@
   // cancelled when rawQuery mutates again (effect re-runs).
   $effect(() => {
     const next = rawQuery;
+    console.log("[search-view] debounce effect run, rawQuery=", next, "query=", query);
     const id = setTimeout(() => {
       query = next;
     }, 750);
@@ -58,6 +59,7 @@
   // work is dropped on cleanup.
   $effect(() => {
     const q = query.trim();
+    console.log("[search-view] search effect run, query=", q);
     if (q === "") {
       allHits = [];
       searchError = null;
@@ -86,10 +88,6 @@
     };
   });
 </script>
-
-<svelte:head>
-  <title>{title}</title>
-</svelte:head>
 
 <wa-page>
   <header slot="header">

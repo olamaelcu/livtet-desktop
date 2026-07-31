@@ -28,7 +28,11 @@ let active = $state<TabId>('overview')
 // If `initialTab` changes after mount (e.g. user navigates from
 // ?tab=files to ?tab=authors on the route), keep the tabs in sync.
 $effect(() => {
-  if (initialTab && initialTab !== active) active = initialTab
+  console.log("[edition-detail] syncTab effect run, initialTab=", initialTab, "active=", active);
+  if (initialTab && initialTab !== active) {
+    active = initialTab
+    console.log("[edition-detail] syncTab effect SET active=", active);
+  }
 })
 
 function onTabShow(event: CustomEvent<{ name: string }>): void {
