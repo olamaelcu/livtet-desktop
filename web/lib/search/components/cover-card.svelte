@@ -1,7 +1,6 @@
 <script lang="ts">
-import { toast } from 'svelte-sonner'
 import { attachAsButton } from '$lib/a11y/attachments'
-import { commands, type ImportRequest } from '$lib/bindings'
+import { commands } from '$lib/bindings'
 import { editionForHit } from '$lib/catalog/edition-for-hit'
 import { openPeek } from '$lib/catalog/peek-state.svelte'
 import { coverLetter, dominantColorFor } from '../cover-art'
@@ -11,17 +10,17 @@ import type { SearchHit } from '../types'
 interface Props {
   hit: SearchHit
   onremove?: (digitalInventoryId: string) => void
+  badge?: import('svelte').Snippet<[hit: SearchHit]>
+  actions?: import('svelte').Snippet<[hit: SearchHit]>
 }
 
-let { hit, onremove }: Props = $props()
+let { hit, onremove, badge, actions }: Props = $props()
 
 const bg = $derived(hit.dominant_color ?? dominantColorFor(hit.title))
 const letter = $derived(coverLetter(hit.title))
 const authorsLine = $derived(hit.authors.length === 0 ? '' : hit.authors.join(', '))
-const isRemote = $derived(!hit.edition_id)
 
 let activating = $state(false)
-let importing = $state(false)
 let coverSrc: string | null = $state(null)
 
 function bytesToUrl(bytes: number[]): string {
@@ -39,7 +38,7 @@ function bytesToUrl(bytes: number[]): string {
 
 $effect(() => {
   void refreshState.version
-  if (!hit.edition_id || isRemote) return
+  if (!hit.edition_id) return
   if (coverSrc && !consumeCoverRefresh(hit.edition_id)) return
   let cancelled = false
   commands
@@ -63,12 +62,6 @@ async function onActivate(): Promise<void> {
   if (activating) return
   activating = true
   try {
-    // Prefer the digital_inventory lookup: an edition can carry
-    // multiple files and only the inventory row tells us which
-    // edition is the canonical "view detail" target for this
-    // search hit. If the lookup errors out (no row, transient DB
-    // hiccup, …) we fall back to the hit's own edition_id so the
-    // user is never locked out of detail view.
     const filesRes =
       hit.work_id && hit.edition_id
         ? await commands.findFilesByEdition(hit.edition_id).catch(() => null)
@@ -81,48 +74,9 @@ async function onActivate(): Promise<void> {
     activating = false
   }
 }
-
-async function onImport(e: Event): Promise<void> {
-  e.stopPropagation()
-  if (importing) return
-  importing = true
-  try {
-    const request: ImportRequest = {
-      title: hit.title,
-      authors: hit.authors,
-      isbn: hit.isbn,
-      isbn_13: hit.isbn_13,
-      publisher: hit.publisher,
-      page_count: hit.page_count,
-      language: hit.language,
-      published_date: hit.published_date,
-      description: hit.description,
-      provider: hit.source,
-      provider_work_id: hit.work_id,
-      provider_edition_url: null,
-    }
-    const res = await commands.importEdition(request)
-    if (res.status === 'error') {
-      toast.error(res.error)
-    } else if (res.data === 'AlreadyExists') {
-      toast.warning('Already in your catalog')
-    } else {
-      toast.success(`Imported "${request.title}" to your catalog`)
-      openPeek(res.data.Created.edition_id)
-    }
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Import failed')
-  } finally {
-    importing = false
-  }
-}
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<!--   attachAsButton adds a keydown listener at runtime; Svelte's static
-       analyzer cannot see it. role="button" + tabindex="0" set by the
-       attachment silence a11y_no_noninteractive_tabindex and
-       a11y_no_static_element_interactions on their own. -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <!-- svelte-ignore a11y_role_supports_aria_props_implicit -->
 <article
@@ -133,6 +87,11 @@ async function onImport(e: Event): Promise<void> {
   onclick={onActivate}
   {@attach attachAsButton}
 >
+  {#if badge}
+    <div class="card-badge">
+      {@render badge(hit)}
+    </div>
+  {/if}
   <div class="cover" aria-hidden="true">
     {#if hit.cover_url}
       <img
@@ -157,22 +116,12 @@ async function onImport(e: Event): Promise<void> {
       <div class="cover-authors">{authorsLine}</div>
     {/if}
   </div>
-  {#if isRemote}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <!--   wa-button is interactive (button semantics + native Enter/Space) -->
-    <div class="import-action">
-      <wa-button
-        size="s"
-        appearance="outlined"
-        disabled={importing}
-        onclick={onImport}
-      >
-        {importing ? "…" : "Import"}
-      </wa-button>
+  {#if actions}
+    <div class="card-actions">
+      {@render actions(hit)}
     </div>
   {:else if hit.digital_inventory_id && onremove}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="delete-action">
+    <div class="card-actions">
       <wa-icon-button
         name="trash"
         label="Remove book"
@@ -181,7 +130,7 @@ async function onImport(e: Event): Promise<void> {
           e.stopPropagation()
           onremove(hit.digital_inventory_id!)
         }}
-      />
+      ></wa-icon-button>
     </div>
   {/if}
 </article>
@@ -270,8 +219,14 @@ async function onImport(e: Event): Promise<void> {
     line-height: 1.2;
   }
 
-  .import-action,
-  .delete-action {
+  .card-badge {
+    position: absolute;
+    top: 0.375rem;
+    left: 0.375rem;
+    z-index: 1;
+  }
+
+  .card-actions {
     position: absolute;
     bottom: 0.5rem;
     right: 0.5rem;
@@ -279,12 +234,9 @@ async function onImport(e: Event): Promise<void> {
     transition: opacity 150ms ease;
   }
 
-  .cover-card:hover .import-action,
-  .cover-card:focus-visible .import-action,
-  .cover-card:focus-within .import-action,
-  .cover-card:hover .delete-action,
-  .cover-card:focus-visible .delete-action,
-  .cover-card:focus-within .delete-action {
+  .cover-card:hover .card-actions,
+  .cover-card:focus-visible .card-actions,
+  .cover-card:focus-within .card-actions {
     opacity: 1;
   }
 

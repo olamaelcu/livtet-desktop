@@ -3,17 +3,18 @@ import type { SearchHit } from '../types'
 import CoverCard from './cover-card.svelte'
 
 interface Props {
-  hits: SearchHit[]
+  hits: readonly SearchHit[]
   onremove?: (digitalInventoryId: string) => void
+  badge?: import('svelte').Snippet<[hit: SearchHit]>
+  actions?: import('svelte').Snippet<[hit: SearchHit]>
 }
 
-let { hits, onremove }: Props = $props()
+let { hits, onremove, badge, actions }: Props = $props()
 </script>
 
 <div class="cover-grid">
-  <!-- TODO: Include hit.kind (and likely hit.edition_id) in this key when real mixed-kind hits are wired up. -->
   {#each hits as hit (hit.work_id)}
-    <CoverCard {hit} {onremove} />
+    <CoverCard {hit} {onremove} badge={badge} actions={actions} />
   {/each}
 </div>
 
