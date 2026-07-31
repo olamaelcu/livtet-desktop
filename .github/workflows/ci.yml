@@ -21,7 +21,11 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install mise
-        uses: jdx/mise-action@v1
+        run: |
+          curl https://mise.run | sh
+          echo "$HOME/.local/share/mise/bin" >> "$GITHUB_PATH"
+          echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
+          mise install
 
       - name: Cache pnpm store
         uses: actions/cache@v4
