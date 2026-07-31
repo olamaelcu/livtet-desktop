@@ -9,6 +9,7 @@ use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
 use tracing_subscriber::fmt;
 
 mod commands;
+pub mod http;
 pub mod secrets;
 pub mod state;
 
@@ -108,10 +109,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let search = Arc::new(livtet_core::search::SearchIndex::open(
         paths.search_index_path.as_path(),
     )?);
-    let http = reqwest::Client::builder()
-        .user_agent("livtet-desktop/0.1.0 (+https://livtet.app)")
-        .build()
-        .expect("failed to build reqwest client");
+    let http = crate::http::build_client();
     let search_registry = crate::commands::remote_search::chain::SearchRegistry::default();
 
     app.manage(AppState {

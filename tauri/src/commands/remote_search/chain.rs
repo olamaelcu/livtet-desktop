@@ -16,8 +16,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::commands::remote_search::{
-    google_books::GoogleBooks, hardcover::Hardcover, openlibrary::OpenLibrary,
-    Provider, ProviderError, ProviderId,
+    Provider, ProviderError, ProviderId, google_books::GoogleBooks, hardcover::Hardcover,
+    openlibrary::OpenLibrary,
 };
 use crate::commands::search::SearchHitRow;
 use crate::secrets;
@@ -95,9 +95,10 @@ const KEYRING_SERVICE: &str = "net.olamaelcu.livtet";
 const KEYRING_USER: &str = "hardcover_api_key";
 
 pub fn build_chain(http: reqwest::Client, hardcover_key: Option<String>) -> Vec<Arc<dyn Provider>> {
-    let mut chain: Vec<Arc<dyn Provider>> = vec![
-        Arc::new(GoogleBooks::new(http.clone(), secrets::GOOGLE_BOOKS_API_KEY.to_string())),
-    ];
+    let mut chain: Vec<Arc<dyn Provider>> = vec![Arc::new(GoogleBooks::new(
+        http.clone(),
+        secrets::GOOGLE_BOOKS_API_KEY.to_string(),
+    ))];
     if let Some(key) = hardcover_key {
         chain.push(Arc::new(Hardcover::new(http.clone(), Some(key))));
     }
@@ -106,7 +107,7 @@ pub fn build_chain(http: reqwest::Client, hardcover_key: Option<String>) -> Vec<
 }
 
 pub async fn run_chain(
-    _state: &AppState,
+    state: &AppState,
     app: &AppHandle,
     query: &str,
     limit: u32,
@@ -114,7 +115,7 @@ pub async fn run_chain(
     token: CancellationToken,
 ) -> RemoteSearchResult {
     let hardcover_key = load_hardcover_key();
-    let providers = build_chain(_state.http.clone(), hardcover_key);
+    let providers = build_chain(state.http.clone(), hardcover_key);
 
     let empty = || RemoteSearchResult {
         request_id: request_id.to_string(),
@@ -123,7 +124,9 @@ pub async fn run_chain(
     };
 
     for provider in providers {
-        if token.is_cancelled() { return empty(); }
+        if token.is_cancelled() {
+            return empty();
+        }
 
         let result = tokio::select! {
             r = provider.search(query, limit) => r,
@@ -187,14 +190,21 @@ mod tests {
 
     #[async_trait]
     impl Provider for StubProvider {
-        fn id(&self) -> ProviderId { self.id }
+        fn id(&self) -> ProviderId {
+            self.id
+        }
         async fn search(&self, _: &str, _: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
             match self.behaviour.clone() {
                 StubBehaviour::Ok(h) => Ok(h),
                 StubBehaviour::Empty => Ok(Vec::new()),
-                StubBehaviour::ErrRateLimited => Err(ProviderError::RateLimited { retry_after_seconds: 60 }),
+                StubBehaviour::ErrRateLimited => Err(ProviderError::RateLimited {
+                    retry_after_seconds: 60,
+                }),
                 StubBehaviour::ErrAuth => Err(ProviderError::Auth),
-                StubBehaviour::ErrHttp => Err(ProviderError::Http { status: 503, body: "down".into() }),
+                StubBehaviour::ErrHttp => Err(ProviderError::Http {
+                    status: 503,
+                    body: "down".into(),
+                }),
                 StubBehaviour::ErrCancelled => Err(ProviderError::Auth), // sentinel — match arm checks is_cancelled
             }
         }
@@ -222,8 +232,14 @@ mod tests {
     #[tokio::test]
     async fn first_non_empty_wins() {
         let providers: Vec<Arc<dyn Provider>> = vec![
-            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::Ok(vec![hit("A")]) }),
-            Arc::new(StubProvider { id: ProviderId::Hardcover, behaviour: StubBehaviour::Ok(vec![hit("B")]) }),
+            Arc::new(StubProvider {
+                id: ProviderId::GoogleBooks,
+                behaviour: StubBehaviour::Ok(vec![hit("A")]),
+            }),
+            Arc::new(StubProvider {
+                id: ProviderId::Hardcover,
+                behaviour: StubBehaviour::Ok(vec![hit("B")]),
+            }),
         ];
         let token = CancellationToken::new();
         let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
@@ -235,8 +251,14 @@ mod tests {
     #[tokio::test]
     async fn empty_first_advances_to_next() {
         let providers: Vec<Arc<dyn Provider>> = vec![
-            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::Empty }),
-            Arc::new(StubProvider { id: ProviderId::Hardcover, behaviour: StubBehaviour::Ok(vec![hit("B")]) }),
+            Arc::new(StubProvider {
+                id: ProviderId::GoogleBooks,
+                behaviour: StubBehaviour::Empty,
+            }),
+            Arc::new(StubProvider {
+                id: ProviderId::Hardcover,
+                behaviour: StubBehaviour::Ok(vec![hit("B")]),
+            }),
         ];
         let token = CancellationToken::new();
         let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
@@ -247,9 +269,18 @@ mod tests {
     #[tokio::test]
     async fn all_three_fail_returns_empty() {
         let providers: Vec<Arc<dyn Provider>> = vec![
-            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::ErrAuth }),
-            Arc::new(StubProvider { id: ProviderId::Hardcover, behaviour: StubBehaviour::ErrHttp }),
-            Arc::new(StubProvider { id: ProviderId::OpenLibrary, behaviour: StubBehaviour::ErrRateLimited }),
+            Arc::new(StubProvider {
+                id: ProviderId::GoogleBooks,
+                behaviour: StubBehaviour::ErrAuth,
+            }),
+            Arc::new(StubProvider {
+                id: ProviderId::Hardcover,
+                behaviour: StubBehaviour::ErrHttp,
+            }),
+            Arc::new(StubProvider {
+                id: ProviderId::OpenLibrary,
+                behaviour: StubBehaviour::ErrRateLimited,
+            }),
         ];
         let token = CancellationToken::new();
         let result = run_chain_with(providers, &token, "query", 10, "req-1").await;
@@ -259,9 +290,10 @@ mod tests {
 
     #[tokio::test]
     async fn pre_cancelled_token_short_circuits() {
-        let providers: Vec<Arc<dyn Provider>> = vec![
-            Arc::new(StubProvider { id: ProviderId::GoogleBooks, behaviour: StubBehaviour::Ok(vec![hit("A")]) }),
-        ];
+        let providers: Vec<Arc<dyn Provider>> = vec![Arc::new(StubProvider {
+            id: ProviderId::GoogleBooks,
+            behaviour: StubBehaviour::Ok(vec![hit("A")]),
+        })];
         let token = CancellationToken::new();
         token.cancel();
         let result = run_chain_with(providers, &token, "query", 10, "req-1").await;

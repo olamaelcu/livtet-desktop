@@ -12,15 +12,12 @@
 //! on the Editions schema and would require a second lookup per
 //! hit. We leave them as None.
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use serde::Deserialize;
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
 
 const HARDCOVER_URL: &str = "https://api.hardcover.app/v1/graphql";
-const USER_AGENT: &str = "livtet-desktop/0.1.0 (+https://livtet.olamaelcu.net/apps)";
 
 const HARDCOVER_QUERY: &str = r#"
 query BookSearch($query: String!, $per_page: Int!) {
@@ -53,8 +50,6 @@ impl Provider for Hardcover {
         let res = self.http
             .post(HARDCOVER_URL)
             .header("Authorization", format!("Bearer {key}"))
-            .header("User-Agent", USER_AGENT)
-            .timeout(Duration::from_secs(8))
             .json(&body)
             .send()
             .await?;
@@ -215,5 +210,44 @@ mod tests {
         let hit = map_hardcover_hit(doc).unwrap();
         assert_eq!(hit.isbn, None);
         assert_eq!(hit.isbn_13, None);
+    }
+
+    #[tokio::test]
+    async fn live_search_returns_hits() {
+        let key = match std::env::var("HARDCOVER_API_KEY") {
+            Ok(k) if !k.is_empty() => k,
+            _ => {
+                eprintln!("HARDCOVER_API_KEY not set; skipping live Hardcover test");
+                return;
+            }
+        };
+        let http = crate::http::build_client();
+        let provider = Hardcover::new(http, Some(key));
+        let hits = match provider.search("The Lord of the Rings", 5).await {
+            Ok(hits) => hits,
+            Err(crate::commands::remote_search::ProviderError::Auth)
+            | Err(crate::commands::remote_search::ProviderError::Http {
+                status: 400 | 401 | 403,
+                ..
+            }) => {
+                eprintln!("Hardcover rejected the API key; skipping live test");
+                return;
+            }
+            Err(e) => panic!("live Hardcover search failed: {e}"),
+        };
+        assert!(!hits.is_empty(), "live search returned no hits");
+        let hit = &hits[0];
+        assert_eq!(hit.provider_id, ProviderId::Hardcover);
+        assert!(
+            hit.title.to_lowercase().contains("lord of the rings"),
+            "expected title to contain 'lord of the rings', got {:?}",
+            hit.title
+        );
+        assert!(
+            hit.authors.iter().any(|a| a.to_lowercase().contains("tolkien")),
+            "expected an author containing 'tolkien', got {:?}",
+            hit.authors
+        );
+        assert!(!hit.provider_work_id.is_empty());
     }
 }

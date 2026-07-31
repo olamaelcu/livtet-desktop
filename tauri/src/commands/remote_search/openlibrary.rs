@@ -6,8 +6,6 @@
 //! Cover URLs are built from the `cover_i` field:
 //!   https://covers.openlibrary.org/b/id/{cover_i}-M.jpg
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use serde::Deserialize;
 
@@ -35,7 +33,6 @@ impl Provider for OpenLibrary {
         );
         let res = self.http
             .get(&url)
-            .timeout(Duration::from_secs(8))
             .send()
             .await?;
         let status = res.status();
@@ -168,5 +165,29 @@ mod tests {
             "future_field_we_dont_know_about": {"nested": [1, 2, 3]}
         })).unwrap();
         assert!(map_openlibrary_hit(doc).is_some());
+    }
+
+    #[tokio::test]
+    async fn live_search_returns_hits() {
+        let http = crate::http::build_client();
+        let provider = OpenLibrary::new(http);
+        let hits = provider
+            .search("The Hobbit", 5)
+            .await
+            .expect("live OpenLibrary search should succeed");
+        assert!(!hits.is_empty(), "live search returned no hits");
+        let hit = &hits[0];
+        assert_eq!(hit.provider_id, ProviderId::OpenLibrary);
+        assert!(
+            hit.title.to_lowercase().contains("hobbit"),
+            "expected title to contain 'hobbit', got {:?}",
+            hit.title
+        );
+        assert!(
+            hit.authors.iter().any(|a| a.to_lowercase().contains("tolkien")),
+            "expected an author containing 'tolkien', got {:?}",
+            hit.authors
+        );
+        assert!(!hit.provider_work_id.is_empty());
     }
 }

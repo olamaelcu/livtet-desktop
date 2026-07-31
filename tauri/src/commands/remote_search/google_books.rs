@@ -3,8 +3,6 @@
 //! Endpoint: https://www.googleapis.com/books/v1/volumes
 //! Auth: api_key in query string (compile-time secret)
 
-use std::time::Duration;
-
 use async_trait::async_trait;
 use serde::Deserialize;
 
@@ -34,7 +32,6 @@ impl Provider for GoogleBooks {
         );
         let res = self.http
             .get(&url)
-            .timeout(Duration::from_secs(5))
             .send()
             .await?;
         let status = res.status();
@@ -218,5 +215,42 @@ mod tests {
         let hit = map_google_books_hit(item).unwrap();
         assert_eq!(hit.isbn.as_deref(), Some("0000000000"));
         assert_eq!(hit.isbn_13.as_deref(), Some("9780000000000"));
+    }
+
+    #[tokio::test]
+    async fn live_search_returns_hits() {
+        let key = crate::secrets::GOOGLE_BOOKS_API_KEY;
+        if key.is_empty() {
+            eprintln!("GOOGLE_BOOKS_API_KEY not set; skipping live Google Books test");
+            return;
+        }
+        let http = crate::http::build_client();
+        let provider = GoogleBooks::new(http, key.to_string());
+        let hits = match provider.search("The Hobbit", 5).await {
+            Ok(hits) => hits,
+            Err(crate::commands::remote_search::ProviderError::Auth)
+            | Err(crate::commands::remote_search::ProviderError::Http {
+                status: 400 | 401 | 403,
+                ..
+            }) => {
+                eprintln!("Google Books rejected the API key; skipping live test");
+                return;
+            }
+            Err(e) => panic!("live Google Books search failed: {e}"),
+        };
+        assert!(!hits.is_empty(), "live search returned no hits");
+        let hit = &hits[0];
+        assert_eq!(hit.provider_id, ProviderId::GoogleBooks);
+        assert!(
+            hit.title.to_lowercase().contains("hobbit"),
+            "expected title to contain 'hobbit', got {:?}",
+            hit.title
+        );
+        assert!(
+            hit.authors.iter().any(|a| a.to_lowercase().contains("tolkien")),
+            "expected an author containing 'tolkien', got {:?}",
+            hit.authors
+        );
+        assert!(!hit.provider_work_id.is_empty());
     }
 }
