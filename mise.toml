@@ -39,6 +39,10 @@ run = [
   "pnpm test",
 ]
 
+[tasks."test:e2e:browser"]
+description = "Run E2E tests in browser-only mode (mocked IPC)"
+run = "pnpm test:e2e:browser"
+
 [tasks.fix]
 description = "Auto-fix formatting and clippy issues"
 run = [

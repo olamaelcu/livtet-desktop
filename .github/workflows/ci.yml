@@ -124,11 +124,30 @@ jobs:
       - name: Install JS dependencies
         run: mise exec -- pnpm install --frozen-lockfile
 
-      - name: Install Playwright browsers
-        run: mise exec -- pnpm exec playwright install chromium
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('**/package.json') }}
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
-      - name: Run tests
+      - name: Install Playwright browsers
+        run: mise exec -- pnpm exec playwright install --with-deps chromium
+
+      - name: Run unit + browser tests
         run: mise run test
+
+      - name: Run E2E tests
+        run: mise run test:e2e:browser
+
+      - name: Upload E2E test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: test-results/e2e
+          retention-days: 7
 
   ci:
     name: CI Summary
