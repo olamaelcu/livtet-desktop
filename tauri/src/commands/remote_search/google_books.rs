@@ -5,6 +5,8 @@
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tracing::debug;
+use tracing::warn;
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
 
@@ -26,6 +28,12 @@ impl Provider for GoogleBooks {
     }
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+        debug!(
+            query = %query,
+            limit,
+            provider = "google_books",
+            "sending search request"
+        );
         let url = format!(
             "https://www.googleapis.com/books/v1/volumes?q={}&maxResults={}&key={}",
             urlencoding::encode(query),
@@ -34,6 +42,11 @@ impl Provider for GoogleBooks {
         );
         let res = self.http.get(&url).send().await?;
         let status = res.status();
+        debug!(
+            status = %status,
+            provider = "google_books",
+            "received response"
+        );
         if status.as_u16() == 429 {
             let retry = res
                 .headers()
@@ -46,24 +59,40 @@ impl Provider for GoogleBooks {
             });
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
+            warn!(
+                status = status.as_u16(),
+                provider = "google_books",
+                "auth rejected — API key missing or invalid"
+            );
             return Err(ProviderError::Auth);
         }
         if !status.is_success() {
+            warn!(
+                status = status.as_u16(),
+                provider = "google_books",
+                "non-success status"
+            );
             return Err(ProviderError::Http {
                 status: status.as_u16(),
                 body: res.text().await.unwrap_or_default(),
             });
         }
-        let body: GoogleBooksResponse = res
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
-        Ok(body
+        let body: GoogleBooksResponse = res.json().await.map_err(|e| {
+            warn!(error = %e, provider = "google_books", "failed to parse response body");
+            ProviderError::Parse(e.to_string())
+        })?;
+        let hits: Vec<RawSearchHit> = body
             .items
             .unwrap_or_default()
             .into_iter()
             .filter_map(map_google_books_hit)
-            .collect())
+            .collect();
+        debug!(
+            hit_count = hits.len(),
+            provider = "google_books",
+            "search completed"
+        );
+        Ok(hits)
     }
 }
 

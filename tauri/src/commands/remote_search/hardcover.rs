@@ -14,6 +14,7 @@
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tracing::{debug, warn};
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
 
@@ -45,6 +46,12 @@ impl Provider for Hardcover {
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
         let key = self.api_key.as_deref().ok_or(ProviderError::Auth)?;
+        debug!(
+            query = %query,
+            limit,
+            provider = "hardcover",
+            "sending GraphQL search request"
+        );
         let body = serde_json::json!({
             "query": HARDCOVER_QUERY,
             "variables": { "query": query, "per_page": limit },
@@ -57,6 +64,11 @@ impl Provider for Hardcover {
             .send()
             .await?;
         let status = res.status();
+        debug!(
+            status = %status,
+            provider = "hardcover",
+            "received response"
+        );
         if status.as_u16() == 429 {
             let retry = res
                 .headers()
@@ -69,9 +81,19 @@ impl Provider for Hardcover {
             });
         }
         if status.as_u16() == 401 || status.as_u16() == 403 {
+            warn!(
+                status = status.as_u16(),
+                provider = "hardcover",
+                "auth rejected — API key missing or invalid"
+            );
             return Err(ProviderError::Auth);
         }
         if !status.is_success() {
+            warn!(
+                status = status.as_u16(),
+                provider = "hardcover",
+                "non-success status"
+            );
             return Err(ProviderError::Http {
                 status: status.as_u16(),
                 body: res.text().await.unwrap_or_default(),
@@ -80,8 +102,16 @@ impl Provider for Hardcover {
         let body: HardcoverResponse = res
             .json()
             .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
+            .map_err(|e| {
+                warn!(error = %e, provider = "hardcover", "failed to parse response body");
+                ProviderError::Parse(e.to_string())
+            })?;
         if let Some(errors) = body.errors {
+            warn!(
+                provider = "hardcover",
+                error_count = errors.len(),
+                "GraphQL errors returned"
+            );
             return Err(ProviderError::GraphQL {
                 messages: errors.into_iter().map(|e| e.message).collect(),
             });
@@ -89,12 +119,18 @@ impl Provider for Hardcover {
         let Some(data) = body.data else {
             return Ok(Vec::new());
         };
-        Ok(data
+        let hits: Vec<RawSearchHit> = data
             .search
             .results
             .into_iter()
             .filter_map(map_hardcover_hit)
-            .collect())
+            .collect();
+        debug!(
+            hit_count = hits.len(),
+            provider = "hardcover",
+            "search completed"
+        );
+        Ok(hits)
     }
 }
 

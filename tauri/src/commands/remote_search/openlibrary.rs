@@ -8,6 +8,7 @@
 
 use async_trait::async_trait;
 use serde::Deserialize;
+use tracing::{debug, warn};
 
 use crate::commands::remote_search::{Provider, ProviderError, ProviderId, RawSearchHit};
 
@@ -28,6 +29,12 @@ impl Provider for OpenLibrary {
     }
 
     async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+        debug!(
+            query = %query,
+            limit,
+            provider = "openlibrary",
+            "sending search request"
+        );
         let url = format!(
             "https://openlibrary.org/search.json?q={}&limit={}&fields=key,title,author_name,first_publish_year,isbn,publisher,language,number_of_pages_median,cover_i",
             urlencoding::encode(query),
@@ -35,6 +42,11 @@ impl Provider for OpenLibrary {
         );
         let res = self.http.get(&url).send().await?;
         let status = res.status();
+        debug!(
+            status = %status,
+            provider = "openlibrary",
+            "received response"
+        );
         if status.as_u16() == 429 {
             let retry = res
                 .headers()
@@ -47,6 +59,11 @@ impl Provider for OpenLibrary {
             });
         }
         if !status.is_success() {
+            warn!(
+                status = status.as_u16(),
+                provider = "openlibrary",
+                "non-success status"
+            );
             return Err(ProviderError::Http {
                 status: status.as_u16(),
                 body: res.text().await.unwrap_or_default(),
@@ -55,12 +72,21 @@ impl Provider for OpenLibrary {
         let body: OpenLibraryResponse = res
             .json()
             .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
-        Ok(body
+            .map_err(|e| {
+                warn!(error = %e, provider = "openlibrary", "failed to parse response body");
+                ProviderError::Parse(e.to_string())
+            })?;
+        let hits: Vec<RawSearchHit> = body
             .docs
             .into_iter()
             .filter_map(map_openlibrary_hit)
-            .collect())
+            .collect();
+        debug!(
+            hit_count = hits.len(),
+            provider = "openlibrary",
+            "search completed"
+        );
+        Ok(hits)
     }
 }
 

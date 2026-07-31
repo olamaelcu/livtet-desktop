@@ -116,6 +116,15 @@ pub async fn run_chain(
 ) -> RemoteSearchResult {
     let hardcover_key = load_hardcover_key();
     let providers = build_chain(state.http.clone(), hardcover_key);
+    let provider_count = providers.len();
+
+    tracing::info!(
+        request_id = %request_id,
+        query = %query,
+        limit,
+        provider_count,
+        "starting remote search chain"
+    );
 
     let empty = || RemoteSearchResult {
         request_id: request_id.to_string(),
@@ -128,6 +137,14 @@ pub async fn run_chain(
             return empty();
         }
 
+        let pid = provider.id();
+        tracing::info!(
+            provider = pid.as_str(),
+            query = %query,
+            limit,
+            "trying provider"
+        );
+
         let result = tokio::select! {
             r = provider.search(query, limit) => r,
             _ = token.cancelled() => Err(ProviderError::Auth),
@@ -135,20 +152,40 @@ pub async fn run_chain(
 
         match result {
             Ok(hits) if !hits.is_empty() => {
+                tracing::info!(
+                    provider = pid.as_str(),
+                    hit_count = hits.len(),
+                    "provider returned hits — chain complete"
+                );
                 return RemoteSearchResult {
                     request_id: request_id.to_string(),
                     results: hits.into_iter().map(SearchHitRow::from).collect(),
-                    used_provider: Some(provider.id()),
+                    used_provider: Some(pid),
                 };
             }
-            Ok(_) => continue,
+            Ok(_) => {
+                tracing::debug!(
+                    provider = pid.as_str(),
+                    "provider returned no hits — advancing to next"
+                );
+                continue;
+            }
             Err(_) if token.is_cancelled() => return empty(),
             Err(e) => {
-                emit_provider_failure(app, request_id, provider.id(), e.to_string());
+                tracing::warn!(
+                    provider = pid.as_str(),
+                    error = %e,
+                    "provider failed — advancing to next"
+                );
+                emit_provider_failure(app, request_id, pid, e.to_string());
                 continue;
             }
         }
     }
+    tracing::info!(
+        request_id = %request_id,
+        "all providers exhausted — returning empty results"
+    );
     empty()
 }
 
