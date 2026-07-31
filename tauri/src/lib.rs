@@ -43,6 +43,7 @@ pub mod _bindings_export {
                 commands::edition::find_edition_by_identifier,
                 commands::digital_inventory::find_files_by_edition,
                 commands::digital_inventory::add_digital_inventory,
+                commands::digital_inventory::remove_book,
                 commands::edition_authors::find_authors_by_edition,
                 commands::edition_identifiers::find_identifiers_by_edition,
                 commands::remote_search::remote_search,

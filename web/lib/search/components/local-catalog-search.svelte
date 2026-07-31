@@ -32,6 +32,17 @@ function toggleLanguage(label: string) {
   filterState = { ...filterState, languages: next }
 }
 
+let searchKey = $state(0)
+
+async function handleRemove(digitalInventoryId: string) {
+  if (!window.confirm('Remove this book from your catalog?')) return
+  const res = await commands.removeBook(digitalInventoryId)
+  if (res.status === 'ok') searchKey++
+  else if (res.status === 'error') {
+    // TODO: show error toast
+  }
+}
+
 async function runSearch(
   query: string,
   limit: number,
@@ -55,6 +66,7 @@ async function runSearch(
 </script>
 
 <CommandScope id="search">
+  {#key searchKey}
   <SearchView
     title="Search · livtet"
     limit={SEARCH_LIMIT}
@@ -116,7 +128,7 @@ async function runSearch(
           {/if}
         </wa-callout>
       {:else}
-        <CoverGrid hits={filtered} />
+        <CoverGrid hits={filtered} onremove={handleRemove} />
       {/if}
     {/snippet}
 
@@ -127,6 +139,7 @@ async function runSearch(
       </p>
     {/snippet}
   </SearchView>
+  {/key}
 </CommandScope>
 
 <style>

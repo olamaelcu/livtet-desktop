@@ -4,15 +4,16 @@ import CoverCard from './cover-card.svelte'
 
 interface Props {
   hits: SearchHit[]
+  onremove?: (digitalInventoryId: string) => void
 }
 
-let { hits }: Props = $props()
+let { hits, onremove }: Props = $props()
 </script>
 
 <div class="cover-grid">
   <!-- TODO: Include hit.kind (and likely hit.edition_id) in this key when real mixed-kind hits are wired up. -->
   {#each hits as hit (hit.work_id)}
-    <CoverCard {hit} />
+    <CoverCard {hit} {onremove} />
   {/each}
 </div>
 

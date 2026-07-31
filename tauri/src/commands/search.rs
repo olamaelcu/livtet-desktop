@@ -37,22 +37,23 @@ async fn enrich_with_cover_metadata(
         .all(db)
         .await?;
 
-    let cover_map: HashMap<String, (Option<String>, Option<String>)> = inventory_rows
+    let cover_map: HashMap<String, (Option<String>, Option<String>, String)> = inventory_rows
         .iter()
         .map(|r| {
             (
                 r.edition_id.to_string(),
-                (r.blurhash.clone(), r.dominant_color.clone()),
+                (r.blurhash.clone(), r.dominant_color.clone(), r.id.to_string()),
             )
         })
         .collect();
 
     for row in rows.iter_mut() {
         if let Some(ref edition_id) = row.edition_id
-            && let Some((blurhash, dominant_color)) = cover_map.get(edition_id.as_str())
+            && let Some((blurhash, dominant_color, inv_id)) = cover_map.get(edition_id.as_str())
         {
             row.blurhash = blurhash.clone();
             row.dominant_color = dominant_color.clone();
+            row.digital_inventory_id = Some(inv_id.clone());
         }
     }
 
@@ -139,6 +140,8 @@ pub struct SearchHitRow {
     pub isbn_13: Option<String>,
     pub blurhash: Option<String>,
     pub dominant_color: Option<String>,
+    /// ID of the `digital_inventory` row for this hit, when one exists.
+    pub digital_inventory_id: Option<String>,
     /// Whether this edition has a row in `digital_inventory`
     /// (i.e. there is a file on disk).
     pub has_file: bool,
@@ -176,6 +179,7 @@ impl From<livtet_core::search::SearchHit> for SearchHitRow {
             isbn_13: None,
             blurhash: None,
             dominant_color: None,
+            digital_inventory_id: None,
             has_file: h.has_file,
             in_catalog: false,
             in_catalog_edition_id: None,

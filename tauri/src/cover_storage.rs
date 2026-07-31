@@ -195,6 +195,47 @@ impl CoverStorage for CacacheStorage {
     }
 }
 
+impl CacacheStorage {
+    pub async fn remove(&mut self, edition_id: DbId) -> CoverResult<()> {
+        let marker_dir = self.marker_dir(edition_id);
+        let entries_result = fs_err::tokio::read_dir(&marker_dir).await;
+        let mut dir = match entries_result {
+            Ok(d) => d,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(CoverError::Io(e)),
+        };
+        while let Ok(Some(entry)) = dir.next_entry().await {
+            if !entry
+                .file_type()
+                .await
+                .map(|t| t.is_file())
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            let content_key = match fs_err::tokio::read_to_string(entry.path()).await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(error = %e, path = ?entry.path(), "failed to read marker during remove");
+                    continue;
+                }
+            };
+            let entry_path = self.entry_path(&content_key);
+            if entry_path.exists() {
+                let _ = fs_err::tokio::remove_file(&entry_path).await;
+            }
+            let _ = fs_err::tokio::remove_file(entry.path()).await;
+        }
+        let _ = fs_err::tokio::remove_dir_all(&marker_dir).await;
+        let perm_dir = self.permanent_dir.join(edition_id.to_string());
+        let perm_std = perm_dir.as_std_path();
+        if perm_std.exists() {
+            let _ = fs_err::tokio::remove_dir_all(perm_std).await;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

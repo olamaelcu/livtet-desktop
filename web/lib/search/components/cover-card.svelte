@@ -10,9 +10,10 @@ import type { SearchHit } from '../types'
 
 interface Props {
   hit: SearchHit
+  onremove?: (digitalInventoryId: string) => void
 }
 
-let { hit }: Props = $props()
+let { hit, onremove }: Props = $props()
 
 const bg = $derived(hit.dominant_color ?? dominantColorFor(hit.title))
 const letter = $derived(coverLetter(hit.title))
@@ -169,6 +170,19 @@ async function onImport(e: Event): Promise<void> {
         {importing ? "…" : "Import"}
       </wa-button>
     </div>
+  {:else if hit.digital_inventory_id && onremove}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="delete-action">
+      <wa-icon-button
+        name="trash"
+        label="Remove book"
+        class="delete-icon"
+        onclick={(e: Event) => {
+          e.stopPropagation()
+          onremove(hit.digital_inventory_id!)
+        }}
+      />
+    </div>
   {/if}
 </article>
 
@@ -256,7 +270,8 @@ async function onImport(e: Event): Promise<void> {
     line-height: 1.2;
   }
 
-  .import-action {
+  .import-action,
+  .delete-action {
     position: absolute;
     bottom: 0.5rem;
     right: 0.5rem;
@@ -266,7 +281,20 @@ async function onImport(e: Event): Promise<void> {
 
   .cover-card:hover .import-action,
   .cover-card:focus-visible .import-action,
-  .cover-card:focus-within .import-action {
+  .cover-card:focus-within .import-action,
+  .cover-card:hover .delete-action,
+  .cover-card:focus-visible .delete-action,
+  .cover-card:focus-within .delete-action {
     opacity: 1;
+  }
+
+  .delete-icon::part(base) {
+    color: white;
+    background: rgba(255, 59, 48, 0.85);
+    border-radius: 50%;
+  }
+
+  .delete-icon::part(base):hover {
+    background: rgba(255, 59, 48, 1);
   }
 </style>

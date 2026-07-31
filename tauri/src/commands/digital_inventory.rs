@@ -133,6 +133,61 @@ pub async fn add_digital_inventory(
     Ok(DigitalInventoryRow::from(model))
 }
 
+#[tauri::command]
+#[specta::specta]
+#[tracing::instrument(skip(state), err, fields(digital_inventory_id))]
+pub async fn remove_book(
+    state: State<'_, AppState>,
+    digital_inventory_id: String,
+) -> Result<(), String> {
+    let db = state.db.db_conn();
+    let inventory_id = digital_inventory_id
+        .parse::<livtet_core::DbId>()
+        .map_err(|e| format!("invalid digital_inventory_id: {e}"))?;
+
+    let row = livtet_core::data::entities::digital_inventory::Entity::find_by_id(inventory_id)
+        .one(&db)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("book with digital_inventory_id {digital_inventory_id} not found"))?;
+
+    let edition_id = row.edition_id;
+
+    {
+        let mut covers = state.covers.lock().await;
+        covers.remove(edition_id).await.map_err(|e| e.to_string())?;
+    }
+
+    {
+        use livtet_core::data::entities::edition_specific_covers;
+        edition_specific_covers::Entity::delete_many()
+            .filter(edition_specific_covers::Column::EditionId.eq(edition_id))
+            .exec(&db)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    let result = livtet_core::data::entities::digital_inventory::Entity::delete_by_id(
+        inventory_id,
+    )
+    .exec(&db)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    if result.rows_affected == 0 {
+        return Err(format!(
+            "book with digital_inventory_id {digital_inventory_id} not found"
+        ));
+    }
+
+    {
+        let search = state.search.read().await;
+        search.reindex(&db).await.map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

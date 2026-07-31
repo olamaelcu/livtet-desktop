@@ -1,6 +1,6 @@
-import type { HitKind, SearchHit } from '$lib/bindings'
+import type { HitKind, SearchHitRow } from '$lib/bindings'
 
-export function hit(overrides: Partial<SearchHit> = {}): SearchHit {
+export function hit(overrides: Partial<SearchHitRow> = {}): SearchHitRow {
   return {
     kind: 'work' as HitKind,
     edition_id: null,
@@ -27,6 +27,8 @@ export function hit(overrides: Partial<SearchHit> = {}): SearchHit {
     isbn_13: null,
     blurhash: null,
     dominant_color: null,
+    digital_inventory_id: null,
+    has_file: false,
     in_catalog: false,
     in_catalog_edition_id: null,
     ...overrides,

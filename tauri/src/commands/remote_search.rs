@@ -100,6 +100,7 @@ impl From<RawSearchHit> for SearchHitRow {
             isbn_13: r.isbn_13,
             blurhash: None,
             dominant_color: None,
+            digital_inventory_id: None,
             in_catalog: false,
             in_catalog_edition_id: None,
             has_file: false,
