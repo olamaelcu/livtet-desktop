@@ -9,9 +9,9 @@ interface Props {
 
 let { params }: Props = $props()
 
-type TabId = 'overview' | 'files' | 'authors' | 'identifiers'
+type TabId = 'overview' | 'files' | 'covers' | 'authors' | 'identifiers'
 
-const ALLOWED_TABS: TabId[] = ['overview', 'files', 'authors', 'identifiers']
+const ALLOWED_TABS: TabId[] = ['overview', 'files', 'covers', 'authors', 'identifiers']
 
 const initialTab = $derived.by<TabId>(() => {
   const raw = page.url.searchParams.get('tab')

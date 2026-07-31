@@ -20,6 +20,7 @@ pub mod state;
 pub mod _bindings_export {
     //! Public re-exports for the `generate-bindings` bin.
     use crate::commands;
+    pub use crate::commands::covers;
     pub use crate::commands::diagnostics;
     pub use crate::commands::digital_inventory;
     pub use crate::commands::edition;
@@ -41,6 +42,7 @@ pub mod _bindings_export {
                 commands::edition::find_edition_by_id,
                 commands::edition::find_edition_by_identifier,
                 commands::digital_inventory::find_files_by_edition,
+                commands::digital_inventory::add_digital_inventory,
                 commands::edition_authors::find_authors_by_edition,
                 commands::edition_identifiers::find_identifiers_by_edition,
                 commands::remote_search::remote_search,
@@ -52,6 +54,8 @@ pub mod _bindings_export {
                 commands::import_edition::import_edition,
                 commands::diagnostics::export_logs,
                 commands::reindex::reindex,
+                commands::covers::fetch_cover,
+                commands::covers::list_covers,
             ])
             .events(tauri_specta::collect_events![
                 crate::commands::remote_search::chain::ProviderFailureEvent,
@@ -76,8 +80,6 @@ static LOG_FILE_GUARD: Mutex<Option<WorkerGuard>> = Mutex::new(None);
 
 #[cfg(test)]
 fn init_test_tracing() {
-    use tracing_subscriber::fmt;
-
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
 
     tracing_subscriber::registry()
@@ -224,10 +226,10 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let search = Arc::new(RwLock::new(search_index));
     let http = crate::http::build_client();
     let search_registry = crate::commands::remote_search::chain::SearchRegistry::default();
-    let covers = Arc::new(CacacheStorage::new(
+    let covers = Arc::new(tokio::sync::Mutex::new(CacacheStorage::new(
         paths.covers_cache_dir.clone(),
         paths.covers_permanent_dir.clone(),
-    ));
+    )));
 
     app.manage(AppState {
         db,
@@ -252,6 +254,9 @@ pub fn run() {
 
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
+    #[cfg(feature = "e2e-testing")]
+    let builder = builder.plugin(tauri_plugin_playwright::init());
 
     builder
         .invoke_handler(specta_builder.invoke_handler())

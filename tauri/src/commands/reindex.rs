@@ -37,3 +37,29 @@ pub async fn reindex(state: State<'_, AppState>) -> Result<(), String> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reindex_complete_event_serializes() {
+        let json = serde_json::to_string(&ReindexComplete).unwrap();
+        assert_eq!(json, "null");
+    }
+
+    #[test]
+    fn reindex_complete_event_deserializes() {
+        let event: ReindexComplete = serde_json::from_str("null").unwrap();
+        let _ = event;
+    }
+
+    #[test]
+    fn reindex_command_signature_is_valid() {
+        fn _check(
+            state: tauri::State<'_, crate::state::AppState>,
+        ) -> impl std::future::Future<Output = Result<(), String>> {
+            reindex(state)
+        }
+    }
+}

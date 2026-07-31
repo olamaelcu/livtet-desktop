@@ -4,6 +4,7 @@
 //! macro drives the tauri-specta Builder that wires the invoke
 //! handler in `lib.rs`.
 
+pub mod covers;
 pub mod diagnostics;
 pub mod digital_inventory;
 pub mod edition;

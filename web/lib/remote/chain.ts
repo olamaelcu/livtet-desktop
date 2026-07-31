@@ -1,6 +1,6 @@
 import { toast } from 'svelte-sonner'
 import { ulid } from 'ulid'
-import { commands, events, type ProviderFailureEvent, type SearchHitRow } from '$lib/bindings'
+import { commands, events, type SearchHitRow } from '$lib/bindings'
 import { FAILURE_TOAST } from './types'
 
 let currentRequestId: string | null = null

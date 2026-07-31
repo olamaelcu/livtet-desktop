@@ -8,6 +8,7 @@
     "opener:default",
     "decorum:allow-show-snap-overlay",
     "mcp-bridge:default",
+    "playwright:default",
     "core:window:allow-close",
     "core:window:allow-center",
     "core:window:allow-minimize",

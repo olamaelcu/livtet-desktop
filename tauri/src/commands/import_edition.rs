@@ -34,9 +34,19 @@ pub async fn import_edition(
     request: ImportRequest,
 ) -> Result<ImportResult, String> {
     let db = state.db.db_conn();
-    import_edition_impl(&db, request)
+    let result = import_edition_impl(&db, request)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+
+    // Reindex after a successful import so the new edition
+    // appears in search results immediately.
+    if matches!(result, ImportResult::Created { .. }) {
+        let db = state.db.db_conn();
+        let search = state.search.read().await;
+        search.reindex(&db).await.map_err(|e| e.to_string())?;
+    }
+
+    Ok(result)
 }
 
 pub async fn import_edition_impl(

@@ -75,7 +75,36 @@ pub struct AppState {
     pub search: Arc<RwLock<livtet_core::search::SearchIndex>>,
     pub http: reqwest::Client,
     pub search_registry: crate::commands::remote_search::chain::SearchRegistry,
-    pub covers: Arc<CacacheStorage>,
+    pub covers: Arc<tokio::sync::Mutex<CacacheStorage>>,
     pub logs_dir: Utf8PathBuf,
     pub search_index_path: Utf8PathBuf,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn app_directories_debug_format() {
+        let dirs = AppDirectories {
+            database_path: Utf8PathBuf::from("/tmp/livtet.sqlite"),
+            logs_dir: Utf8PathBuf::from("/tmp/logs"),
+            search_index_path: Utf8PathBuf::from("/tmp/search_index"),
+            covers_cache_dir: Utf8PathBuf::from("/tmp/covers_cache"),
+            covers_permanent_dir: Utf8PathBuf::from("/tmp/covers_permanent"),
+        };
+        let debug = format!("{:?}", dirs);
+        assert!(debug.contains("livtet.sqlite"));
+        assert!(debug.contains("logs"));
+        assert!(debug.contains("search_index"));
+        assert!(debug.contains("covers_cache"));
+        assert!(debug.contains("covers_permanent"));
+    }
+
+    #[test]
+    fn path_resolution_error_display() {
+        let path = std::path::PathBuf::from("/tmp/test");
+        let err = crate::Error::PathResolution(path.clone());
+        assert!(err.to_string().contains("/tmp/test"));
+    }
 }

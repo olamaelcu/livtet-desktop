@@ -1,93 +1,89 @@
 <script lang="ts">
-  import type { SearchHit } from "../types";
-  import CoverGrid from "./cover-grid.svelte";
-  import SearchBar from "./search-bar.svelte";
+import type { SearchHit } from '../types'
+import CoverGrid from './cover-grid.svelte'
+import SearchBar from './search-bar.svelte'
 
-  interface Props {
-    title: string;
-    placeholder?: string;
-    runSearch: (
-      query: string,
-      limit: number,
-      onResults: (hits: SearchHit[]) => void,
-      onError?: (error: string) => void,
-    ) => Promise<void>;
-    limit?: number;
-    prompt: string;
-    noResults: string;
-    searchOnEmpty?: boolean;
-    filters?: import("svelte").Snippet<
-      [{ hits: readonly SearchHit[]; query: string }]
-    >;
-    result?: import("svelte").Snippet<
-      [{ hits: readonly SearchHit[]; query: string }]
-    >;
-    footer?: import("svelte").Snippet<[{ count: number }]>;
+interface Props {
+  title: string
+  placeholder?: string
+  runSearch: (
+    query: string,
+    limit: number,
+    onResults: (hits: SearchHit[]) => void,
+    onError?: (error: string) => void,
+  ) => Promise<void>
+  limit?: number
+  prompt: string
+  noResults: string
+  searchOnEmpty?: boolean
+  filters?: import('svelte').Snippet<[{ hits: readonly SearchHit[]; query: string }]>
+  result?: import('svelte').Snippet<[{ hits: readonly SearchHit[]; query: string }]>
+  footer?: import('svelte').Snippet<[{ count: number }]>
+}
+
+let {
+  title,
+  placeholder = 'Search the library…',
+  runSearch,
+  limit = 40,
+  prompt,
+  noResults,
+  filters,
+  result,
+  footer,
+  searchOnEmpty = false,
+}: Props = $props()
+
+let rawQuery = $state('')
+let query = $state('')
+let allHits = $state<SearchHit[]>([])
+let loading = $state(false)
+let searchError = $state<string | null>(null)
+
+// Debounce: typing updates rawQuery immediately; query only catches up
+// after 750ms. Returning clearTimeout ensures in-flight timers are
+// cancelled when rawQuery mutates again (effect re-runs).
+$effect(() => {
+  const next = rawQuery
+  const id = setTimeout(() => {
+    query = next
+  }, 750)
+  return () => clearTimeout(id)
+})
+
+// Search: runs whenever the debounced query changes. When searchOnEmpty
+// is true (e.g. local catalog), even an empty query triggers a search to
+// show all items. When false (e.g. remote search), empty queries reset
+// state. A cancelled flag drops in-flight work on cleanup.
+$effect(() => {
+  const q = query.trim()
+  if (q === '' && !searchOnEmpty) {
+    allHits = []
+    searchError = null
+    loading = false
+    return
   }
-
-  let {
-    title,
-    placeholder = "Search the library…",
-    runSearch,
-    limit = 40,
-    prompt,
-    noResults,
-    filters,
-    result,
-    footer,
-    searchOnEmpty = false,
-  }: Props = $props();
-
-  let rawQuery = $state("");
-  let query = $state("");
-  let allHits = $state<SearchHit[]>([]);
-  let loading = $state(false);
-  let searchError = $state<string | null>(null);
-
-  // Debounce: typing updates rawQuery immediately; query only catches up
-  // after 750ms. Returning clearTimeout ensures in-flight timers are
-  // cancelled when rawQuery mutates again (effect re-runs).
-  $effect(() => {
-    const next = rawQuery;
-    const id = setTimeout(() => {
-      query = next;
-    }, 750);
-    return () => clearTimeout(id);
-  });
-
-  // Search: runs whenever the debounced query changes. When searchOnEmpty
-  // is true (e.g. local catalog), even an empty query triggers a search to
-  // show all items. When false (e.g. remote search), empty queries reset
-  // state. A cancelled flag drops in-flight work on cleanup.
-  $effect(() => {
-    const q = query.trim();
-    if (q === "" && !searchOnEmpty) {
-      allHits = [];
-      searchError = null;
-      loading = false;
-      return;
-    }
-    let cancelled = false;
-    loading = true;
-    searchError = null;
-    runSearch(
-      q,
-      limit,
-      (hits) => {
-        if (cancelled) return;
-        allHits = hits;
-        loading = false;
-      },
-      (err) => {
-        if (cancelled) return;
-        searchError = err;
-        loading = false;
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  });
+  let cancelled = false
+  loading = true
+  searchError = null
+  runSearch(
+    q,
+    limit,
+    (hits) => {
+      if (cancelled) return
+      allHits = hits
+      loading = false
+    },
+    (err) => {
+      if (cancelled) return
+      searchError = err
+      loading = false
+    },
+  )
+  return () => {
+    cancelled = true
+  }
+})
 </script>
 
 <wa-page>

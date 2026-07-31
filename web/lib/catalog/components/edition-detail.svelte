@@ -1,10 +1,11 @@
 <script lang="ts">
 import EditionTabAuthors from './edition-tab-authors.svelte'
+import EditionTabCovers from './edition-tab-covers.svelte'
 import EditionTabFiles from './edition-tab-files.svelte'
 import EditionTabIdentifiers from './edition-tab-identifiers.svelte'
 import EditionTabOverview from './edition-tab-overview.svelte'
 
-type TabId = 'overview' | 'files' | 'authors' | 'identifiers'
+type TabId = 'overview' | 'files' | 'covers' | 'authors' | 'identifiers'
 
 interface Props {
   editionId: string
@@ -33,7 +34,13 @@ $effect(() => {
 
 function onTabShow(event: CustomEvent<{ name: string }>): void {
   const next = event.detail.name
-  if (next === 'overview' || next === 'files' || next === 'authors' || next === 'identifiers') {
+  if (
+    next === 'overview' ||
+    next === 'files' ||
+    next === 'covers' ||
+    next === 'authors' ||
+    next === 'identifiers'
+  ) {
     active = next
   }
 }
@@ -42,6 +49,7 @@ function onTabShow(event: CustomEvent<{ name: string }>): void {
 <wa-tab-group onwa-tab-show={onTabShow}>
   <wa-tab panel="overview" active={active === "overview"}>Overview</wa-tab>
   <wa-tab panel="files" active={active === "files"}>Files</wa-tab>
+  <wa-tab panel="covers" active={active === "covers"}>Covers</wa-tab>
   <wa-tab panel="authors" active={active === "authors"}>Authors</wa-tab>
   <wa-tab panel="identifiers" active={active === "identifiers"}>
     Identifiers
@@ -52,6 +60,9 @@ function onTabShow(event: CustomEvent<{ name: string }>): void {
   </wa-tab-panel>
   <wa-tab-panel name="files" active={active === "files"}>
     <EditionTabFiles {editionId} />
+  </wa-tab-panel>
+  <wa-tab-panel name="covers" active={active === "covers"}>
+    <EditionTabCovers {editionId} />
   </wa-tab-panel>
   <wa-tab-panel name="authors" active={active === "authors"}>
     <EditionTabAuthors {editionId} />

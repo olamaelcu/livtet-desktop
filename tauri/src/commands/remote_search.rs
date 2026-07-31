@@ -102,6 +102,7 @@ impl From<RawSearchHit> for SearchHitRow {
             dominant_color: None,
             in_catalog: false,
             in_catalog_edition_id: None,
+            has_file: false,
         }
     }
 }
@@ -171,4 +172,108 @@ pub async fn cancel_remote_search(
     request_id: String,
 ) -> Result<bool, String> {
     Ok(state.search_registry.cancel(&request_id).await)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::commands::search::SearchHitRow;
+
+    fn hit() -> RawSearchHit {
+        RawSearchHit {
+            provider_id: ProviderId::GoogleBooks,
+            provider_work_id: "gb-123".into(),
+            title: "Test Book".into(),
+            authors: vec!["Author One".into(), "Author Two".into()],
+            isbn: Some("0123456789".into()),
+            isbn_13: Some("9780123456789".into()),
+            publisher: Some("Test Publisher".into()),
+            page_count: Some(300),
+            language: Some("en".into()),
+            published_date: Some("2024".into()),
+            cover_url: Some("https://example.com/cover.jpg".into()),
+            description: Some("A test description.".into()),
+        }
+    }
+
+    #[test]
+    fn maps_all_fields() {
+        let row: SearchHitRow = hit().into();
+        assert_eq!(row.title, "Test Book");
+        assert_eq!(row.authors, vec!["Author One", "Author Two"]);
+        assert_eq!(row.isbn, Some("0123456789".into()));
+        assert_eq!(row.isbn_13, Some("9780123456789".into()));
+        assert_eq!(row.publisher, Some("Test Publisher".into()));
+        assert_eq!(row.page_count, Some(300));
+        assert_eq!(row.language, Some("en".into()));
+        assert_eq!(row.published_date, Some("2024".into()));
+        assert_eq!(row.cover_url, Some("https://example.com/cover.jpg".into()));
+        assert_eq!(row.description, Some("A test description.".into()));
+        assert_eq!(row.source, "google_books");
+    }
+
+    #[test]
+    fn maps_provider_source_correctly() {
+        let mut h = hit();
+        h.provider_id = ProviderId::Hardcover;
+        let row: SearchHitRow = h.into();
+        assert_eq!(row.source, "hardcover");
+
+        let mut h = hit();
+        h.provider_id = ProviderId::OpenLibrary;
+        let row: SearchHitRow = h.into();
+        assert_eq!(row.source, "openlibrary");
+    }
+
+    #[test]
+    fn handles_none_optional_fields() {
+        let h = RawSearchHit {
+            provider_id: ProviderId::GoogleBooks,
+            provider_work_id: "gb-1".into(),
+            title: "Minimal".into(),
+            authors: vec![],
+            isbn: None,
+            isbn_13: None,
+            publisher: None,
+            page_count: None,
+            language: None,
+            published_date: None,
+            cover_url: None,
+            description: None,
+        };
+        let row: SearchHitRow = h.into();
+        assert_eq!(row.title, "Minimal");
+        assert_eq!(row.isbn, None);
+        assert_eq!(row.isbn_13, None);
+        assert_eq!(row.publisher, None);
+        assert_eq!(row.language, None);
+        assert_eq!(row.cover_url, None);
+        assert_eq!(row.description, None);
+    }
+
+    #[test]
+    fn always_sets_in_catalog_false() {
+        let row: SearchHitRow = hit().into();
+        assert!(!row.in_catalog);
+        assert_eq!(row.in_catalog_edition_id, None);
+    }
+
+    #[test]
+    fn always_sets_score_zero() {
+        let row: SearchHitRow = hit().into();
+        assert_eq!(row.score, 0.0);
+    }
+
+    #[test]
+    fn sets_kind_to_work() {
+        let row: SearchHitRow = hit().into();
+        assert_eq!(row.kind, livtet_core::search::HitKind::Work);
+    }
+
+    #[test]
+    fn provider_id_as_str() {
+        assert_eq!(ProviderId::GoogleBooks.as_str(), "google_books");
+        assert_eq!(ProviderId::Hardcover.as_str(), "hardcover");
+        assert_eq!(ProviderId::OpenLibrary.as_str(), "openlibrary");
+    }
 }

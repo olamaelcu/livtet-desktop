@@ -5,6 +5,7 @@ import { commands, type ImportRequest } from '$lib/bindings'
 import { editionForHit } from '$lib/catalog/edition-for-hit'
 import { openPeek } from '$lib/catalog/peek-state.svelte'
 import { coverLetter, dominantColorFor } from '../cover-art'
+import { consumeCoverRefresh, coverRefreshVersion } from '../cover-refresh.svelte'
 import type { SearchHit } from '../types'
 
 interface Props {
@@ -16,10 +17,46 @@ let { hit }: Props = $props()
 const bg = $derived(hit.dominant_color ?? dominantColorFor(hit.title))
 const letter = $derived(coverLetter(hit.title))
 const authorsLine = $derived(hit.authors.length === 0 ? '' : hit.authors.join(', '))
-const isRemote = $derived(hit.source !== 'local')
+const isRemote = $derived(!hit.edition_id)
 
 let activating = $state(false)
 let importing = $state(false)
+let coverSrc: string | null = $state(null)
+
+function bytesToUrl(bytes: number[]): string {
+  const mime =
+    bytes[0] === 0xff && bytes[1] === 0xd8
+      ? 'image/jpeg'
+      : bytes[0] === 0x89 && bytes[1] === 0x50
+        ? 'image/png'
+        : bytes[0] === 0x52 && bytes[1] === 0x49
+          ? 'image/webp'
+          : 'image/jpeg'
+  const blob = new Blob([new Uint8Array(bytes)], { type: mime })
+  return URL.createObjectURL(blob)
+}
+
+$effect(() => {
+  void coverRefreshVersion
+  if (!hit.edition_id || isRemote) return
+  if (coverSrc && !consumeCoverRefresh(hit.edition_id)) return
+  let cancelled = false
+  commands
+    .listCovers(hit.edition_id)
+    .then((res) => {
+      if (cancelled) return
+      if (res.status === 'ok' && res.data.length > 0) {
+        const first = res.data[0]
+        if (first.bytes.length > 0) {
+          coverSrc = bytesToUrl(first.bytes)
+        }
+      }
+    })
+    .catch(() => {})
+  return () => {
+    cancelled = true
+  }
+})
 
 async function onActivate(): Promise<void> {
   if (activating) return
@@ -103,6 +140,12 @@ async function onImport(e: Event): Promise<void> {
         loading="lazy"
         referrerpolicy="no-referrer"
       />
+    {:else if coverSrc}
+      <img
+        src={coverSrc}
+        alt=""
+        class="cover-fade-in"
+      />
     {:else}
       <span class="cover-letter">{letter}</span>
     {/if}
@@ -159,6 +202,15 @@ async function onImport(e: Event): Promise<void> {
     height: 100%;
     object-fit: cover;
     display: block;
+  }
+
+  .cover-fade-in {
+    animation: cover-load 300ms ease;
+  }
+
+  @keyframes cover-load {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .cover-letter {

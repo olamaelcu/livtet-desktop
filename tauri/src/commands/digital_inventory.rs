@@ -74,6 +74,65 @@ pub async fn find_files_by_edition(
     Ok(row.map(DigitalInventoryRow::from))
 }
 
+/// Request shape for [`add_digital_inventory`].
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct AddDigitalInventoryRequest {
+    pub edition_id: String,
+    pub file_path: Option<String>,
+    pub cover_path: Option<String>,
+    pub blurhash: Option<String>,
+    pub dominant_color: Option<String>,
+    pub file_hash: Option<String>,
+    pub file_size_bytes: Option<f64>,
+    pub file_format: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[tauri::command]
+#[specta::specta]
+#[tracing::instrument(skip(state), err)]
+pub async fn add_digital_inventory(
+    state: State<'_, AppState>,
+    request: AddDigitalInventoryRequest,
+) -> Result<DigitalInventoryRow, String> {
+    use livtet_core::data::orm::{ActiveModelTrait, Set};
+
+    let db = state.db.db_conn();
+    let edition_id = request
+        .edition_id
+        .parse::<livtet_core::DbId>()
+        .map_err(|e| format!("invalid edition_id: {e}"))?;
+
+    let now = livtet_core::now_primitive();
+
+    let model = livtet_core::data::entities::digital_inventory::ActiveModel {
+        id: Set(livtet_core::DbId::new()),
+        edition_id: Set(edition_id),
+        file_path: Set(request.file_path),
+        cover_path: Set(request.cover_path),
+        blurhash: Set(request.blurhash),
+        dominant_color: Set(request.dominant_color),
+        file_hash: Set(request.file_hash),
+        file_size_bytes: Set(request.file_size_bytes.map(|n| n as i64)),
+        file_format: Set(request.file_format),
+        notes: Set(request.notes),
+        added_at: Set(now),
+        updated_at: Set(None),
+    }
+    .insert(&db)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Trigger a reindex so the search index picks up the new
+    // `has_file` flag for this edition.
+    {
+        let search = state.search.read().await;
+        search.reindex(&db).await.map_err(|e| e.to_string())?;
+    }
+
+    Ok(DigitalInventoryRow::from(model))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

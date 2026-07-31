@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { closeCatalogMatches, catalogMatchState } from '../catalog-match-state.svelte'
-  import { openPeek } from '../peek-state.svelte'
+import { catalogMatchState, closeCatalogMatches } from '../catalog-match-state.svelte'
+import { openPeek } from '../peek-state.svelte'
 
-  function openEdition(editionId: string | null | undefined): void {
-    if (editionId) {
-      closeCatalogMatches()
-      openPeek(editionId)
-    }
+function openEdition(editionId: string | null | undefined): void {
+  if (editionId) {
+    closeCatalogMatches()
+    openPeek(editionId)
   }
+}
 </script>
 
 <wa-dialog

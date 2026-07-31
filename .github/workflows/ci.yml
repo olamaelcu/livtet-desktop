@@ -124,6 +124,9 @@ jobs:
       - name: Install JS dependencies
         run: mise exec -- pnpm install --frozen-lockfile
 
+      - name: Install Playwright browsers
+        run: mise exec -- pnpm exec playwright install chromium
+
       - name: Run tests
         run: mise run test
 

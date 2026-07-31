@@ -48,12 +48,11 @@ async fn enrich_with_cover_metadata(
         .collect();
 
     for row in rows.iter_mut() {
-        if let Some(ref edition_id) = row.edition_id {
-            if let Some((blurhash, dominant_color)) = cover_map.get(edition_id.as_str()) {
+        if let Some(ref edition_id) = row.edition_id
+            && let Some((blurhash, dominant_color)) = cover_map.get(edition_id.as_str()) {
                 row.blurhash = blurhash.clone();
                 row.dominant_color = dominant_color.clone();
             }
-        }
     }
 
     Ok(())
@@ -68,11 +67,17 @@ pub async fn enrich_catalog_status(
 ) {
     use livtet_core::Isbn;
     use livtet_core::data::entities::{edition_identifiers, editions, identifiers};
-    use livtet_core::data::orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait};
+    use livtet_core::data::orm::{
+        ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait,
+    };
 
     for row in rows.iter_mut() {
-        let Some(ref isbn_13) = row.isbn_13 else { continue };
-        let Ok(isbn) = Isbn::parse(isbn_13) else { continue };
+        let Some(ref isbn_13) = row.isbn_13 else {
+            continue;
+        };
+        let Ok(isbn) = Isbn::parse(isbn_13) else {
+            continue;
+        };
         let urn = format!("urn:isbn:{}", isbn.as_str());
 
         let identifier = match identifiers::Entity::find()
@@ -133,6 +138,9 @@ pub struct SearchHitRow {
     pub isbn_13: Option<String>,
     pub blurhash: Option<String>,
     pub dominant_color: Option<String>,
+    /// Whether this edition has a row in `digital_inventory`
+    /// (i.e. there is a file on disk).
+    pub has_file: bool,
     /// Whether this hit already exists in the local catalog.
     pub in_catalog: bool,
     /// The edition ID of the matching catalog entry, when in_catalog is true.
@@ -167,6 +175,7 @@ impl From<livtet_core::search::SearchHit> for SearchHitRow {
             isbn_13: None,
             blurhash: None,
             dominant_color: None,
+            has_file: h.has_file,
             in_catalog: false,
             in_catalog_edition_id: None,
         }

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use async_trait::async_trait;
 use camino::Utf8PathBuf;
 use livtet_core::DbId;
-use livtet_core::covers::{CachedCover, CoverError, CoverResult, CoverStorage};
+use livtet_core::covers::{CachedCover, CoverError, CoverResult, CoverStorage, encode_cover};
 use tracing::warn;
 
 fn hash_key(key: &str) -> String {
@@ -48,18 +48,18 @@ impl CacacheStorage {
         self.entries_dir.join(hash_key(key))
     }
 
-    fn marker_dir(&self, inventory_id: DbId) -> PathBuf {
-        self.markers_dir.join(inventory_id.to_string())
+    fn marker_dir(&self, edition_id: DbId) -> PathBuf {
+        self.markers_dir.join(edition_id.to_string())
     }
 
     fn permanent_path_impl(
         permanent_dir: &Utf8PathBuf,
-        inventory_id: DbId,
+        edition_id: DbId,
         ext: &str,
     ) -> Utf8PathBuf {
         let safe_ext = ext.replace(['.', '/', '\\'], "");
         permanent_dir
-            .join(inventory_id.to_string())
+            .join(edition_id.to_string())
             .join(format!("cover.{safe_ext}"))
     }
 }
@@ -82,11 +82,11 @@ impl CoverStorage for CacacheStorage {
     async fn copy_to_permanent(
         &mut self,
         cache_key: &str,
-        inventory_id: DbId,
+        edition_id: DbId,
     ) -> CoverResult<String> {
         let ext = cache_key.rsplit("::").next().unwrap_or("jpg").to_string();
 
-        let perm_path = Self::permanent_path_impl(&self.permanent_dir, inventory_id, &ext);
+        let perm_path = Self::permanent_path_impl(&self.permanent_dir, edition_id, &ext);
 
         if let Some(parent) = perm_path.parent() {
             fs_err::tokio::create_dir_all(parent)
@@ -103,7 +103,7 @@ impl CoverStorage for CacacheStorage {
             .await
             .map_err(CoverError::Io)?;
 
-        let marker_dir = self.marker_dir(inventory_id);
+        let marker_dir = self.marker_dir(edition_id);
         fs_err::tokio::create_dir_all(&marker_dir)
             .await
             .map_err(CoverError::Io)?;
@@ -117,12 +117,12 @@ impl CoverStorage for CacacheStorage {
         Ok(perm_path.to_string())
     }
 
-    fn permanent_path(&self, inventory_id: DbId, ext: &str) -> Utf8PathBuf {
-        Self::permanent_path_impl(&self.permanent_dir, inventory_id, ext)
+    fn permanent_path(&self, edition_id: DbId, ext: &str) -> Utf8PathBuf {
+        Self::permanent_path_impl(&self.permanent_dir, edition_id, ext)
     }
 
-    async fn list_cached(&self, inventory_id: DbId) -> CoverResult<Vec<CachedCover>> {
-        let marker_dir = self.marker_dir(inventory_id);
+    async fn list_cached(&self, edition_id: DbId) -> CoverResult<Vec<CachedCover>> {
+        let marker_dir = self.marker_dir(edition_id);
 
         let entries_result = fs_err::tokio::read_dir(&marker_dir).await;
         let mut dir = match entries_result {
@@ -167,7 +167,16 @@ impl CoverStorage for CacacheStorage {
             };
 
             let display_path =
-                Some(Self::permanent_path_impl(&self.permanent_dir, inventory_id, ext).to_string());
+                Some(Self::permanent_path_impl(&self.permanent_dir, edition_id, ext).to_string());
+
+            let (blurhash, dominant_color) = if let Some(ref dp) = display_path {
+                match encode_cover(camino::Utf8Path::new(dp)) {
+                    Ok(meta) => (Some(meta.blurhash), Some(meta.dominant_color)),
+                    Err(_) => (None, None),
+                }
+            } else {
+                (None, None)
+            };
 
             covers.push(CachedCover {
                 key: content_key.clone(),
@@ -175,8 +184,10 @@ impl CoverStorage for CacacheStorage {
                 size: size.to_string(),
                 ext: ext.to_string(),
                 bytes,
-                inventory_id,
+                edition_id,
                 display_path,
+                blurhash,
+                dominant_color,
             });
         }
 
@@ -251,7 +262,7 @@ mod tests {
 
         let mut storage = CacacheStorage::new(cache_dir.clone(), perm_dir.clone());
 
-        let inv_id = DbId::new();
+        let edition_id = DbId::new();
         let content_key = encode_content_key("openlibrary", "isbn", "9780141439518", "M", "jpg");
         storage
             .store(&content_key, &[0xff, 0xd8, 0xff])
@@ -259,30 +270,30 @@ mod tests {
             .unwrap();
 
         let perm_path = storage
-            .copy_to_permanent(&content_key, inv_id)
+            .copy_to_permanent(&content_key, edition_id)
             .await
             .unwrap();
 
-        assert!(perm_path.contains(&inv_id.to_string()));
+        assert!(perm_path.contains(&edition_id.to_string()));
         assert!(perm_path.ends_with(".jpg"));
 
         let stats = fs_err::tokio::metadata(&perm_path).await.unwrap();
         assert_eq!(stats.len(), 3);
 
-        let cached = storage.list_cached(inv_id).await.unwrap();
+        let cached = storage.list_cached(edition_id).await.unwrap();
         assert_eq!(cached.len(), 1);
         assert_eq!(cached[0].key, content_key);
         assert_eq!(cached[0].provider, "openlibrary");
         assert_eq!(cached[0].size, "M");
         assert_eq!(cached[0].ext, "jpg");
         assert_eq!(cached[0].bytes, &[0xff, 0xd8, 0xff]);
-        assert_eq!(cached[0].inventory_id, inv_id);
+        assert_eq!(cached[0].edition_id, edition_id);
         assert!(
             cached[0]
                 .display_path
                 .as_deref()
                 .unwrap()
-                .contains(&inv_id.to_string())
+                .contains(&edition_id.to_string())
         );
     }
 

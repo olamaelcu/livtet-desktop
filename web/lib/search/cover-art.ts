@@ -1,7 +1,5 @@
-// Cover-art placeholder helpers — baked locally while the real
-// `livtet-covers` integration is not yet wired up. The palette
-// and hash function are independent of the data source (mock
-// or backend) so they live here, not in the mock-data file that
+// Cover-art placeholder helpers.
+// live here, not in the mock-data file that
 // was removed.
 
 const PALETTE = [
