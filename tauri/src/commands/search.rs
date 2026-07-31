@@ -59,6 +59,50 @@ async fn enrich_with_cover_metadata(
     Ok(())
 }
 
+/// Check which remote search hits already exist in the local
+/// catalog via ISBN-13 matching, and annotate them with the
+/// existing edition ID.
+pub async fn enrich_catalog_status(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    rows: &mut [SearchHitRow],
+) {
+    use livtet_core::Isbn;
+    use livtet_core::data::entities::{edition_identifiers, editions, identifiers};
+    use livtet_core::data::orm::{ColumnTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait};
+
+    for row in rows.iter_mut() {
+        let Some(ref isbn_13) = row.isbn_13 else { continue };
+        let Ok(isbn) = Isbn::parse(isbn_13) else { continue };
+        let urn = format!("urn:isbn:{}", isbn.as_str());
+
+        let identifier = match identifiers::Entity::find()
+            .filter(identifiers::Column::Value.eq(&urn))
+            .one(db)
+            .await
+        {
+            Ok(Some(id)) => id,
+            _ => continue,
+        };
+
+        let edition = match editions::Entity::find()
+            .join(
+                JoinType::InnerJoin,
+                edition_identifiers::Relation::Edition.def().rev(),
+            )
+            .filter(edition_identifiers::Column::IdentifierId.eq(identifier.id))
+            .order_by_asc(editions::Column::Id)
+            .one(db)
+            .await
+        {
+            Ok(Some(e)) => e,
+            _ => continue,
+        };
+
+        row.in_catalog = true;
+        row.in_catalog_edition_id = Some(edition.id.to_string());
+    }
+}
+
 /// Mirror of `livtet_core::search::SearchHit` with extra fields
 /// for remote search results and cover metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -89,6 +133,10 @@ pub struct SearchHitRow {
     pub isbn_13: Option<String>,
     pub blurhash: Option<String>,
     pub dominant_color: Option<String>,
+    /// Whether this hit already exists in the local catalog.
+    pub in_catalog: bool,
+    /// The edition ID of the matching catalog entry, when in_catalog is true.
+    pub in_catalog_edition_id: Option<String>,
 }
 
 impl From<livtet_core::search::SearchHit> for SearchHitRow {
@@ -119,6 +167,8 @@ impl From<livtet_core::search::SearchHit> for SearchHitRow {
             isbn_13: None,
             blurhash: None,
             dominant_color: None,
+            in_catalog: false,
+            in_catalog_edition_id: None,
         }
     }
 }
