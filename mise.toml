@@ -19,3 +19,25 @@ RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 run = ["cargo run --bin generate-bindings", "pnpm tauri dev"]
 
 depends = ["secrets-export-env"]
+
+# --- Local parity with CI ---
+
+[tasks.lint]
+description = "Run all lint checks (Rust + JS/TS)"
+run = [
+  "cargo fmt --all --check",
+  "cargo clippy --workspace --all-targets -- -D warnings",
+  "cargo-machete",
+  "pnpm lint",
+]
+
+[tasks.test]
+description = "Run all tests (Rust + JS/TS)"
+run = [
+  "cargo test --workspace --all-targets",
+  "pnpm test",
+]
+
+[tasks.ci]
+description = "Full CI suite (lint + test) — same as GitHub Actions"
+depends = ["lint", "test"]
