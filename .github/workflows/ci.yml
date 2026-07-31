@@ -27,11 +27,13 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           curl https://mise.run | sh
-          echo "$HOME/.local/share/mise/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
           # Skip dev-only tools that aren't in the mise registry. These remain
           # available locally because mise.toml is unchanged.
           MISE_DISABLE_TOOLS=taskwarrior,pipx:taskwarrior-mcp mise install
+          # Expose mise-managed tool bin paths to subsequent steps.
+          eval "$(mise activate --sh)" && echo "PATH=$PATH" >> "$GITHUB_ENV"
 
       - name: Cache pnpm store
         uses: actions/cache@v4
@@ -59,7 +61,7 @@ jobs:
             build-essential
 
       - name: Install JS dependencies
-        run: pnpm install --frozen-lockfile
+        run: mise exec -- pnpm install --frozen-lockfile
 
       - name: Run mise ci
         run: mise run ci
