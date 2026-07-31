@@ -1,5 +1,7 @@
 # Livtet for Desktop
 
+[![CI](https://github.com/olamaelcu/livtet-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/olamaelcu/livtet-desktop/actions/workflows/ci.yml)
+
 A coherent interface for daily work, shipped as a Tauri desktop app.
 
 The frontend is SvelteKit with [WebAwesome](https://webawesome.com/) custom elements and the Geist font family. The shell is Rust, talking to the webview through a single `greet` command today and a growing surface of Tauri plugins.

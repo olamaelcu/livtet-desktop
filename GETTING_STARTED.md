@@ -67,8 +67,21 @@ The output lands in `tauri/target/release/bundle/` for your platform (`.dmg` on 
 ├── tauri/         Rust crate, Tauri config, capabilities, icons
 ├── package.json   JS toolchain and Tauri CLI
 ├── Cargo.toml     Rust workspace root
+├── mise.toml      Dev toolchain and task runner
 └── vite.config.js Vite + SvelteKit config
 ```
+
+## CI and local checks
+
+GitHub Actions runs the same commands you run locally, exposed as mise tasks:
+
+```sh
+mise run lint   # rustfmt + clippy + cargo-machete + biome
+mise run test   # cargo test --workspace --all-targets + vitest
+mise run ci     # both, in dependency order — mirrors CI exactly
+```
+
+Before pushing a PR, run `mise run ci` from the repo root. The tasks pick up the `pnpm` and `cargo-machete` versions pinned in `mise.toml`, so the local and remote runs use the same toolchain.
 
 ## Troubleshooting
 
