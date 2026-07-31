@@ -52,9 +52,9 @@ jobs:
               with open("check-dupes.json") as f:
                   data = json.load(f)
           except (FileNotFoundError, json.JSONDecodeError):
-              data = {"items": []}
+              data = {"families": []}
 
-          items = data.get("items", [])[:5]
+          families = data.get("families", [])[:5]
           sarif = {
               "version": "2.1.0",
               "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -62,9 +62,9 @@ jobs:
                   "tool": {"driver": {"name": "nose", "version": "0.20.0", "informationUri": "https://github.com/corca-ai/nose"}},
                   "results": [{
                       "ruleId": "duplicate-code",
-                      "message": {"text": f"Exact duplicate of {len(i.get('files', []))} files ({i.get('metrics', {}).get('value', 'unknown')} tokens)"},
-                      "locations": [{"physicalLocation": {"artifactLocation": {"uri": f.get('files', ['unknown'])[0]}}} for f in i.get('files', [])[:3]]
-                  } for i in items]
+                      "message": {"text": f"Exact duplicate across {len(family.get('locations', []))} files ({family.get('metrics', {}).get('dup_lines', 'unknown')} duplicate lines)"},
+                      "locations": [{"physicalLocation": {"artifactLocation": {"uri": loc.get('file', 'unknown')}}} for loc in family.get('locations', [])[:3]]
+                  } for family in families]
               }]
           }
           with open("check-dupes.sarif", "w") as f:
@@ -79,20 +79,21 @@ jobs:
               with open("check-dupes.json") as f:
                   report = json.load(f)
           except (FileNotFoundError, json.JSONDecodeError):
-              report = {"items": []}
+              report = {"families": []}
 
-          count = len(report.get("items", []))
-          items = report.get("items", [])[:5]
+          families = report.get("families", [])
+          count = len(families)
+          items = families[:5]
 
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
               f.write(f"## Code Duplication Report\n")
               f.write(f"Found **{count}** copy-paste families with 15+ duplicate lines\n\n")
               if items:
                   f.write(f"### Top {len(items)} Findings\n")
-                  for i, item in enumerate(items, 1):
-                      files = item.get('files', [])
-                      m = item.get('metrics', {})
-                      f.write(f"{i}. `{files[0] if files else 'unknown'}` // {m.get('value', 'unknown')} tokens\n")
+                  for i, family in enumerate(items, 1):
+                      files = sorted({loc.get('file') for loc in family.get('locations', [])})
+                      m = family.get('metrics', {})
+                      f.write(f"{i}. `{files[0] if files else 'unknown'}` // {m.get('dup_lines', 'unknown')} duplicate lines ({len(files)} files)\n")
 
           print(f"Found {count} duplication families")
           PY

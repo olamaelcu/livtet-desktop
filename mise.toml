@@ -7,7 +7,7 @@ taskwarrior = "3.4.2"
 "pipx:taskwarrior-mcp" = "0.2.0"
 pnpm = "10"
 "cargo:cargo-machete" = "0.7"
-"aqua:corca-ai/nose" = "v0.20.0"
+"github:corca-ai/nose" = "v0.20.0"
 
 [env]
 _.file = ".mise/secrets.env"
