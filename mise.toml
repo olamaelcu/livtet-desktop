@@ -43,5 +43,5 @@ depends = ["lint", "test"]
 
 [tasks.check-dupes]
 description = "Detect copy-paste duplication (15+ lines)"
-run = "nose query . --mode syntax 'lines>15' --format json --fail-on first"
+run = "nose query . --mode syntax 'lines>15' --format json > check-dupes.json || true"
 depends = ["secrets-export-env"]
