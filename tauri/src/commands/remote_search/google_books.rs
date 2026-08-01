@@ -111,6 +111,27 @@ impl CoverFetcher for GoogleBooks {
     }
 }
 
+fn to_iso_639_1(code: &str) -> Option<&'static str> {
+    match code {
+        "eng" => Some("en"),
+        "fra" | "fre" => Some("fr"),
+        "spa" => Some("es"),
+        "deu" | "ger" => Some("de"),
+        "ita" => Some("it"),
+        "por" => Some("pt"),
+        "rus" => Some("ru"),
+        "jpn" => Some("ja"),
+        "zho" | "chi" => Some("zh"),
+        "ara" => Some("ar"),
+        "nld" | "dut" => Some("nl"),
+        "pol" => Some("pl"),
+        "tur" => Some("tr"),
+        "ces" | "cze" => Some("cs"),
+        "swe" => Some("sv"),
+        _ => None,
+    }
+}
+
 #[async_trait]
 impl Provider for GoogleBooks {
     fn id(&self) -> ProviderId {
@@ -123,19 +144,29 @@ impl Provider for GoogleBooks {
         40
     }
 
-    async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+    async fn search(
+        &self,
+        query: &str,
+        limit: u32,
+        language: Option<&str>,
+    ) -> Result<Vec<RawSearchHit>, ProviderError> {
         debug!(
             query = %query,
             limit,
+            ?language,
             provider = "google_books",
             "sending search request"
         );
-        let url = format!(
+        let mut url = format!(
             "https://www.googleapis.com/books/v1/volumes?q={}&maxResults={}&key={}",
             urlencoding::encode(query),
             limit,
             self.api_key,
         );
+        if let Some(lang) = language.and_then(to_iso_639_1) {
+            url.push_str("&langRestrict=");
+            url.push_str(lang);
+        }
         let res = self.http.get(&url).send().await?;
         let status = res.status();
         debug!(
@@ -359,7 +390,7 @@ mod tests {
         }
         let http = crate::http::build_client();
         let provider = GoogleBooks::new(http, key.to_string());
-        let hits = match provider.search("The Hobbit", 5).await {
+        let hits = match provider.search("The Hobbit", 5, None).await {
             Ok(hits) => hits,
             Err(crate::commands::remote_search::ProviderError::Auth)
             | Err(crate::commands::remote_search::ProviderError::Http {

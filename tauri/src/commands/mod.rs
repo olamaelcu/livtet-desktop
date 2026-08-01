@@ -12,6 +12,7 @@ pub mod edition_authors;
 pub mod edition_identifiers;
 pub mod import_edition;
 pub mod keyring;
+pub mod language_preference;
 pub mod reindex;
 pub mod remote_search;
 pub mod search;

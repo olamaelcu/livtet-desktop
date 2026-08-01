@@ -113,6 +113,7 @@ pub async fn run_chain(
     limit: u32,
     request_id: &str,
     token: CancellationToken,
+    language: Option<&str>,
 ) -> RemoteSearchResult {
     let hardcover_key = load_hardcover_key();
     let providers = build_chain(state.http.clone(), hardcover_key);
@@ -148,7 +149,7 @@ pub async fn run_chain(
         );
 
         let result = tokio::select! {
-            r = provider.search(query, clamped) => r,
+            r = provider.search(query, clamped, language) => r,
             _ = token.cancelled() => Err(ProviderError::Auth),
         };
 
@@ -231,7 +232,12 @@ mod tests {
         fn id(&self) -> ProviderId {
             self.id
         }
-        async fn search(&self, _: &str, _: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+        async fn search(
+            &self,
+            _: &str,
+            _: u32,
+            _: Option<&str>,
+        ) -> Result<Vec<RawSearchHit>, ProviderError> {
             match self.behaviour.clone() {
                 StubBehaviour::Ok(h) => Ok(h),
                 StubBehaviour::Empty => Ok(Vec::new()),
@@ -358,7 +364,7 @@ mod tests {
             }
             let clamped = limit.min(provider.max_limit());
             let result = tokio::select! {
-                r = provider.search(query, clamped) => r,
+                r = provider.search(query, clamped, None) => r,
                 _ = token.cancelled() => Err(ProviderError::Auth),
             };
             match result {

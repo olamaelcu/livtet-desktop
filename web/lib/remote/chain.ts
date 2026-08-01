@@ -26,7 +26,10 @@ export async function runSearch(
   const id = ulid()
   currentRequestId = id
 
-  const res = await commands.remoteSearch(query, limit, id)
+  const pref = await commands.getLanguagePreference()
+  const language = pref.status === 'ok' ? pref.data.language : null
+
+  const res = await commands.remoteSearch(query, limit, id, language)
   if (id !== currentRequestId) return
   if (res.status === 'ok') onResults(res.data.results)
   else onResults([])

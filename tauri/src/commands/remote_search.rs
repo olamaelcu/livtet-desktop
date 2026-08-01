@@ -51,7 +51,12 @@ pub trait Provider: Send + Sync {
         u32::MAX
     }
 
-    async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError>;
+    async fn search(
+        &self,
+        query: &str,
+        limit: u32,
+        language: Option<&str>,
+    ) -> Result<Vec<RawSearchHit>, ProviderError>;
 }
 
 /// Provider-agnostic book hit. The chain converts each into a
@@ -149,16 +154,26 @@ use crate::state::AppState;
 
 #[tauri::command]
 #[specta::specta]
-#[tracing::instrument(skip(state, app), err, fields(query, limit, request_id))]
+#[tracing::instrument(skip(state, app), err, fields(query, limit, request_id, language))]
 pub async fn remote_search(
     state: State<'_, AppState>,
     app: AppHandle,
     query: String,
     limit: u32,
     request_id: String,
+    language: Option<String>,
 ) -> Result<RemoteSearchResult, String> {
     let token = state.search_registry.begin(request_id.clone()).await;
-    let mut result = run_chain(&state, &app, &query, limit, &request_id, token).await;
+    let mut result = run_chain(
+        &state,
+        &app,
+        &query,
+        limit,
+        &request_id,
+        token,
+        language.as_deref(),
+    )
+    .await;
     state.search_registry.finish().await;
 
     enrich_catalog_status(&state.db.db_conn(), &mut result.results).await;

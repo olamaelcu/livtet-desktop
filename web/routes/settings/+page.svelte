@@ -1,5 +1,6 @@
 <script lang="ts">
 import HardcoverKeyForm from '$lib/settings/hardcover-key-form.svelte'
+import LanguageSelector from '$lib/settings/language-selector.svelte'
 </script>
 
 <svelte:head>
@@ -12,6 +13,7 @@ import HardcoverKeyForm from '$lib/settings/hardcover-key-form.svelte'
     <p class="hint">Keys live in your OS keychain. We never store them in plain text.</p>
   </header>
 
+  <LanguageSelector />
   <HardcoverKeyForm />
 </main>
 

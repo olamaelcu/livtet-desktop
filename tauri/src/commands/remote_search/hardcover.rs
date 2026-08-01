@@ -52,7 +52,12 @@ impl Provider for Hardcover {
         ProviderId::Hardcover
     }
 
-    async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+    async fn search(
+        &self,
+        query: &str,
+        limit: u32,
+        _language: Option<&str>,
+    ) -> Result<Vec<RawSearchHit>, ProviderError> {
         let key = self.api_key.as_deref().ok_or(ProviderError::Auth)?;
         debug!(
             query = %query,
@@ -455,7 +460,7 @@ mod tests {
         };
         let http = crate::http::build_client();
         let provider = Hardcover::new(http, Some(key));
-        let hits = match provider.search("The Lord of the Rings", 5).await {
+        let hits = match provider.search("The Lord of the Rings", 5, None).await {
             Ok(hits) => hits,
             Err(crate::commands::remote_search::ProviderError::Auth)
             | Err(crate::commands::remote_search::ProviderError::Http {

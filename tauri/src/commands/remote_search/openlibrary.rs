@@ -119,18 +119,28 @@ impl Provider for OpenLibrary {
         ProviderId::OpenLibrary
     }
 
-    async fn search(&self, query: &str, limit: u32) -> Result<Vec<RawSearchHit>, ProviderError> {
+    async fn search(
+        &self,
+        query: &str,
+        limit: u32,
+        language: Option<&str>,
+    ) -> Result<Vec<RawSearchHit>, ProviderError> {
         debug!(
             query = %query,
             limit,
+            ?language,
             provider = "openlibrary",
             "sending search request"
         );
-        let url = format!(
+        let mut url = format!(
             "https://openlibrary.org/search.json?q={}&limit={}&fields=key,title,author_name,first_publish_year,isbn,publisher,language,number_of_pages_median,cover_i",
             urlencoding::encode(query),
             limit,
         );
+        if let Some(lang) = language {
+            url.push_str("&language=");
+            url.push_str(&urlencoding::encode(lang));
+        }
         let res = self.http.get(&url).send().await?;
         let status = res.status();
         debug!(
@@ -315,7 +325,7 @@ mod tests {
         let http = crate::http::build_client();
         let provider = OpenLibrary::new(http);
         let hits = provider
-            .search("The Hobbit", 5)
+            .search("The Hobbit", 5, None)
             .await
             .expect("live OpenLibrary search should succeed");
         assert!(!hits.is_empty(), "live search returned no hits");
