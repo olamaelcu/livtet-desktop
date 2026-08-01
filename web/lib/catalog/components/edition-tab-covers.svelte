@@ -1,85 +1,85 @@
 <script lang="ts">
-import { toast } from 'svelte-sonner'
-import { type CachedCover, commands } from '$lib/bindings'
-import { triggerCoverRefresh } from '$lib/search/cover-refresh.svelte'
+  import { toast } from "svelte-sonner";
+  import { type CachedCover, commands } from "$lib/bindings";
+  import { triggerCoverRefresh } from "$lib/search/cover-refresh.svelte";
 
-interface Props {
-  editionId: string
-}
-
-let { editionId }: Props = $props()
-
-let covers = $state<CachedCover[]>([])
-let loading = $state(true)
-let error = $state<string | null>(null)
-let fetching = $state(false)
-
-function bytesToUrl(bytes: number[]): string {
-  const mime =
-    bytes[0] === 0xff && bytes[1] === 0xd8
-      ? 'image/jpeg'
-      : bytes[0] === 0x89 && bytes[1] === 0x50
-        ? 'image/png'
-        : bytes[0] === 0x52 && bytes[1] === 0x49
-          ? 'image/webp'
-          : 'image/jpeg'
-  const blob = new Blob([new Uint8Array(bytes)], { type: mime })
-  return URL.createObjectURL(blob)
-}
-
-const coverUrls = $derived.by(() => {
-  const map = new Map<string, string>()
-  for (const c of covers) {
-    if (c.bytes.length > 0) map.set(c.key, bytesToUrl(c.bytes))
+  interface Props {
+    editionId: string;
   }
-  return map
-})
 
-function loadCovers(): void {
-  loading = true
-  error = null
-  commands
-    .listCovers(editionId)
-    .then((res) => {
-      if (res.status === 'ok') {
-        covers = res.data
-        error = null
-      } else {
-        error = res.error
-        covers = []
-      }
-      loading = false
-    })
-    .catch((e: unknown) => {
-      error = String(e)
-      covers = []
-      loading = false
-    })
-}
+  let { editionId }: Props = $props();
 
-async function fetchCover(e: Event): Promise<void> {
-  e.stopPropagation()
-  if (fetching) return
-  fetching = true
-  try {
-    const res = await commands.fetchCover(editionId)
-    if (res.status === 'ok') {
-      toast.success(`Cover found via ${res.data.provider}`)
-      triggerCoverRefresh(editionId)
-      loadCovers()
-    } else {
-      toast.error(res.error)
+  let covers = $state<CachedCover[]>([]);
+  let loading = $state(true);
+  let error = $state<string | null>(null);
+  let fetching = $state(false);
+
+  function bytesToUrl(bytes: number[]): string {
+    const mime =
+      bytes[0] === 0xff && bytes[1] === 0xd8
+        ? "image/jpeg"
+        : bytes[0] === 0x89 && bytes[1] === 0x50
+          ? "image/png"
+          : bytes[0] === 0x52 && bytes[1] === 0x49
+            ? "image/webp"
+            : "image/jpeg";
+    const blob = new Blob([new Uint8Array(bytes)], { type: mime });
+    return URL.createObjectURL(blob);
+  }
+
+  const coverUrls = $derived.by(() => {
+    const map = new Map<string, string>();
+    for (const c of covers) {
+      if (c.bytes.length > 0) map.set(c.key, bytesToUrl(c.bytes));
     }
-  } catch (e) {
-    toast.error(e instanceof Error ? e.message : 'Fetch failed')
-  } finally {
-    fetching = false
-  }
-}
+    return map;
+  });
 
-$effect(() => {
-  loadCovers()
-})
+  function loadCovers(): void {
+    loading = true;
+    error = null;
+    commands
+      .listCovers(editionId)
+      .then((res) => {
+        if (res.status === "ok") {
+          covers = res.data;
+          error = null;
+        } else {
+          error = res.error;
+          covers = [];
+        }
+        loading = false;
+      })
+      .catch((e: unknown) => {
+        error = String(e);
+        covers = [];
+        loading = false;
+      });
+  }
+
+  async function fetchCover(e: Event): Promise<void> {
+    e.stopPropagation();
+    if (fetching) return;
+    fetching = true;
+    try {
+      const res = await commands.fetchCover(editionId);
+      if (res.status === "ok") {
+        toast.success(`Cover found via ${res.data.provider}`);
+        triggerCoverRefresh(editionId);
+        loadCovers();
+      } else {
+        toast.error(res.error);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Fetch failed");
+    } finally {
+      fetching = false;
+    }
+  }
+
+  $effect(() => {
+    loadCovers();
+  });
 </script>
 
 {#if loading}
