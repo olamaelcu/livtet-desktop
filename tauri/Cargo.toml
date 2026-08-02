@@ -23,8 +23,9 @@ config      = "0.15"
 serde       = { version = "1", features = ["derive"] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
 tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }
 tauri-plugin-mcp-bridge = "0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }

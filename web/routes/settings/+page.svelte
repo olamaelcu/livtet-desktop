@@ -1,6 +1,7 @@
 <script lang="ts">
 import HardcoverKeyForm from '$lib/settings/hardcover-key-form.svelte'
 import LanguageSelector from '$lib/settings/language-selector.svelte'
+import ThemeSettings from './theme-settings.svelte'
 </script>
 
 <svelte:head>
@@ -15,6 +16,7 @@ import LanguageSelector from '$lib/settings/language-selector.svelte'
 
   <LanguageSelector />
   <HardcoverKeyForm />
+  <ThemeSettings />
 </main>
 
 <style>

@@ -26,6 +26,8 @@ pub struct AppDirectories {
     pub covers_cache_dir: Utf8PathBuf,
     /// Permanent directory for resolved cover files.
     pub covers_permanent_dir: Utf8PathBuf,
+    /// Directory for downloaded font families.
+    pub fonts_dir: Utf8PathBuf,
 }
 
 impl AppDirectories {
@@ -52,6 +54,7 @@ impl AppDirectories {
         let search_index_path = cache_dir_path.join("search_index");
         let covers_cache_dir = cache_dir_path.join("covers");
         let covers_permanent_dir = local_data_dir_path.join("covers");
+        let fonts_dir = local_data_dir_path.join("fonts");
 
         Ok(Self {
             database_path,
@@ -59,6 +62,7 @@ impl AppDirectories {
             search_index_path,
             covers_cache_dir,
             covers_permanent_dir,
+            fonts_dir,
         })
     }
 }
@@ -78,6 +82,7 @@ pub struct AppState {
     pub covers: Arc<tokio::sync::Mutex<CacacheStorage>>,
     pub logs_dir: Utf8PathBuf,
     pub search_index_path: Utf8PathBuf,
+    pub fonts_dir: Utf8PathBuf,
 }
 
 #[cfg(test)]
@@ -92,6 +97,7 @@ mod tests {
             search_index_path: Utf8PathBuf::from("/tmp/search_index"),
             covers_cache_dir: Utf8PathBuf::from("/tmp/covers_cache"),
             covers_permanent_dir: Utf8PathBuf::from("/tmp/covers_permanent"),
+            fonts_dir: Utf8PathBuf::from("/tmp/fonts"),
         };
         let debug = format!("{:?}", dirs);
         assert!(debug.contains("livtet.sqlite"));

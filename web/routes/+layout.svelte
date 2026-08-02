@@ -8,6 +8,7 @@ import { Toaster } from 'svelte-sonner'
 import { commands } from '$lib/bindings'
 import AlreadyInCatalogDialog from '$lib/catalog/components/already-in-catalog-dialog.svelte'
 import PeekDialog from '$lib/catalog/components/peek-dialog.svelte'
+import ThemeRuntime from '$lib/theme/theme-runtime.svelte'
 import { defaultCommands, initHotkeyBridge, useCommandRegistry } from '$lib/commands'
 import CommandPalette from '$lib/commands/components/command-palette.svelte'
 import CommandReconciler from '$lib/commands/components/command-reconciler.svelte'
@@ -37,6 +38,7 @@ for (const c of defaultCommands) registry.register(c)
 subscribeProviderFailures()
 </script>
 
+<ThemeRuntime />
 <CommandReconciler customProfile={bridge.getCustomProfile()} />
 
 <Toaster position="bottom-right" richColors closeButton />

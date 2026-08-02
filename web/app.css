@@ -6,6 +6,7 @@
     --wa-font-family-body: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
     --wa-font-family-heading: var(--wa-font-family-body);
     --wa-font-family-code: "Geist Mono Variable", ui-monospace, monospace;
+    --wa-font-family-longform: var(--wa-font-family-body);
   }
 
   html,

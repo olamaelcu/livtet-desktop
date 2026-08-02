@@ -24,6 +24,7 @@ pub mod _bindings_export {
     pub use crate::commands::diagnostics;
     pub use crate::commands::digital_inventory;
     pub use crate::commands::edition;
+    pub use crate::commands::fonts;
     pub use crate::commands::edition_authors;
     pub use crate::commands::edition_identifiers;
     pub use crate::commands::import_edition;
@@ -60,6 +61,9 @@ pub mod _bindings_export {
                 commands::reindex::reindex,
                 commands::covers::fetch_cover,
                 commands::covers::list_covers,
+                commands::fonts::download_font,
+                commands::fonts::delete_font,
+                commands::fonts::list_downloaded_fonts,
             ])
             .events(tauri_specta::collect_events![
                 crate::commands::remote_search::chain::ProviderFailureEvent,
@@ -243,6 +247,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         covers,
         logs_dir: paths.logs_dir.clone(),
         search_index_path: paths.search_index_path.clone(),
+        fonts_dir: paths.fonts_dir.clone(),
     });
 
     Ok(())
@@ -252,7 +257,8 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_decorum::init());
+        .plugin(tauri_plugin_decorum::init())
+        .plugin(tauri_plugin_store::Builder::default().build());
 
     let specta_builder = specta();
 

@@ -7,6 +7,7 @@
 pub mod covers;
 pub mod diagnostics;
 pub mod digital_inventory;
+pub mod fonts;
 pub mod edition;
 pub mod edition_authors;
 pub mod edition_identifiers;

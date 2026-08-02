@@ -42,7 +42,7 @@ function openEdition(editionId: string | null | undefined): void {
 
   <wa-button
     slot="footer"
-    appearance="neutral"
+    appearance="plain"
     onclick={closeCatalogMatches}
   >
     Dismiss
