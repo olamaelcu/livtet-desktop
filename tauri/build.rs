@@ -75,49 +75,48 @@ fn main() {
     println!("cargo:rustc-env=SENTRY_DSN={}", secrets.sentry_dsn);
 
     // ── Sidecar binary (livtet-plugins-host-lua) ──────────────────
-    let core_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../core");
+    let core_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../core/livtet-plugins");
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
     let cargo_profile = if profile == "debug" { "dev" } else { &profile };
-
-    println!("cargo:rerun-if-changed=../../core/livtet-plugins/src/bin/host_lua.rs");
-    println!("cargo:rerun-if-changed=../../core/livtet-plugins/src/");
-    println!("cargo:rerun-if-changed=../../core/livtet-plugins/Cargo.toml");
 
     let build_status = std::process::Command::new("cargo")
         .args([
             "build",
             "--bin",
             "livtet-plugins-host-lua",
-            "-p",
-            "livtet-plugins",
             "--profile",
             cargo_profile,
         ])
         .current_dir(&core_dir)
+        .env_remove("RUSTC_WRAPPER")
         .status()
-        .expect("failed to spawn cargo build for sidecar");
+        .expect("cargo build sidecar");
 
     if !build_status.success() {
         eprintln!("error: sidecar build failed (profile={profile})");
         std::process::exit(1);
     }
 
-    let target_dir = if profile == "release" {
-        core_dir.join("target/release/livtet-plugins-host-lua")
-    } else if profile == "debug" {
-        core_dir.join("target/debug/livtet-plugins-host-lua")
-    } else {
-        core_dir.join("target").join(&profile).join("livtet-plugins-host-lua")
-    };
+    let core_workspace = core_dir.parent().unwrap();
+    let sidecar_bin = core_workspace
+        .join("target")
+        .join(&profile)
+        .join("livtet-plugins-host-lua");
 
     let binaries_dir = Path::new("binaries");
-    let target_triple = std::env::var("TARGET").unwrap_or_else(|_| "x86_64-unknown-linux-gnu".into());
-    std::fs::create_dir_all(binaries_dir).expect("create binaries dir");
+    let target_triple = std::env::var("TARGET")
+        .unwrap_or_else(|_| "x86_64-unknown-linux-gnu".into());
+    std::fs::create_dir_all(binaries_dir.join("bin"))
+        .expect("create binaries/bin dir");
     std::fs::copy(
-        &target_dir,
-        binaries_dir.join(format!("livtet-plugins-host-lua-{target_triple}")),
+        &sidecar_bin,
+        binaries_dir
+            .join("bin")
+            .join(format!("livtet-plugins-host-lua-{target_triple}")),
     )
     .expect("copy sidecar binary");
+
+    tauri_build::build();
 
     tauri_build::build();
 }
