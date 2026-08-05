@@ -75,9 +75,26 @@ fn main() {
     println!("cargo:rustc-env=SENTRY_DSN={}", secrets.sentry_dsn);
 
     // ── Sidecar binary (livtet-plugins-host-lua) ──────────────────
-    let core_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../core/livtet-plugins");
+    // Find the git checkout path (Cargo already fetched it as a dep)
+    // and build the binary from there using its own target directory.
+    let meta_out = std::process::Command::new("cargo")
+        .args(["metadata", "--format-version", "1"])
+        .output()
+        .expect("cargo metadata");
+    let meta: serde_json::Value =
+        serde_json::from_slice(&meta_out.stdout).expect("parse cargo metadata");
+    let manifest_path = meta["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "livtet-plugins")
+        .and_then(|p| p["manifest_path"].as_str())
+        .expect("livtet-plugins manifest_path");
+    let plugins_dir = Path::new(manifest_path).parent().unwrap();
+
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
     let cargo_profile = if profile == "debug" { "dev" } else { &profile };
+    let sidecar_target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
 
     let build_status = std::process::Command::new("cargo")
         .args([
@@ -86,8 +103,10 @@ fn main() {
             "livtet-plugins-host-lua",
             "--profile",
             cargo_profile,
+            "--target-dir",
         ])
-        .current_dir(&core_dir)
+        .arg(&sidecar_target)
+        .current_dir(plugins_dir)
         .env_remove("RUSTC_WRAPPER")
         .status()
         .expect("cargo build sidecar");
@@ -97,9 +116,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    let core_workspace = core_dir.parent().unwrap();
-    let sidecar_bin = core_workspace
-        .join("target")
+    let sidecar_bin = sidecar_target
         .join(&profile)
         .join("livtet-plugins-host-lua");
 
@@ -115,8 +132,6 @@ fn main() {
             .join(format!("livtet-plugins-host-lua-{target_triple}")),
     )
     .expect("copy sidecar binary");
-
-    tauri_build::build();
 
     tauri_build::build();
 }

@@ -12,7 +12,3 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
-
-[patch.'https://github.com/olamaelcu/livtet']
-livtet-core = { path = "../core/livtet-core" }
-livtet-search = { path = "../core/livtet-search" }

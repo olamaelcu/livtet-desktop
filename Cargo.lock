@@ -3732,6 +3732,7 @@ checksum = "92daf443525c4cce67b150400bc2316076100ce0b3686209eb8cf3c31612e6f0"
 [[package]]
 name = "livtet-core"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3761,6 +3762,7 @@ dependencies = [
 [[package]]
 name = "livtet-covers"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "async-trait",
  "blurhash",
@@ -3776,6 +3778,7 @@ dependencies = [
 [[package]]
 name = "livtet-data"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "async-trait",
  "camino-tempfile",
@@ -3836,6 +3839,7 @@ dependencies = [
 [[package]]
 name = "livtet-plugins"
 version = "0.2.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "aes-gcm",
  "apple-native-keyring-store",
@@ -3885,6 +3889,7 @@ dependencies = [
 [[package]]
 name = "livtet-plugins-lua"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "serde",
 ]
@@ -3892,6 +3897,7 @@ dependencies = [
 [[package]]
 name = "livtet-search"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "async-trait",
  "camino",
@@ -3914,6 +3920,7 @@ dependencies = [
 [[package]]
 name = "livtet-types"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#5fb0e49e9cf8c859ba16ae9aa6aa57c94cdf740b"
 dependencies = [
  "async-trait",
  "camino",

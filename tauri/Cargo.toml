@@ -35,7 +35,7 @@ tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decoru
 tauri-plugin-mcp-bridge = "0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-plugins = { path = "../../core/livtet-plugins" }
+livtet-plugins = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
