@@ -9,9 +9,10 @@
 use std::sync::Arc;
 
 use camino::Utf8PathBuf;
+use livtet_plugins::host_manager::PluginHostManager;
 use miette::IntoDiagnostic;
 use tauri::{App, Manager};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex as TokioMutex, RwLock};
 
 use crate::Error;
 use crate::cover_storage::CacacheStorage;
@@ -28,6 +29,8 @@ pub struct AppDirectories {
     pub covers_permanent_dir: Utf8PathBuf,
     /// Directory for downloaded font families.
     pub fonts_dir: Utf8PathBuf,
+    /// Directory for installed plugins and their data.
+    pub plugins_dir: Utf8PathBuf,
 }
 
 impl AppDirectories {
@@ -55,6 +58,7 @@ impl AppDirectories {
         let covers_cache_dir = cache_dir_path.join("covers");
         let covers_permanent_dir = local_data_dir_path.join("covers");
         let fonts_dir = local_data_dir_path.join("fonts");
+        let plugins_dir = local_data_dir_path.join("plugins");
 
         Ok(Self {
             database_path,
@@ -63,6 +67,7 @@ impl AppDirectories {
             covers_cache_dir,
             covers_permanent_dir,
             fonts_dir,
+            plugins_dir,
         })
     }
 }
@@ -83,6 +88,8 @@ pub struct AppState {
     pub logs_dir: Utf8PathBuf,
     pub search_index_path: Utf8PathBuf,
     pub fonts_dir: Utf8PathBuf,
+    pub plugin_host: Arc<TokioMutex<PluginHostManager>>,
+    pub plugin_dir: Utf8PathBuf,
 }
 
 #[cfg(test)]
@@ -98,6 +105,7 @@ mod tests {
             covers_cache_dir: Utf8PathBuf::from("/tmp/covers_cache"),
             covers_permanent_dir: Utf8PathBuf::from("/tmp/covers_permanent"),
             fonts_dir: Utf8PathBuf::from("/tmp/fonts"),
+            plugins_dir: Utf8PathBuf::from("/tmp/plugins"),
         };
         let debug = format!("{:?}", dirs);
         assert!(debug.contains("livtet.sqlite"));

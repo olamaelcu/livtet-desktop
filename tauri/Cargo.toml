@@ -30,6 +30,7 @@ tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decoru
 tauri-plugin-mcp-bridge = "0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-plugins = { path = "../../core/livtet-plugins" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
@@ -45,8 +46,9 @@ fs-err = { version = "3.3.1", features = ["debug", "tokio"] }
 async-trait = "0.1"
 reqwest     = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 urlencoding = "2"
-tokio       = { version = "1", features = ["sync", "macros", "rt-multi-thread"] }
+tokio       = { version = "1", features = ["sync", "macros", "rt-multi-thread", "process", "io-util"] }
 tokio-util  = { version = "0.7", features = ["rt"] }
+ulid        = "1"
 keyring     = { version = "3", features = ["apple-native", "linux-native", "windows-native"] }
 time        = { version = "0.3", features = ["formatting"] }
 tauri-plugin-playwright = "0.4"

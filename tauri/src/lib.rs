@@ -1,9 +1,12 @@
 use std::sync::{Arc, Mutex};
 
-use camino::Utf8Path;
+use camino::{Utf8Path, Utf8PathBuf};
+use livtet_plugins::host_manager::{CommandEnv, HostSpawnConfig, PluginHostManager};
+use livtet_plugins::keys::TrustStore;
+use livtet_plugins::repository::hmac::HmacKey;
 use miette::IntoDiagnostic;
-use tauri::{App, Manager};
-use tokio::sync::RwLock;
+use tauri::{App, Emitter, Manager};
+use tokio::sync::{Mutex as TokioMutex, RwLock};
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
@@ -30,6 +33,7 @@ pub mod _bindings_export {
     pub use crate::commands::import_edition;
     pub use crate::commands::keyring;
     pub use crate::commands::language_preference;
+    pub use crate::commands::plugins;
     pub use crate::commands::reindex;
     pub use crate::commands::remote_search;
     pub use crate::commands::search;
@@ -64,6 +68,13 @@ pub mod _bindings_export {
                 commands::fonts::download_font,
                 commands::fonts::delete_font,
                 commands::fonts::list_downloaded_fonts,
+                commands::plugins::list_plugins,
+                commands::plugins::load_plugin,
+                commands::plugins::unload_plugin,
+                commands::plugins::set_plugin_disabled,
+                commands::plugins::call_plugin_capability,
+                commands::plugins::get_plugin_setting,
+                commands::plugins::write_plugin_setting,
             ])
             .events(tauri_specta::collect_events![
                 crate::commands::remote_search::chain::ProviderFailureEvent,
@@ -194,6 +205,16 @@ async fn setup_database(
     Ok(db)
 }
 
+struct TauriEventEmitter {
+    app_handle: tauri::AppHandle,
+}
+
+impl livtet_plugins::host_manager::EventEmitter for TauriEventEmitter {
+    fn emit(&self, name: &str, payload: serde_json::Value) {
+        let _ = self.app_handle.emit(name, payload);
+    }
+}
+
 #[tracing::instrument(skip(app), ret, err)]
 async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let paths = AppDirectories::resolve(app).await?;
@@ -239,6 +260,51 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         paths.covers_permanent_dir.clone(),
     )));
 
+    // ── Plugin host ──────────────────────────────────────────
+    let hmac_key = Arc::new(HmacKey::load_or_create_in_keyring()
+        .map_err(|e| format!("failed to load HMAC key: {e}"))?);
+
+    let host_binary = std::env::current_exe().into_diagnostic()?;
+    let host_binary_path = Utf8PathBuf::from_path_buf(
+        host_binary
+            .parent()
+            .ok_or_else(|| "no parent dir for executable")?
+            .join("livtet-plugins-host-lua"),
+    )
+    .map_err(|p| format!("non-utf8 path: {p:?}"))?;
+
+    let plugin_dir = paths.plugins_dir.clone();
+    fs_err::tokio::create_dir_all(plugin_dir.as_std_path())
+        .await
+        .into_diagnostic()?;
+
+    let command_env = CommandEnv {
+        lua_path: None,
+        lua_cpath: None,
+    };
+    let spawn_config = HostSpawnConfig { command_env };
+
+    let mut host = PluginHostManager::spawn_with_db_emitter_log_dir(
+        &host_binary_path,
+        plugin_dir.clone(),
+        Some(db.pool.clone()),
+        Some(paths.logs_dir.clone()),
+        hmac_key,
+        spawn_config,
+    )
+    .await
+    .map_err(|e| format!("failed to spawn plugin host: {e}"))?;
+
+    let trust_store = TrustStore::load()
+        .map_err(|e| format!("failed to load trust store: {e}"))?;
+    host.with_trust_store(trust_store);
+
+    let app_handle = app.handle().clone();
+    let emitter = Arc::new(TauriEventEmitter { app_handle });
+    host.with_event_emitter(emitter);
+
+    let plugin_host = Arc::new(TokioMutex::new(host));
+
     app.manage(AppState {
         db,
         search,
@@ -248,6 +314,8 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         logs_dir: paths.logs_dir.clone(),
         search_index_path: paths.search_index_path.clone(),
         fonts_dir: paths.fonts_dir.clone(),
+        plugin_host,
+        plugin_dir,
     });
 
     Ok(())
