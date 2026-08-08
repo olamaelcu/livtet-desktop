@@ -4,14 +4,14 @@
 
 A coherent interface for daily work, shipped as a Tauri desktop app.
 
-Search, browse, and manage a personal library of books. Livtet indexes local and remote catalogues, fetches cover art and edition details, and surfaces metadata through a fast command palette. The frontend is SvelteKit with [WebAwesome](https://webawesome.com/) custom elements and the Geist font family. The shell is Rust, talking to the webview through Tauri IPC.
+Search, browse, and manage a personal library of books. Livtet indexes local and remote catalogues, fetches cover art and edition details, and surfaces metadata through a fast command palette. The frontend is SvelteKit with [WebAwesome](https://webawesome.com/) custom elements and the Livtet brand identity — Work Sans, Lora, and JetBrains Mono, themed from the [livtet-branding](https://github.com/olamaelcu/livtet-branding) design tokens. The shell is Rust, talking to the webview through Tauri IPC.
 
 ## Stack
 
 - Tauri 2 with `tauri-plugin-opener`, `tauri-plugin-decorum` (overlay titlebar), and `tauri-plugin-mcp-bridge` in dev
 - SvelteKit 2 + Svelte 5, bundled by Vite 8, source under `web/`
 - WebAwesome 3.x components, loaded via the auto-loader
-- Geist Sans and Geist Mono via `@fontsource-variable`
+- Livtet brand tokens via `@olamaelcu/livtet-branding` (git dependency); fonts bundled from Fontsource: Work Sans (body), Lora Variable (heading), JetBrains Mono (code)
 - Rust 1.85+, edition 2021, single workspace member in `tauri/`
 
 ## Quick start

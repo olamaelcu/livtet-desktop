@@ -1,6 +1,13 @@
 import type { OklchTriplet } from './types';
+import { livtetBrand, livtetNeutral } from './livtet';
 
-export type PresetId = 'default-light' | 'default-dark' | 'solarized-light' | 'solarized-dark';
+export type PresetId =
+  | 'livtet-light'
+  | 'livtet-dark'
+  | 'default-light'
+  | 'default-dark'
+  | 'solarized-light'
+  | 'solarized-dark';
 
 export interface ThemePreset {
   id: PresetId;
@@ -12,6 +19,22 @@ export interface ThemePreset {
 }
 
 export const presets: ThemePreset[] = [
+  {
+    id: 'livtet-light',
+    name: 'Livtet Light',
+    mode: 'light',
+    brand: livtetBrand,
+    neutral: livtetNeutral,
+    surfaceStyle: 'default',
+  },
+  {
+    id: 'livtet-dark',
+    name: 'Livtet Dark',
+    mode: 'dark',
+    brand: livtetBrand,
+    neutral: livtetNeutral,
+    surfaceStyle: 'default',
+  },
   {
     id: 'default-light',
     name: 'Default Light',

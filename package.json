@@ -27,8 +27,10 @@
   "license": "MPL-2.0",
   "dependencies": {
     "@awesome.me/webawesome": "^3.10.0",
-    "@fontsource-variable/geist": "^5.3.0",
-    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@fontsource-variable/lora": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@fontsource/work-sans": "^5.3.0",
+    "@olamaelcu/livtet-branding": "github:olamaelcu/livtet-branding#6c429abca492d59e01eb726c22d09ebdbe7e4c42",
     "@tanstack/svelte-hotkeys": "^0.10.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",

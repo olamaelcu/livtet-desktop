@@ -6,7 +6,7 @@ import { tokensForActiveTheme } from './token-map';
 
 const DEFAULTS: ActiveThemeSettings = {
 	mode: 'auto',
-	presetId: 'default-light',
+	presetId: 'livtet-light',
 	overrides: {},
 };
 

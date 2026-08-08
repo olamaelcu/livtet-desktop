@@ -16,10 +16,12 @@ TASKRC = "{{ [config_root, '.taskrc']   | join_path }}"
 TASKDATA = "{{ [config_root, '.taskdata'] | join_path }}"
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
-[tasks.dev]
-run = ["cargo run --bin generate-bindings", "pnpm tauri dev"]
+[tasks.generate-bindings]
+run = "cargo run --bin generate-bindings"
 
-depends = ["secrets-export-env"]
+[tasks.dev]
+depends = ["generate-bindings", "secrets-export-env"]
+run = "pnpm tauri dev"
 
 # --- Local parity with CI ---
 
@@ -34,17 +36,14 @@ run = [
 
 [tasks.test]
 description = "Run all tests (Rust + JS/TS)"
-run = [
-  "cargo test --workspace --all-targets",
-  "pnpm test",
-]
+run = ["cargo test --workspace --all-targets", "pnpm test"]
 
 [tasks."test:e2e:browser"]
 description = "Run E2E tests in browser-only mode (mocked IPC)"
 run = "pnpm test:e2e:browser"
 
 [tasks.fix]
-description = "Auto-fix formatting and clippy issues"
+description = "Auto-fix formatting (Rust + JS/TS)"
 run = [
   "cargo fmt",
   "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -D warnings",
@@ -60,3 +59,4 @@ depends = ["lint", "test"]
 description = "Detect copy-paste duplication (15+ lines)"
 run = "nose query . --mode syntax 'lines>15' --format json > check-dupes.json || true"
 depends = ["secrets-export-env"]
+

@@ -7,6 +7,10 @@ const host = process.env.TAURI_DEV_HOST
 export default defineConfig(() => ({
   plugins: [sveltekit()],
 
+  optimizeDeps: {
+    include: ['@tauri-apps/plugin-store'],
+  },
+
   clearScreen: false,
   server: {
     port: 1420,
