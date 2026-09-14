@@ -7,38 +7,6 @@
 
 use crate::commands;
 
-#[doc(hidden)]
-pub use crate::commands::covers;
-#[doc(hidden)]
-pub use crate::commands::diagnostics;
-#[doc(hidden)]
-pub use crate::commands::digital_inventory;
-#[doc(hidden)]
-pub use crate::commands::edition;
-#[doc(hidden)]
-pub use crate::commands::fonts;
-#[doc(hidden)]
-pub use crate::commands::edition_authors;
-#[doc(hidden)]
-pub use crate::commands::edition_identifiers;
-#[doc(hidden)]
-pub use crate::commands::import_edition;
-#[doc(hidden)]
-pub use crate::commands::keyring;
-#[doc(hidden)]
-pub use crate::commands::language_preference;
-#[doc(hidden)]
-pub use crate::commands::plugins;
-#[doc(hidden)]
-pub use crate::commands::reindex;
-#[doc(hidden)]
-pub use crate::commands::remote_search;
-#[doc(hidden)]
-pub use crate::commands::search;
-#[doc(hidden)]
-pub use crate::commands::window;
-#[doc(hidden)]
-pub use crate::state;
 
 pub fn specta() -> tauri_specta::Builder<tauri::Wry> {
     tauri_specta::Builder::<tauri::Wry>::new()
