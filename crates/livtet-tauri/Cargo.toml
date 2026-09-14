@@ -1,0 +1,85 @@
+[package]
+name = "livtet-desktop"
+version = "0.1.0"
+description = "A Tauri App"
+authors = ["Jacky Alcine <yo@jacky.wtf>"]
+edition.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"
+default-run = "livtet-desktop"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "livtet_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+config = "0.15"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[[bin]]
+name = "livtet-plugins-host-lua"
+path = "src/bin/plugin_host.rs"
+
+[dependencies]
+# Tauri dependencies
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-store = "2"
+tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }
+tauri-plugin-mcp-bridge = "0.13"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
+specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
+specta-typescript = "0.0.12"
+
+# Livtet dependencies
+livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-plugins = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+camino = { version = "1.2", features = ["serde1"] }
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-forest = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+miette = "7.6"
+thiserror = "2.0"
+fs-err = { version = "3.3", features = ["debug", "tokio"] }
+async-trait = "0.1"
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "rustls-tls",
+] }
+urlencoding = "2"
+tokio = { version = "1", features = [
+  "sync",
+  "macros",
+  "rt-multi-thread",
+  "process",
+  "io-util",
+] }
+tokio-util = { version = "0.7", features = ["rt"] }
+ulid = "3"
+keyring = { version = "4", features = [
+  "apple-native",
+  "linux-native",
+  "windows-native",
+] }
+time = { version = "0.3", features = ["formatting"] }
+tauri-plugin-playwright = "0.4"
+
+[features]
+default = ["tauri/custom-protocol"]
+e2e-testing = []
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tempfile = "3"

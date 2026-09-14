@@ -1,5 +1,3 @@
-<script lang="ts"></script>
-
 <svelte:head>
   <title>livtet</title>
 </svelte:head>
@@ -14,10 +12,5 @@
     width: 100%;
     display: grid;
     box-sizing: border-box;
-  }
-
-  .card {
-    width: 100%;
-    max-width: 28rem;
   }
 </style>

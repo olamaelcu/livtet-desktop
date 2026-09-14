@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "livtet-desktop",
+  "version": "0.1.0",
+  "identifier": "net.olamaelcu.livtet",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../../build"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "livtet",
+        "width": 1024,
+        "height": 1024,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: data:; font-src 'self' asset: data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'",
+      "assetProtocol": {
+        "enable": true
+      }
+    }
+  },
+  "bundle": {
+    "externalBin": ["binaries/bin/livtet-plugins-host-lua"],
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}
