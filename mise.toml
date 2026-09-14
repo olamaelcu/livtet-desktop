@@ -14,6 +14,7 @@ _.file = ".mise/secrets.env"
 RUST_BACKTRACE = "full"
 TASKRC = "{{ [config_root, '.taskrc']   | join_path }}"
 TASKDATA = "{{ [config_root, '.taskdata'] | join_path }}"
+CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG = true
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
 [tasks.generate-bindings]
@@ -59,4 +60,3 @@ depends = ["lint", "test"]
 description = "Detect copy-paste duplication (15+ lines)"
 run = "nose query . --mode syntax 'lines>15' --format json > check-dupes.json || true"
 depends = ["secrets-export-env"]
-

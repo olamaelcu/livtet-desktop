@@ -2,9 +2,13 @@
 
 [![CI](https://github.com/olamaelcu/livtet-desktop/actions/workflows/ci.yml/badge.svg)](https://github.com/olamaelcu/livtet-desktop/actions/workflows/ci.yml)
 
-A coherent interface for daily work, shipped as a Tauri desktop app.
-
-Search, browse, and manage a personal library of books. Livtet indexes local and remote catalogues, fetches cover art and edition details, and surfaces metadata through a fast command palette. The frontend is SvelteKit with [WebAwesome](https://webawesome.com/) custom elements and the Livtet brand identity — Work Sans, Lora, and JetBrains Mono, themed from the [livtet-branding](https://github.com/olamaelcu/livtet-branding) design tokens. The shell is Rust, talking to the webview through Tauri IPC.
+Search, browse, and manage a personal library of books. Livtet indexes local
+and remote catalogues, fetches cover art and edition details, and surfaces
+metadata through a fast command palette. The frontend is SvelteKit with
+[WebAwesome](https://webawesome.com/) custom elements and the Livtet brand
+identity — Work Sans, Lora, and JetBrains Mono, themed from the
+[livtet-branding](https://github.com/olamaelcu/livtet-branding) design tokens.
+The shell is Rust, talking to the webview through Tauri IPC.
 
 ## Stack
 
@@ -30,3 +34,4 @@ Bug reports, fixes, and feature work all flow through pull requests. Read [CONTR
 ## License
 
 MPL-2.0. See [LICENSE](./LICENSE). Copyright (c) 2026 Jacky Alcine <yo@jacky.wtf>.
+
