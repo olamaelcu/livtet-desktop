@@ -1,0 +1,17 @@
+[package]
+name = "livtet-epub"
+version = "0.1.0"
+edition.workspace = true
+authors = ["olamaelcu"]
+license = "GPL-3.0"
+description = "EPUB parsing and metadata extraction for Livtet imports"
+publish = false
+
+[dependencies]
+epub = "2.1"
+thiserror = "2"
+livtet-types.workspace = true
+
+[dev-dependencies]
+zip = { version = "8", default-features = false, features = ["deflate"] }
+tempfile = "3"
