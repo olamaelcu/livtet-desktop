@@ -42,7 +42,7 @@ convention in a one-line change.
 
 ## Frontend conventions
 
-- Use `<wa-*>` custom elements directly. Add new components to `web/app.wa.ts`
+- Use `<wa-*>` custom elements directly. Add new components to `web/app.wa.js`
   so the auto-loader picks them up at app boot.
 - App styles live under `@layer app` in `web/app.css` so WebAwesome's internal
   cascade layers don't shadow them.

@@ -1,7 +1,7 @@
 [package]
 name = "livtet-desktop"
 version = "0.1.0"
-description = "A Tauri App"
+description = "A Tauri-powered application for showing the Livtet experience"
 authors = ["Jacky Alcine <yo@jacky.wtf>"]
 edition.workspace = true
 rust-version.workspace = true
@@ -23,10 +23,6 @@ config = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
-[[bin]]
-name = "livtet-plugins-host-lua"
-path = "src/bin/plugin_host.rs"
-
 [dependencies]
 # Tauri dependencies
 tauri = { version = "2", features = ["protocol-asset"] }
@@ -40,7 +36,8 @@ specta-typescript = "0.0.12"
 
 # Livtet dependencies
 livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-plugins = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -56,7 +53,7 @@ fs-err = { version = "3.3", features = ["debug", "tokio"] }
 async-trait = "0.1"
 reqwest = { version = "0.13", default-features = false, features = [
   "json",
-  "rustls-tls",
+  "rustls",
 ] }
 urlencoding = "2"
 tokio = { version = "1", features = [
@@ -68,11 +65,7 @@ tokio = { version = "1", features = [
 ] }
 tokio-util = { version = "0.7", features = ["rt"] }
 ulid = "3"
-keyring = { version = "4", features = [
-  "apple-native",
-  "linux-native",
-  "windows-native",
-] }
+keyring = { version = "4", features = [] }
 time = { version = "0.3", features = ["formatting"] }
 tauri-plugin-playwright = "0.4"
 

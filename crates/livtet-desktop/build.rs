@@ -31,7 +31,7 @@ fn parse_env_file(path: &Path) -> HashMap<String, String> {
 }
 
 fn main() {
-    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.mise/secrets.env");
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.mise/secrets.env");
 
     println!("cargo:rerun-if-changed={}", env_path.display());
     println!("cargo:rerun-if-env-changed=GOOGLE_BOOKS_API_KEY");
@@ -73,65 +73,5 @@ fn main() {
         secrets.google_books_api_key
     );
     println!("cargo:rustc-env=SENTRY_DSN={}", secrets.sentry_dsn);
-
-    // ── Sidecar binary (livtet-plugins-host-lua) ──────────────────
-    // Find the git checkout path (Cargo already fetched it as a dep)
-    // and build the binary from there using its own target directory.
-    let meta_out = std::process::Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
-        .output()
-        .expect("cargo metadata");
-    let meta: serde_json::Value =
-        serde_json::from_slice(&meta_out.stdout).expect("parse cargo metadata");
-    let manifest_path = meta["packages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| p["name"] == "livtet-plugins")
-        .and_then(|p| p["manifest_path"].as_str())
-        .expect("livtet-plugins manifest_path");
-    let plugins_dir = Path::new(manifest_path).parent().unwrap();
-
-    let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
-    let cargo_profile = if profile == "debug" { "dev" } else { &profile };
-    let sidecar_target = Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
-
-    let build_status = std::process::Command::new("cargo")
-        .args([
-            "build",
-            "--bin",
-            "livtet-plugins-host-lua",
-            "--profile",
-            cargo_profile,
-            "--target-dir",
-        ])
-        .arg(&sidecar_target)
-        .current_dir(plugins_dir)
-        .env_remove("RUSTC_WRAPPER")
-        .status()
-        .expect("cargo build sidecar");
-
-    if !build_status.success() {
-        eprintln!("error: sidecar build failed (profile={profile})");
-        std::process::exit(1);
-    }
-
-    let sidecar_bin = sidecar_target
-        .join(&profile)
-        .join("livtet-plugins-host-lua");
-
-    let binaries_dir = Path::new("binaries");
-    let target_triple = std::env::var("TARGET")
-        .unwrap_or_else(|_| "x86_64-unknown-linux-gnu".into());
-    std::fs::create_dir_all(binaries_dir.join("bin"))
-        .expect("create binaries/bin dir");
-    std::fs::copy(
-        &sidecar_bin,
-        binaries_dir
-            .join("bin")
-            .join(format!("livtet-plugins-host-lua-{target_triple}")),
-    )
-    .expect("copy sidecar binary");
-
     tauri_build::build();
 }

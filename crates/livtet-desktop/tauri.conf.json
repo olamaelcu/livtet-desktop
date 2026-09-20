@@ -29,7 +29,6 @@
     }
   },
   "bundle": {
-    "externalBin": ["binaries/bin/livtet-plugins-host-lua"],
     "active": true,
     "targets": "all",
     "icon": [

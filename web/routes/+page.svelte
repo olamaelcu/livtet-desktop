@@ -2,15 +2,19 @@
   <title>livtet</title>
 </svelte:head>
 
-<main class="page">
-  <h1>Welcome!</h1>
-</main>
+<script lang="ts">
+import { onMount } from 'svelte'
+import { goto } from '$app/navigation'
+import { resolve } from '$app/paths'
 
-<style>
-  .page {
-    min-height: 100vh;
-    width: 100%;
-    display: grid;
-    box-sizing: border-box;
-  }
-</style>
+onMount(() => {
+  setTimeout(() => goto(resolve('/library')), 1500)
+})
+</script>
+
+<main>
+  <wa-callout>
+    <wa-spinner slot="icon"></wa-spinner>
+      Preparing your experience with Livtet&hellip;
+  </wa-callout>
+</main>

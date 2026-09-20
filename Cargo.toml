@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/livtet-tauri"]
+members = ["crates/livtet-desktop"]
 
 [workspace.package]
 edition = "2024"

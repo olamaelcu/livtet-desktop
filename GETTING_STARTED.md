@@ -102,7 +102,7 @@ remote runs use the same toolchain.
 
 **`<wa-*>` components render as plain HTML.** The WebAwesome auto-loader in
 `web/routes/+layout.svelte` hydrates them after mount. If a component never
-upgrades, check that it is imported in `web/app.wa.ts`.
+upgrades, check that it is imported in `web/app.wa.js`.
 
 **MCP bridge can't connect.** The bridge plugin is wired in debug builds only
 (`tauri/src/lib.rs` gates it behind `#[cfg(debug_assertions)]`). Build a debug
