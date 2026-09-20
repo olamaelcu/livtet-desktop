@@ -2,7 +2,7 @@ pub mod commands;
 mod error;
 mod types;
 
-pub use error::SearchIndexError;
+pub use error::{PluginError, SearchIndexError};
 pub use types::{AppState, ArcMut};
 
 use std::sync::Mutex;
@@ -11,6 +11,7 @@ use camino::Utf8PathBuf;
 use miette::IntoDiagnostic;
 use tauri::{App, Manager};
 use tauri_specta::{Builder, collect_commands};
+use tokio::sync::RwLock;
 use tracing_appender::{
     non_blocking::WorkerGuard,
     rolling::{RollingFileAppender, Rotation},
@@ -26,20 +27,7 @@ pub enum Error {
 
 static LOG_FILE_GUARD: Mutex<Option<WorkerGuard>> = Mutex::new(None);
 
-#[cfg(test)]
-fn init_test_tracing() {
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(ForestLayer::default())
-        .init();
-}
-
-async fn init_tracing(
-    logs_dir: Utf8PathBuf,
-    subsystem_loggers: &[SubsystemLogger],
-) -> miette::Result<()> {
+async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         tracing::error!("panic: {info}");
@@ -59,8 +47,6 @@ async fn init_tracing(
         .add_directive("tokio_tungstenite=warn".parse().into_diagnostic()?)
         .add_directive("tokio_tungstenite::compat=warn".parse().into_diagnostic()?);
 
-    // let rate_limit = logging_rate_limit::from_env();
-
     let file_appender = RollingFileAppender::new(Rotation::DAILY, logs_dir, "livtet.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
     let non_blocking_writer = file_writer;
@@ -73,7 +59,6 @@ async fn init_tracing(
     if use_json {
         tracing_subscriber::registry()
             .with(filter)
-            // .with(rate_limit)
             .with(ForestLayer::default())
             .with(
                 fmt::layer()
@@ -87,7 +72,6 @@ async fn init_tracing(
     } else {
         tracing_subscriber::registry()
             .with(filter)
-            // .with(rate_limit)
             .with(ForestLayer::default())
             .with(
                 fmt::layer()
@@ -100,24 +84,16 @@ async fn init_tracing(
             .init();
     }
 
-    for _ss in subsystem_loggers {
-        let _ = _ss;
-    }
-
     Ok(())
 }
 
-#[derive(Clone)]
-pub struct SubsystemLogger {
-    pub name: String,
-    pub filter: EnvFilter,
-}
-
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Paths {
     pub database_path: Utf8PathBuf,
     pub logs_dir: Utf8PathBuf,
     pub search_index_path: Utf8PathBuf,
+    pub covers_dir: Utf8PathBuf,
+    pub plugins_dir: Utf8PathBuf,
 }
 
 impl Paths {
@@ -125,16 +101,19 @@ impl Paths {
         let data_dir = app_dir.join("data");
         let search_index = app_dir.join("search");
         let logs = app_dir.join("logs");
+        let plugins_dir = app_dir.join("plugins");
 
         Self {
+            covers_dir: data_dir.join("covers"),
             database_path: data_dir,
             logs_dir: logs,
             search_index_path: search_index,
+            plugins_dir,
         }
     }
 }
 
-#[tracing::instrument(err, skip_all, level = "info")]
+#[tracing::instrument(skip_all, level = "info")]
 async fn setup_database(
     database_path: Utf8PathBuf,
 ) -> miette::Result<livtet_core::data::SharedState> {
@@ -155,16 +134,68 @@ async fn setup_database(
     Ok(db)
 }
 
+const PLUGIN_HOST_BIN: &str = if cfg!(windows) {
+    "livtet-plugin-host.exe"
+} else {
+    "livtet-plugin-host"
+};
+
+/// Resolves the plugin host binary: an explicit override first, then next to the
+/// application binary (dev and bundled installs), then the application data dir.
+fn resolve_plugin_host(app_dir: &Utf8PathBuf) -> Utf8PathBuf {
+    if let Some(path) = std::env::var_os("LIVTET_PLUGIN_HOST") {
+        return Utf8PathBuf::from(path.to_string_lossy().into_owned());
+    }
+
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let candidate = dir.join(PLUGIN_HOST_BIN);
+        if candidate.is_file() {
+            return Utf8PathBuf::from_path_buf(candidate)
+                .unwrap_or_else(|path| Utf8PathBuf::from(path.to_string_lossy().into_owned()));
+        }
+    }
+
+    app_dir.join(PLUGIN_HOST_BIN)
+}
+
+#[tracing::instrument(err, skip_all, level = "info")]
+async fn setup_plugin_host(
+    app_dir: &Utf8PathBuf,
+    plugins_dir: &Utf8PathBuf,
+) -> miette::Result<(Utf8PathBuf, Utf8PathBuf, Utf8PathBuf)> {
+    fs_err::tokio::create_dir_all(plugins_dir)
+        .await
+        .into_diagnostic()?;
+
+    let host_config = app_dir.join("host.toml");
+    if !host_config.exists() {
+        let config = "[capabilities]\ncallbacks = []\n\n[signatures]\nrequired = false\n";
+        std::fs::write(&host_config, config).into_diagnostic()?;
+    }
+
+    let plugin_host_path = resolve_plugin_host(app_dir);
+    if !plugin_host_path.is_file() {
+        tracing::warn!(
+            path = %plugin_host_path,
+            "plugin host binary not found; plugin commands will fail until it is available"
+        );
+    }
+
+    Ok((plugin_host_path, host_config, plugins_dir.clone()))
+}
+
 #[tracing::instrument(skip_all, err, level = "info")]
 async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let data_dir = livtet_core::paths::data_dir().unwrap_or_else(|| {
         let current_dir = std::env::current_dir().expect("current dir");
-        camino::Utf8PathBuf::from_path_buf(current_dir).expect("valid utf8 path")
+        Utf8PathBuf::from_path_buf(current_dir).expect("valid utf8 path")
     });
 
     let paths = Paths::new(&data_dir);
 
-    init_tracing(paths.logs_dir.clone(), &[]).await?;
+    init_tracing(paths.logs_dir.clone()).await?;
     tracing::trace!(
         db_path = paths.database_path.to_string(),
         logs_dir = paths.logs_dir.to_string(),
@@ -207,7 +238,25 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
 
     let search_index = livtet_core::search::SearchIndex::open(paths.search_index_path.as_path())?;
 
-    let state = AppState::new();
+    fs_err::tokio::create_dir_all(&paths.covers_dir)
+        .await
+        .into_diagnostic()?;
+
+    let (plugin_host_path, plugin_host_config, plugins_dir) =
+        setup_plugin_host(&data_dir, &paths.plugins_dir)
+            .await
+            .map_err(|e| {
+                Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
+            })?;
+
+    let state = AppState {
+        search_index: ArcMut::new(RwLock::new(None)),
+        db,
+        covers_dir: paths.covers_dir.clone(),
+        plugin_host_path,
+        plugin_host_config,
+        plugins_dir,
+    };
     {
         let mut guard = state.search_index.write().await;
         *guard = Some(search_index);
@@ -224,6 +273,8 @@ pub fn run() {
         commands::search::search_editions,
         commands::search::search_typeahead,
         commands::search::search_editions_count,
+        commands::import::import_epub,
+        commands::plugins::list_plugins,
     ]);
 
     let builder = tauri::Builder::default()

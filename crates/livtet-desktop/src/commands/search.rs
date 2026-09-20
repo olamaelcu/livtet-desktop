@@ -28,10 +28,7 @@ pub async fn search_typeahead(
         .await
         .map_err(SearchIndexError::other)?;
 
-    let results = hits
-        .into_iter()
-        .map(|hit| SearchResult::from(hit))
-        .collect();
+    let results = hits.into_iter().map(SearchResult::from).collect();
 
     Ok(results)
 }
@@ -127,4 +124,3 @@ impl From<SearchHit> for SearchResult {
         }
     }
 }
-

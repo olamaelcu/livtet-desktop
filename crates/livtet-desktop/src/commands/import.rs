@@ -5,8 +5,8 @@
 //! single transaction; re-importing the identical file is a no-op that
 //! returns the pre-existing edition id.
 
-use sha2::Digest;
 use serde::Serialize;
+use sha2::Digest;
 use specta::Type;
 use tauri::State;
 
@@ -87,7 +87,7 @@ async fn upsert_author(txn: &DatabaseTransaction, name: &str) -> Result<DbId, Im
     }
     let id = DbId::new();
     authors::ActiveModel {
-        id: Set(id.clone()),
+        id: Set(id),
         name: Set(name.to_string()),
     }
     .insert(txn)
@@ -109,7 +109,7 @@ async fn upsert_identifier(
     }
     let id = DbId::new();
     identifiers::ActiveModel {
-        id: Set(id.clone()),
+        id: Set(id),
         value: Set(value.to_string()),
         kind: Set(kind.to_string()),
     }
@@ -128,7 +128,7 @@ async fn upsert_publisher(txn: &DatabaseTransaction, name: &str) -> Result<DbId,
     }
     let id = DbId::new();
     publishers::ActiveModel {
-        id: Set(id.clone()),
+        id: Set(id),
         name: Set(name.to_string()),
         website: Set(None),
         logo_url: Set(None),
@@ -150,7 +150,7 @@ async fn upsert_subject(txn: &DatabaseTransaction, name: &str) -> Result<DbId, I
     }
     let id = DbId::new();
     subjects::ActiveModel {
-        id: Set(id.clone()),
+        id: Set(id),
         name: Set(name.to_string()),
         created_at: Set(now_primitive()),
         updated_at: Set(None),
@@ -179,7 +179,7 @@ async fn resolve_language(
     }
     let id = DbId::new();
     languages::ActiveModel {
-        id: Set(id.clone()),
+        id: Set(id),
         name: Set(info.english_name),
         code: Set(info.code),
         flag_emoji: Set(info.flag_emoji),
@@ -225,7 +225,7 @@ pub async fn import_epub(
         .one(&db)
         .await?
     {
-        let edition = editions::Entity::find_by_id(existing.edition_id.clone())
+        let edition = editions::Entity::find_by_id(existing.edition_id)
             .one(&db)
             .await?;
         let (work_id, title) = edition
@@ -248,12 +248,12 @@ pub async fn import_epub(
 
     let now = now_primitive();
     works::ActiveModel {
-        id: Set(work_id.clone()),
+        id: Set(work_id),
         title: Set(title.clone()),
         description: Set(meta.description.as_ref().map(|d| d.0.clone())),
         sort_title: Set(None),
         series_type: Set(None),
-        language_id: Set(language_id.clone()),
+        language_id: Set(language_id),
         preferred_edition_id: Set(None),
         created_at: Set(now),
         updated_at: Set(None),
@@ -274,17 +274,20 @@ pub async fn import_epub(
     });
 
     editions::ActiveModel {
-        id: Set(edition_id.clone()),
-        work_id: Set(work_id.clone()),
+        id: Set(edition_id),
+        work_id: Set(work_id),
         group_id: Set(None),
         title: Set(Some(title.clone())),
-        published_date: Set(meta.published.as_ref().map(|p| time::Date::from_calendar_date(
+        published_date: Set(meta.published.as_ref().and_then(|p| {
+            time::Date::from_calendar_date(
                 p.year,
                 time::Month::try_from(p.month.unwrap_or(1)).unwrap_or(time::Month::January),
                 p.day.unwrap_or(1),
-            ).ok()).flatten()),
+            )
+            .ok()
+        })),
         format_id: Set(Some(KnownFormats::Epub.into())),
-        language_id: Set(language_id.clone()),
+        language_id: Set(language_id),
         notes: Set(None),
         description: Set(meta.description.as_ref().map(|d| d.0.clone())),
         created_at: Set(now),
@@ -296,7 +299,7 @@ pub async fn import_epub(
     for contributor in &meta.creators {
         let author_id = upsert_author(&txn, &contributor.name).await?;
         edition_authors::ActiveModel {
-            edition_id: Set(edition_id.clone()),
+            edition_id: Set(edition_id),
             author_id: Set(author_id),
             role: Set(role_string(&contributor.role)),
         }
@@ -307,7 +310,7 @@ pub async fn import_epub(
     if let Some(publisher) = &meta.publisher {
         let publisher_id = upsert_publisher(&txn, &publisher.0).await?;
         edition_publishers::ActiveModel {
-            edition_id: Set(edition_id.clone()),
+            edition_id: Set(edition_id),
             publisher_id: Set(publisher_id),
         }
         .insert(&txn)
@@ -317,7 +320,7 @@ pub async fn import_epub(
     for subject in &meta.subjects {
         let subject_id = upsert_subject(&txn, &subject.0).await?;
         edition_subjects::ActiveModel {
-            edition_id: Set(edition_id.clone()),
+            edition_id: Set(edition_id),
             subject_id: Set(subject_id),
         }
         .insert(&txn)
@@ -329,7 +332,7 @@ pub async fn import_epub(
         let urn_value = Urn::new("isbn", isbn).to_string();
         let identifier_id = upsert_identifier(&txn, &urn_value, "isbn").await?;
         edition_identifiers::ActiveModel {
-            edition_id: Set(edition_id.clone()),
+            edition_id: Set(edition_id),
             identifier_id: Set(identifier_id),
         }
         .insert(&txn)
@@ -338,8 +341,8 @@ pub async fn import_epub(
 
     let file_size_bytes: i64 = bytes.len() as i64;
     digital_inventory::ActiveModel {
-        id: Set(inventory_id.clone()),
-        edition_id: Set(edition_id.clone()),
+        id: Set(inventory_id),
+        edition_id: Set(edition_id),
         file_path: Set(Some(file_path.to_string_lossy().to_string())),
         cover_path: Set(cover_path.clone()),
         blurhash: Set(None),
@@ -373,7 +376,7 @@ pub async fn import_epub(
         if let Err(err) = result {
             tracing::warn!(%err, %path, "cover write failed; clearing cover_path");
             let mut model: digital_inventory::ActiveModel = digital_inventory::Entity::find()
-                .filter(digital_inventory::Column::EditionId.eq(edition_id.clone()))
+                .filter(digital_inventory::Column::EditionId.eq(edition_id))
                 .one(&db)
                 .await?
                 .ok_or_else(|| ImportError::new("database", "inventory row vanished post-commit"))?
@@ -389,7 +392,7 @@ pub async fn import_epub(
         let guard = state.search_index.read().await;
         if let Some(index) = guard.as_ref() {
             index
-                .add_edition(&db, edition_id.clone())
+                .add_edition(&db, edition_id)
                 .await
                 .map_err(|e| ImportError::new("index", e))?;
         }

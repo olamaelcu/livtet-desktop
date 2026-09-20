@@ -10,14 +10,15 @@ mod cover;
 mod error;
 mod metadata;
 
-use epub::doc::EpubDoc;use std::path::Path;
+use epub::doc::EpubDoc;
+use std::path::Path;
 
 pub use cover::Cover;
 pub use error::EpubError;
 pub use livtet_types::Isbn;
 pub use metadata::{
-    Contributor, Description, EpubMetadata, Identifier, Language, PublicationDate, Publisher,
-    Role, Subject, Title,
+    Contributor, Description, EpubMetadata, Identifier, Language, PublicationDate, Publisher, Role,
+    Subject, Title,
 };
 
 /// Convenience alias for results from this crate.
@@ -31,4 +32,3 @@ pub fn read_metadata(path: &Path) -> Result<EpubMetadata> {
     let mut doc = EpubDoc::new(path)?;
     metadata::extract(&mut doc)
 }
-

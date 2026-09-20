@@ -82,8 +82,14 @@ impl PublicationDate {
     fn parse(raw: &str) -> Option<Self> {
         let mut it = raw.trim().split(['-', 'T', ' ']);
         let year: i32 = it.next()?.parse().ok()?;
-        let month = it.next().and_then(|m| m.parse().ok()).filter(|m| (1..=12).contains(m));
-        let day = it.next().and_then(|d| d.parse().ok()).filter(|d| (1..=31).contains(d));
+        let month = it
+            .next()
+            .and_then(|m| m.parse().ok())
+            .filter(|m| (1..=12).contains(m));
+        let day = it
+            .next()
+            .and_then(|d| d.parse().ok())
+            .filter(|d| (1..=31).contains(d));
         Some(Self { year, month, day })
     }
 }
@@ -173,7 +179,11 @@ fn contributors(doc: &EpubDoc<BufReader<File>>) -> Vec<Contributor> {
         }
         let role = Role::from_refinement(item.refinement("role").map(|r| r.value.as_str()));
         let file_as = item.refinement("file-as").map(|r| r.value.clone());
-        let c = Contributor { name, role, file_as };
+        let c = Contributor {
+            name,
+            role,
+            file_as,
+        };
         if !out.contains(&c) {
             out.push(c);
         }
@@ -196,7 +206,11 @@ fn identifier_candidates(doc: &EpubDoc<BufReader<File>>) -> Vec<String> {
             out.push(v);
         }
     }
-    for scheme_item in doc.metadata.iter().filter(|m| m.property == "identifier-scheme") {
+    for scheme_item in doc
+        .metadata
+        .iter()
+        .filter(|m| m.property == "identifier-scheme")
+    {
         let _ = scheme_item; // schemes are hints; parsing is content-driven
     }
     out
@@ -216,7 +230,12 @@ fn parse_isbn_candidate(value: &str) -> Option<Isbn> {
         return Some(isbn);
     }
     let mut candidate = s;
-    while candidate.len() > 13 && candidate.bytes().next().is_some_and(|b| b.is_ascii_alphabetic()) {
+    while candidate.len() > 13
+        && candidate
+            .bytes()
+            .next()
+            .is_some_and(|b| b.is_ascii_alphabetic())
+    {
         candidate.remove(0);
         if let Ok(isbn) = Isbn::parse(&candidate) {
             return Some(isbn);

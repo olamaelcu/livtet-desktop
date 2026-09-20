@@ -1,6 +1,6 @@
 //! Integration tests: build minimal in-memory EPUBs and assert extraction.
 
-use livtet_epub::{read_metadata, EpubError, Role};
+use livtet_epub::{EpubError, Role, read_metadata};
 
 use std::io::Write;
 use zip::write::SimpleFileOptions;
@@ -90,7 +90,8 @@ fn extracts_full_record() {
       <dc:description>&lt;p&gt;A biography of Octavia E. Butler.&lt;/p&gt;</dc:description>
       <dc:subject>BIOGRAPHY &amp; AUTOBIOGRAPHY / Cultural, Ethnic &amp; Regional</dc:subject>
       <dc:subject>Butler, Octavia E.</dc:subject>
-    "##.to_string(),
+    "##
+        .to_string(),
         with_cover: true,
     });
 
@@ -111,7 +112,13 @@ fn extracts_full_record() {
     assert_eq!(m.language.as_ref().map(|l| l.0.as_str()), Some("en"));
     let d = m.published.as_ref().unwrap();
     assert_eq!((d.year, d.month, d.day), (2025, Some(8), Some(19)));
-    assert!(m.description.as_ref().unwrap().0.contains("Octavia E. Butler"));
+    assert!(
+        m.description
+            .as_ref()
+            .unwrap()
+            .0
+            .contains("Octavia E. Butler")
+    );
     assert_eq!(m.subjects.len(), 2);
     let cover = m.cover.expect("cover extracted");
     assert_eq!(cover.mime, "image/png");
@@ -125,7 +132,8 @@ fn converts_isbn10_and_strips_uppercase_urn() {
       <dc:identifier id="pub-id">URN:ISBN:0-306-40615-2</dc:identifier>
       <dc:title>X</dc:title>
       <dc:creator>Y</dc:creator>
-    "#.to_string(),
+    "#
+        .to_string(),
         with_cover: false,
     });
     let m = read_metadata(epub.path()).unwrap();
@@ -140,10 +148,14 @@ fn fails_without_isbn() {
       <dc:identifier id="pub-id">lorem-not-an-isbn</dc:identifier>
       <dc:title>Some Book</dc:title>
       <dc:creator>Someone</dc:creator>
-    "#.to_string(),
+    "#
+        .to_string(),
         with_cover: false,
     });
-    assert!(matches!(read_metadata(epub.path()), Err(EpubError::MissingIsbn)));
+    assert!(matches!(
+        read_metadata(epub.path()),
+        Err(EpubError::MissingIsbn)
+    ));
 }
 
 #[test]
@@ -153,10 +165,14 @@ fn fails_with_bad_checksum() {
       <dc:identifier id="pub-id">urn:isbn:9780063211842</dc:identifier>
       <dc:title>Some Book</dc:title>
       <dc:creator>Someone</dc:creator>
-    "#.to_string(),
+    "#
+        .to_string(),
         with_cover: false,
     });
-    assert!(matches!(read_metadata(epub.path()), Err(EpubError::MissingIsbn)));
+    assert!(matches!(
+        read_metadata(epub.path()),
+        Err(EpubError::MissingIsbn)
+    ));
 }
 
 #[test]
@@ -165,7 +181,8 @@ fn fails_without_title() {
         opf_metadata: r#"
       <dc:identifier id="pub-id">urn:isbn:9780063211841</dc:identifier>
       <dc:creator>Someone</dc:creator>
-    "#.to_string(),
+    "#
+        .to_string(),
         with_cover: false,
     });
     assert!(matches!(
@@ -180,7 +197,8 @@ fn fails_without_creator() {
         opf_metadata: r#"
       <dc:identifier id="pub-id">urn:isbn:9780063211841</dc:identifier>
       <dc:title>Some Book</dc:title>
-    "#.to_string(),
+    "#
+        .to_string(),
         with_cover: false,
     });
     assert!(matches!(
@@ -198,14 +216,16 @@ fn non_isbn_identifier_preserved_as_other() {
       <dc:title>Some Book</dc:title>
       <dc:creator>Someone</dc:creator>
       <dc:source>urn:isbn:9780063211841</dc:source>
-    "#.to_string(),
+    "#
+        .to_string(),
         with_cover: false,
     });
     let m = read_metadata(epub.path()).unwrap();
     assert_eq!(m.isbns.len(), 1);
     assert_eq!(m.other_identifiers.len(), 2);
-    assert!(m
-        .other_identifiers
-        .iter()
-        .any(|i| i.0 == "urn:uuid:45f50eae-2b3c-48c5"));
+    assert!(
+        m.other_identifiers
+            .iter()
+            .any(|i| i.0 == "urn:uuid:45f50eae-2b3c-48c5")
+    );
 }

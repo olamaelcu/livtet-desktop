@@ -19,6 +19,7 @@ fn main() {
         livtet_desktop_lib::commands::search::search_editions,
         livtet_desktop_lib::commands::search::search_typeahead,
         livtet_desktop_lib::commands::search::search_editions_count,
+        livtet_desktop_lib::commands::plugins::list_plugins,
     ]);
 
     specta_builder
@@ -27,4 +28,3 @@ fn main() {
 
     println!("bindings.ts written to disk at {bindings_path:?}");
 }
-

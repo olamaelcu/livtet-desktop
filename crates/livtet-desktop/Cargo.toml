@@ -35,12 +35,13 @@ specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.12"
 
 # Livtet dependencies
-livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-core.workspace = true
+livtet-types.workspace = true
+livtet-search.workspace = true
+livtet-epub.workspace = true
+stanchion.workspace = true
 
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 camino = { version = "1.2", features = ["serde1"] }
 tracing = "0.1"
@@ -49,13 +50,9 @@ tracing-forest = { version = "0.3", features = ["env-filter"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 miette = "7.6"
 thiserror = "2.0"
+sha2 = "0.10"
+hex = "0.4"
 fs-err = { version = "3.3", features = ["debug", "tokio"] }
-async-trait = "0.1"
-reqwest = { version = "0.13", default-features = false, features = [
-  "json",
-  "rustls",
-] }
-urlencoding = "2"
 tokio = { version = "1", features = [
   "sync",
   "macros",
@@ -63,15 +60,17 @@ tokio = { version = "1", features = [
   "process",
   "io-util",
 ] }
-tokio-util = { version = "0.7", features = ["rt"] }
-ulid = "3"
-keyring = { version = "4", features = [] }
 time = { version = "0.3", features = ["formatting"] }
 tauri-plugin-playwright = "0.4"
 
 [features]
 default = ["tauri/custom-protocol"]
 e2e-testing = []
+
+# `tauri-plugin-mcp-bridge` is granted through capabilities/ but never named in
+# Rust source, so the detector cannot see the use.
+[package.metadata.cargo-machete]
+ignored = ["tauri-plugin-mcp-bridge"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

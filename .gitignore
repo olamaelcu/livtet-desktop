@@ -1,6 +1,7 @@
 .DS_Store
 node_modules
-tauri/binaries/
+crates/livtet-desktop/binaries/
+crates/livtet-desktop/target/
 /build
 /.svelte-kit
 /package
@@ -28,4 +29,3 @@ age.key
 # Ignore everything under docs/superpowers EXCEPT the tracked specs subtree.
 docs/superpowers/*
 test-results/
-crates/livtet-tauri/binaries
