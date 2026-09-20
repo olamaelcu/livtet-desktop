@@ -70,23 +70,13 @@ $effect(() => {
   }, 200)
 })
 
-function handleSuggestionSelect(e: Event) {
-  const item = (e as CustomEvent).detail.item as { value: string }
-  const hit = suggestions.find((s) => (s.edition_id ?? s.work_id) === item.value)
-  if (hit) {
-    query = hit.title
-    showSuggestions = false
-    fetchBooks(true)
-  }
-}
-
 function handleSearchInput(e: Event) {
   query = (e.target as HTMLInputElement).value
 }
 </script>
 
 <main>
-<div class="search-container" onkeydown={handleKeydown} role="search">
+<div class="search-container" onkeydown={handleKeydown} role="textbox" tabindex={0}>
   <div class="search-wrapper">
     <wa-input
       type="text"
@@ -102,6 +92,7 @@ function handleSearchInput(e: Event) {
             class="suggestion-item"
             role="option"
             type="button"
+            aria-selected={false}
             onclick={() => {
               query = hit.title
               showSuggestions = false
@@ -132,9 +123,6 @@ function handleSearchInput(e: Event) {
         <BookCard
           id={book.id}
           title={book.title}
-          authors={book.authors}
-          published={book.published}
-          description={book.description}
           cover_url={book.cover_url}
           popoverId="popover-{book.id}"
         />

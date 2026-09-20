@@ -1,14 +1,6 @@
 <script lang="ts">
-interface Author {
-  name: string
-  role: string
-}
-
 export const id: string = ''
 export let title: string = ''
-export let authors: Author[] = []
-export let published: string = ''
-export let description: string = ''
 export let cover_url: string | undefined = undefined
 export let popoverId: string = ''
 </script>
@@ -68,7 +60,7 @@ export let popoverId: string = ''
     {#if cover_url}
       <img src={cover_url} alt={title} />
     {:else}
-      <figcaption>Book</figcaption>
+      <figcaption>{title}</figcaption>
     {/if}
   </figure>
  </button>
