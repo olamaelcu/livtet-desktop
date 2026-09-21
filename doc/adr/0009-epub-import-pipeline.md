@@ -4,7 +4,8 @@ Date: 2026-09-20
 
 ## Status
 
-Accepted
+Accepted; partially superseded by [0011](0011-importer-plugin-contract-and-import-file-command.md)
+for the direct `livtet-epub`/`import_epub` wiring.
 
 ## Context
 

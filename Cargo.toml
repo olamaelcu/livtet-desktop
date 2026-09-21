@@ -11,6 +11,7 @@ livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-epub = { path = "crates/livtet-epub" }
+livtet-importer = { path = "crates/livtet-importer" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["remote", "lua54", "vendored"] }
 
 [profile.release]

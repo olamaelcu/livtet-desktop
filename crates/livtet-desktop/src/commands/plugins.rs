@@ -31,7 +31,9 @@ pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginSummar
     let plugins = tokio::task::spawn_blocking(move || {
         let options = stanchion::remote::RemoteOptions::new(host)
             .config(config)
-            .plugins(&plugins_dir);
+            .plugins(&plugins_dir)
+            .arg("--contract")
+            .arg("report");
         let mut registry =
             stanchion::remote::RemoteRegistry::launch(options).map_err(PluginError::host)?;
 

@@ -3517,12 +3517,13 @@ dependencies = [
 name = "livtet-desktop"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "camino",
  "config",
  "fs-err",
  "hex",
  "livtet-core",
- "livtet-epub",
+ "livtet-importer",
  "livtet-search",
  "livtet-types",
  "miette",
@@ -3559,6 +3560,28 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "livtet-importer"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "livtet-epub",
+ "serde",
+ "serde_json",
+ "stanchion",
+ "tempfile",
+ "zip 8.6.0",
+]
+
+[[package]]
+name = "livtet-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "livtet-importer",
+ "stanchion",
+ "tempfile",
 ]
 
 [[package]]

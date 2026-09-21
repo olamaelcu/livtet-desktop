@@ -171,7 +171,7 @@ async fn setup_plugin_host(
 
     let host_config = app_dir.join("host.toml");
     if !host_config.exists() {
-        let config = "[capabilities]\ncallbacks = []\n\n[signatures]\nrequired = false\n";
+        let config = "[capabilities]\nallow = [\"log\"]\ncallbacks = [\"fs_read\"]\n\n[signatures]\nrequired = false\n";
         std::fs::write(&host_config, config).into_diagnostic()?;
     }
 
@@ -273,7 +273,7 @@ pub fn run() {
         commands::search::search_editions,
         commands::search::search_typeahead,
         commands::search::search_editions_count,
-        commands::import::import_epub,
+        commands::import::import_file,
         commands::plugins::list_plugins,
     ]);
 

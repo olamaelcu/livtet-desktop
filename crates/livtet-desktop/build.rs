@@ -74,10 +74,10 @@ fn main() {
     );
     println!("cargo:rustc-env=SENTRY_DSN={}", secrets.sentry_dsn);
 
-    // ── Plugin host sidecar (stanchion's `plugin-host`) ──────────────
-    // The host is a binary of the `stanchion` dependency, which Cargo does not
-    // build for us. Build it from its checkout with a target dir of its own so
-    // the nested build does not contend with this one, then stage it for Tauri
+    // ── Plugin host sidecar (`livtet-plugin-host`) ──────────────
+    // The host is a binary in this workspace, which Cargo does not build for
+    // us here. Build the package with a target dir of its own so the nested
+    // build does not contend with this one, then stage it for Tauri
     // (`externalBin`) and for dev runs next to the application binary.
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
@@ -87,37 +87,24 @@ fn main() {
         profile.as_str()
     };
 
-    let metadata_output = std::process::Command::new("cargo")
-        .args(["metadata", "--format-version", "1"])
-        .output()
-        .expect("cargo metadata");
-    let metadata: serde_json::Value =
-        serde_json::from_slice(&metadata_output.stdout).expect("parse cargo metadata");
-    let stanchion_manifest = metadata["packages"]
-        .as_array()
-        .expect("packages array")
-        .iter()
-        .find(|package| package["name"] == "stanchion")
-        .and_then(|package| package["manifest_path"].as_str())
-        .expect("stanchion is a dependency");
-    let stanchion_dir = Path::new(stanchion_manifest)
+    let workspace_dir = manifest_dir
         .parent()
-        .expect("stanchion manifest dir");
-
+        .and_then(|path| path.parent())
+        .expect("workspace root");
     let sidecar_target = manifest_dir.join("target").join("plugin-host");
     let status = std::process::Command::new("cargo")
         .args([
             "build",
+            "-p",
+            "livtet-plugin-host",
             "--bin",
-            "plugin-host",
-            "--features",
-            "remote,lua54,vendored",
+            "livtet-plugin-host",
             "--profile",
             cargo_profile,
             "--target-dir",
         ])
         .arg(&sidecar_target)
-        .current_dir(stanchion_dir)
+        .current_dir(workspace_dir)
         .env_remove("RUSTC_WRAPPER")
         .status()
         .expect("build plugin host sidecar");
@@ -131,9 +118,9 @@ fn main() {
         std::env::var("TARGET").unwrap_or_else(|_| "x86_64-unknown-linux-gnu".into());
     let is_windows = target_triple.contains("windows");
     let built = sidecar_target.join(&profile).join(if is_windows {
-        "plugin-host.exe"
+        "livtet-plugin-host.exe"
     } else {
-        "plugin-host"
+        "livtet-plugin-host"
     });
 
     // Tauri's `externalBin` wants `<name>-<target-triple>` beside the config.

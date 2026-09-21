@@ -1,0 +1,19 @@
+[package]
+name = "livtet-importer"
+version = "0.1.0"
+edition.workspace = true
+license = "MPL-2.0"
+description = "Typed contract for Livtet file importers"
+publish = false
+
+[dependencies]
+stanchion.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+livtet-epub.workspace = true
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"
+zip = { version = "8", default-features = false, features = ["deflate"] }
