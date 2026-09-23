@@ -3697,6 +3697,7 @@ checksum = "47d9d19d1d6efa0109d2f65ff4c85cddd50bd572e5a00127ab10987290bcefae"
 [[package]]
 name = "livtet-core"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-trait",
  "camino",
@@ -3724,6 +3725,7 @@ dependencies = [
 [[package]]
 name = "livtet-covers"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3742,6 +3744,7 @@ dependencies = [
 [[package]]
 name = "livtet-data"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-trait",
  "camino-tempfile",
@@ -3828,6 +3831,7 @@ dependencies = [
 [[package]]
 name = "livtet-search"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-trait",
  "camino",
@@ -3850,6 +3854,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-trait",
  "hex",
@@ -3876,6 +3881,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync-http"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3897,6 +3903,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync-server"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "camino",
  "livtet-data",
@@ -3917,6 +3924,7 @@ dependencies = [
 [[package]]
 name = "livtet-types"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#e4d16092cf572476ecafdf7b27c9f0e3074bd475"
 dependencies = [
  "async-trait",
  "camino",
