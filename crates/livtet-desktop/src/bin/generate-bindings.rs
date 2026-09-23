@@ -21,6 +21,19 @@ fn main() {
         livtet_desktop_lib::commands::search::search_editions_count,
         livtet_desktop_lib::commands::import::import_file,
         livtet_desktop_lib::commands::plugins::list_plugins,
+        livtet_desktop_lib::commands::sync::sync_health,
+        livtet_desktop_lib::commands::sync::sync_status,
+        livtet_desktop_lib::commands::sync::sync_requests_recent,
+        livtet_desktop_lib::commands::sync::sync_pairing_begin,
+        livtet_desktop_lib::commands::sync::sync_pairing_list,
+        livtet_desktop_lib::commands::sync::sync_pairing_approve,
+        livtet_desktop_lib::commands::sync::sync_pairing_reject,
+        livtet_desktop_lib::commands::sync::sync_devices_list,
+        livtet_desktop_lib::commands::sync::sync_devices_revoke,
+        livtet_desktop_lib::commands::sync::sync_conflicts_list,
+        livtet_desktop_lib::commands::sync::sync_conflicts_resolve,
+        livtet_desktop_lib::commands::sync::sync_server_start,
+        livtet_desktop_lib::commands::sync::sync_server_stop,
     ]);
 
     specta_builder

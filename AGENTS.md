@@ -2,12 +2,17 @@
 
 Project guidance for AI agents working on the livtet-desktop codebase.
 
+## Pointers
+
+- Verify the code using `mise test` and `mise lint`. Examine the other tasks
+  defined in [mise.toml](./mise.toml) to determine what should be run when.
+
 ## Skills
 
 Project-specific skills live in `.agents/skills/`. When a task matches a
 skill's description, load it before doing anything else. To add a new skill:
 
-## Available skills
+### Available skills
 
 - **tauri-mcp-automation** — load when driving the desktop app via the Tauri
   MCP bridge. Covers filling `<wa-input>`/custom elements, clicking buttons,

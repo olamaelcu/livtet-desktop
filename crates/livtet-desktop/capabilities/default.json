@@ -19,6 +19,18 @@
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
     "store:default",
-    "core:resources:default"
+    "core:resources:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [{ "name": "livtet-sync-daemon", "sidecar": true, "args": true }]
+    },
+    {
+      "identifier": "shell:allow-stdin-write",
+      "allow": [{ "name": "livtet-sync-daemon", "sidecar": true, "args": true }]
+    },
+    {
+      "identifier": "shell:allow-kill",
+      "allow": [{ "name": "livtet-sync-daemon", "sidecar": true, "args": true }]
+    }
   ]
 }

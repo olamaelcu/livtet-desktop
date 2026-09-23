@@ -7,9 +7,15 @@ edition = "2024"
 rust-version = "1.97.0"
 
 [workspace.dependencies]
-livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+# NOTE: local-dev override — points at the sibling core checkout so the new
+# sync crates resolve. Revert to git (`branch = "main"`) once core is pushed.
+livtet-core        = { path = "../core/livtet-core" }
+livtet-types       = { path = "../core/livtet-types" }
+livtet-search      = { path = "../core/livtet-search" }
+livtet-data        = { path = "../core/livtet-data" }
+livtet-sync        = { path = "../core/livtet-sync" }
+livtet-sync-http   = { path = "../core/livtet-sync-http", features = ["poem"] }
+livtet-sync-server = { path = "../core/livtet-sync-server" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer = { path = "crates/livtet-importer" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["remote", "lua54", "vendored"] }

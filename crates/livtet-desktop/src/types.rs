@@ -20,4 +20,6 @@ pub struct AppState {
     pub plugin_host_config: Utf8PathBuf,
     /// Path to the plugins directory.
     pub plugins_dir: Utf8PathBuf,
+    /// Bridge to the out-of-process sync daemon.
+    pub sync: Arc<crate::sync::SyncHandle>,
 }

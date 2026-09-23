@@ -1,11 +1,12 @@
 pub mod commands;
 mod error;
+pub mod sync;
 mod types;
 
 pub use error::{PluginError, SearchIndexError};
 pub use types::{AppState, ArcMut};
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use camino::Utf8PathBuf;
 use miette::IntoDiagnostic;
@@ -249,6 +250,11 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
                 Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
             })?;
 
+    // The sync daemon owns the same SQLite file as the desktop app; it opens
+    // its own connection pool and runs the client-side migrations.
+    let sync_db_path = paths.database_path.join("livtet.db");
+    let sync = crate::sync::SyncHandle::spawn(app.handle(), &sync_db_path)?;
+
     let state = AppState {
         search_index: ArcMut::new(RwLock::new(None)),
         db,
@@ -256,6 +262,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         plugin_host_path,
         plugin_host_config,
         plugins_dir,
+        sync: Arc::new(sync),
     };
     {
         let mut guard = state.search_index.write().await;
@@ -275,9 +282,23 @@ pub fn run() {
         commands::search::search_editions_count,
         commands::import::import_file,
         commands::plugins::list_plugins,
+        commands::sync::sync_health,
+        commands::sync::sync_status,
+        commands::sync::sync_requests_recent,
+        commands::sync::sync_pairing_begin,
+        commands::sync::sync_pairing_list,
+        commands::sync::sync_pairing_approve,
+        commands::sync::sync_pairing_reject,
+        commands::sync::sync_devices_list,
+        commands::sync::sync_devices_revoke,
+        commands::sync::sync_conflicts_list,
+        commands::sync::sync_conflicts_resolve,
+        commands::sync::sync_server_start,
+        commands::sync::sync_server_stop,
     ]);
 
     let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_decorum::init())
         .plugin(tauri_plugin_store::Builder::default().build())

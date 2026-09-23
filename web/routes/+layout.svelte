@@ -2,6 +2,7 @@
 import '../app.css'
 import '../app.wa.js'
 
+import { Toaster } from 'svelte-sonner'
 import { page } from '$app/state'
 
 let { children } = $props()
@@ -28,10 +29,15 @@ let pageTitle = $derived(page.data.pageTitle ?? 'Livtet')
       <wa-button href="/library">
         Library
       </wa-button>
+      <wa-button href="/settings">
+        Settings
+      </wa-button>
     </wa-button-group>
   </aside>
   {@render children?.()}
 </wa-page>
+
+<Toaster theme="system" />
 
 <style>
   aside {

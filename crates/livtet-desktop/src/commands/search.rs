@@ -51,7 +51,7 @@ pub async fn search_editions(
     let limit_usize = limit.unwrap_or(20).max(1) as usize;
 
     let opts = SearchOptions {
-        offset: offset_usize,
+        offset: offset_usize as i64,
         ..Default::default()
     };
 

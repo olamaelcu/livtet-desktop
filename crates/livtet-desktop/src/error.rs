@@ -38,3 +38,35 @@ impl PluginError {
         }
     }
 }
+
+#[derive(Debug, Clone, Error, Serialize, Type)]
+pub enum SyncError {
+    #[error("Sync daemon is unavailable: {message}")]
+    Unavailable { message: String },
+
+    #[error("Sync daemon error: {message}")]
+    Rpc { message: String },
+
+    #[error("Sync protocol error: {message}")]
+    Protocol { message: String },
+}
+
+impl SyncError {
+    pub fn unavailable<E: std::fmt::Display>(err: E) -> Self {
+        Self::Unavailable {
+            message: err.to_string(),
+        }
+    }
+
+    pub fn rpc<E: std::fmt::Display>(err: E) -> Self {
+        Self::Rpc {
+            message: err.to_string(),
+        }
+    }
+
+    pub fn protocol<E: std::fmt::Display>(err: E) -> Self {
+        Self::Protocol {
+            message: err.to_string(),
+        }
+    }
+}

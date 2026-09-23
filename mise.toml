@@ -36,8 +36,12 @@ run = [
 ]
 
 [tasks.test]
-description = "Run all tests (Rust + JS/TS)"
-run = ["cargo test --workspace --all-targets", "pnpm test"]
+description = "Run all unit + integration tests (Rust + JS/TS)"
+run = [
+  "cargo test --doc --workspace",
+  "cargo test --workspace --all-targets",
+  "pnpm test",
+]
 
 [tasks."test:e2e:browser"]
 description = "Run E2E tests in browser-only mode (mocked IPC)"
@@ -53,7 +57,7 @@ run = [
 ]
 
 [tasks.ci]
-description = "Full CI suite (lint + test) — same as GitHub Actions"
+description = "Full CI suite (lint + test)"
 depends = ["lint", "test"]
 
 [tasks.check-dupes]
