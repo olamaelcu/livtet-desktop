@@ -6,6 +6,8 @@ mod types;
 pub use error::{PluginError, SearchIndexError};
 pub use types::{AppState, ArcMut};
 
+use std::cell::Cell;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use camino::Utf8PathBuf;
@@ -17,7 +19,10 @@ use tracing_appender::{
     non_blocking::WorkerGuard,
     rolling::{RollingFileAppender, Rotation},
 };
-use tracing_forest::{ForestLayer, traits::*, util::EnvFilter};
+use tracing_forest::{
+    ForestLayer, Formatter, Processor, printer::Pretty, processor, traits::*, tree::Tree,
+    util::EnvFilter,
+};
 use tracing_subscriber::fmt;
 
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
@@ -28,15 +33,37 @@ pub enum Error {
 
 static LOG_FILE_GUARD: Mutex<Option<WorkerGuard>> = Mutex::new(None);
 
+thread_local! {
+    static IN_PANIC_HOOK: Cell<bool> = const { Cell::new(false) };
+}
+
+#[allow(clippy::result_large_err)]
+fn write_pretty(tree: Tree) -> processor::Result {
+    if let Ok(line) = Pretty.fmt(&tree) {
+        let _ = std::io::stdout().write_all(line.as_bytes());
+    }
+    Ok(())
+}
+
+fn stdout_processor() -> impl Processor {
+    processor::from_fn(write_pretty)
+}
+
 async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        tracing::error!("panic: {info}");
+        if IN_PANIC_HOOK.with(|flag| flag.replace(true)) {
+            return;
+        }
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tracing::error!("panic: {info}");
+        }));
         if let Ok(mut guard) = LOG_FILE_GUARD.lock() {
             drop(guard.take());
         }
         std::thread::sleep(std::time::Duration::from_millis(100));
         prev_hook(info);
+        IN_PANIC_HOOK.with(|flag| flag.set(false));
     }));
 
     fs_err::tokio::create_dir_all(&logs_dir)
@@ -60,7 +87,7 @@ async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     if use_json {
         tracing_subscriber::registry()
             .with(filter)
-            .with(ForestLayer::default())
+            .with(ForestLayer::from(stdout_processor()))
             .with(
                 fmt::layer()
                     .json()
@@ -73,7 +100,7 @@ async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     } else {
         tracing_subscriber::registry()
             .with(filter)
-            .with(ForestLayer::default())
+            .with(ForestLayer::from(stdout_processor()))
             .with(
                 fmt::layer()
                     .with_writer(non_blocking_writer)
