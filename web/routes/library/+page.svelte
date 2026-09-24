@@ -2,6 +2,8 @@
 import { createHotkey } from '@tanstack/svelte-hotkeys'
 import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query'
 import { onDestroy } from 'svelte'
+import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
+import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
 import { searchKeys } from '../../lib/query/keys'
 import { loadEditions, mapHitToEdition, searchTypeahead } from '../../lib/search'
 import BookCard from './BookCard.svelte'
@@ -44,6 +46,7 @@ const showSuggestions = $derived(
 )
 
 let openPopoverId = $state<string | null>(null)
+let addBookOpen = $state(false)
 
 function showPopover(id: string) {
   openPopoverId = id
@@ -77,6 +80,7 @@ function selectSuggestion(title: string) {
 </script>
 
 <main>
+<LibraryToolbar onaddbook={() => (addBookOpen = true)} />
 <div class="search-container">
   <div class="search-wrapper">
     <wa-input
@@ -160,6 +164,8 @@ function selectSuggestion(title: string) {
   <div class="load-more-trigger" onclick={loadMore} role="button" tabindex="0" onkeydown={(e)=> e.key==='Enter' && loadMore()}></div>
 {/if}
 </main>
+
+<AddBookDrawer open={addBookOpen} onclose={() => (addBookOpen = false)} />
 
 <style>
   main {

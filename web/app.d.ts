@@ -54,6 +54,12 @@ declare global {
         orientation?: 'horizontal' | 'vertical'
         spacing?: string
       }
+      'wa-drawer': import('svelte/elements').HTMLAttributes<HTMLElement> & {
+        open?: boolean
+        label?: string
+        placement?: 'top' | 'end' | 'bottom' | 'start'
+        'onwa-after-hide'?: (event: Event) => void
+      }
       'wa-spinner': import('svelte/elements').HTMLAttributes<HTMLElement> & {
         size?: string
         variant?: string
