@@ -189,13 +189,20 @@ function selectSuggestion(title: string) {
         onclick={() => openDetail(book.edition_id)}
       />
     {:else}
-      <div class="empty">No books? No results.</div>
+      {#if !editions.isPending && !editions.isError}
+        <div class="empty">No books? No results.</div>
+      {/if}
     {/each}
   </div>
 </wa-scroller>
 
 {#if editions.isPending}
   <div class="loading-indicator">Loading...</div>
+{:else if editions.isError}
+  <div class="error-indicator">
+    <p>Could not load books.</p>
+    <button type="button" class="retry" onclick={() => editions.refetch()}>Retry</button>
+  </div>
 {/if}
 
 {#if editions.hasNextPage}
@@ -283,7 +290,7 @@ function selectSuggestion(title: string) {
     flex: 1 1;
     max-width: 100%;
     align-items: start;
-    padding: 0 var(--wa-space-l);
+    padding: var(--wa-space-s) var(--wa-space-l);
   }
 
   .book-list {
@@ -342,6 +349,29 @@ function selectSuggestion(title: string) {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+
+  .error-indicator {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-s);
+    align-items: center;
+    padding: var(--wa-space-m);
+    text-align: center;
+    color: var(--wa-color-danger);
+  }
+
+  .error-indicator p {
+    margin: 0;
+  }
+
+  .retry {
+    padding: var(--wa-space-xs) var(--wa-space-s);
+    border: 1px solid var(--wa-color-border-default);
+    border-radius: var(--wa-radius-m);
+    background: var(--wa-color-surface-default);
+    color: var(--wa-color-text-default);
+    cursor: pointer;
   }
 
   .load-more-trigger {

@@ -25,11 +25,10 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
 
   .cover {
     --size: 8.25rem;
-    width: 100%;
+    min-width: calc(var(--size) * 0.75);
     max-width: var(--size);
     height: var(--size);
     flex-shrink: 0;
-    border-radius: calc(var(--wa-border-radius) - 0.125rem);
     overflow: hidden;
     border: 0.0625rem solid var(--wa-color-border-default);
     background: var(--wa-color-surface-alt);
