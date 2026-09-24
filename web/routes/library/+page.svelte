@@ -3,13 +3,17 @@ import { createInfiniteQuery, createQuery, keepPreviousData } from '@tanstack/sv
 import { onDestroy } from 'svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
 import EditionDetailDrawer from '../../lib/library/EditionDetailDrawer.svelte'
+import FilterPanel from '../../lib/library/FilterPanel.svelte'
+import { activeChips, activeFilterCount, removeAxisId } from '../../lib/library/filterAxes'
 import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
 import {
   coverUrlFor,
   type Edition,
+  type EditionFilters,
   loadEditionCovers,
   loadEditions,
+  loadFilterOptions,
   mapHitToEdition,
   searchTypeahead,
 } from '../../lib/search'
@@ -18,17 +22,20 @@ import BookCard from './BookCard.svelte'
 const PAGE_SIZE = 20
 const TYPEAHEAD_LIMIT = 8
 const DEBOUNCE_MS = 200
+const FILTERS_BUTTON_ID = 'library-filters-button'
 
 let queryInput = $state('')
 let query = $state('')
 let dismissedQuery = $state<string | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
+let filters = $state<EditionFilters>({})
+let filtersOpen = $state(false)
 
 onDestroy(() => clearTimeout(debounceTimer))
 
 const editions = createInfiniteQuery(() => ({
-  queryKey: searchKeys.editions(query),
-  queryFn: ({ pageParam }) => loadEditions(query || undefined, undefined, pageParam, PAGE_SIZE),
+  queryKey: searchKeys.editions(query, filters),
+  queryFn: ({ pageParam }) => loadEditions(query || undefined, filters, pageParam, PAGE_SIZE),
   initialPageParam: 0,
   getNextPageParam: (lastPage, allPages) => {
     if (lastPage.hits.length === 0) return undefined
@@ -63,6 +70,15 @@ const typeahead = createQuery(() => ({
   queryFn: () => searchTypeahead(query, TYPEAHEAD_LIMIT),
   enabled: query.trim().length > 0,
 }))
+
+const filterOptions = createQuery(() => ({
+  queryKey: searchKeys.filterOptions(),
+  queryFn: loadFilterOptions,
+  staleTime: 5 * 60 * 1000,
+}))
+
+const chips = $derived(activeChips(filters, filterOptions.data))
+const activeCount = $derived(activeFilterCount(filters))
 
 const suggestions = $derived(typeahead.data ?? [])
 const showSuggestions = $derived(
@@ -100,7 +116,39 @@ function selectSuggestion(title: string) {
 </script>
 
 <main>
-<LibraryToolbar onaddbook={() => (addBookOpen = true)} />
+<LibraryToolbar
+  onaddbook={() => (addBookOpen = true)}
+  onopenfilters={() => (filtersOpen = true)}
+  activeFilterCount={activeCount}
+  filtersButtonId={FILTERS_BUTTON_ID}
+/>
+{#if chips.length > 0}
+  <div class="filter-chips" aria-label="Active filters">
+    {#each chips as chip (chip.key)}
+      <button
+        type="button"
+        class="filter-chip"
+        onclick={() => (filters = removeAxisId(filters, chip.axis, chip.id))}
+      >
+        {chip.label}
+        <wa-icon name="xmark"></wa-icon>
+        <span class="visually-hidden">Remove {chip.label} filter</span>
+      </button>
+    {/each}
+    <button type="button" class="filter-chip clear" onclick={() => (filters = {})}>
+      Clear filters
+    </button>
+  </div>
+{/if}
+<wa-popover
+  for={FILTERS_BUTTON_ID}
+  placement="bottom-start"
+  open={filtersOpen}
+  onwa-after-show={() => (filtersOpen = true)}
+  onwa-after-hide={() => (filtersOpen = false)}
+>
+  <FilterPanel {filters} onchange={(next) => (filters = next)} onclose={() => (filtersOpen = false)} />
+</wa-popover>
 <div class="search-container">
   <div class="search-wrapper">
     <wa-input
@@ -253,6 +301,47 @@ function selectSuggestion(title: string) {
   .loading-indicator {
     padding: var(--wa-space-m);
     text-align: center;
+  }
+
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--wa-space-2xs);
+    padding: 0 var(--wa-space-m);
+  }
+
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--wa-space-3xs);
+    padding: var(--wa-space-3xs) var(--wa-space-2xs);
+    font-size: var(--wa-font-size-2xs);
+    color: var(--wa-color-text-normal);
+    background: var(--wa-color-surface-alt);
+    border: 1px solid var(--wa-color-border-default);
+    border-radius: var(--wa-border-radius);
+    cursor: pointer;
+  }
+
+  .filter-chip:hover {
+    background: var(--wa-color-surface-default);
+  }
+
+  .filter-chip.clear {
+    font-weight: 500;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .load-more-trigger {

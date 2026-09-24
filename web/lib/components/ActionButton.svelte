@@ -5,10 +5,11 @@ interface Props {
   onclick: () => void
   disabled?: boolean
   variant?: 'brand'
+  id?: string
   children: Snippet
 }
 
-let { onclick, disabled = false, variant, children }: Props = $props()
+let { onclick, disabled = false, variant, id, children }: Props = $props()
 </script>
 
 <!--
@@ -18,6 +19,6 @@ let { onclick, disabled = false, variant, children }: Props = $props()
 -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<wa-button size="s" onclick={onclick} disabled={disabled} variant={variant}>
+<wa-button {id} size="s" onclick={onclick} disabled={disabled} variant={variant}>
   {@render children()}
 </wa-button>

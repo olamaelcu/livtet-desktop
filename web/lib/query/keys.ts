@@ -21,6 +21,8 @@ function canonicalFilters(filters: Filters) {
   return Object.fromEntries(
     Object.entries(filters)
       .filter(([, v]) => v !== undefined && v !== null)
+      .map(([key, value]) => [key, Array.isArray(value) ? [...value].sort() : value] as const)
+      .filter(([, value]) => !(Array.isArray(value) && value.length === 0))
       .sort(([a], [b]) => a.localeCompare(b)),
   )
 }

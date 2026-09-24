@@ -3,13 +3,21 @@ import ActionButton from '../components/ActionButton.svelte'
 
 interface Props {
   onaddbook: () => void
+  onopenfilters: () => void
+  activeFilterCount?: number
+  /** `id` for the Filters button, so a `wa-popover` can anchor to it via `for`. */
+  filtersButtonId?: string
 }
 
-let { onaddbook }: Props = $props()
+let { onaddbook, onopenfilters, activeFilterCount = 0, filtersButtonId }: Props = $props()
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Library actions">
   <wa-button-group>
+    <ActionButton id={filtersButtonId} onclick={onopenfilters}>
+      <wa-icon name="filter"></wa-icon>
+      Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+    </ActionButton>
     <ActionButton variant="brand" onclick={onaddbook}>
       <wa-icon name="plus"></wa-icon>
       Add book
