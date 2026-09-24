@@ -1,3 +1,7 @@
+use livtet_core::data::entities::{
+    authors, formats, genres, languages, publishers, subjects, tags,
+};
+use livtet_core::data::orm::{EntityTrait, QueryOrder};
 use livtet_core::search::model::{SearchHit, SearchOptions};
 use serde::Serialize;
 use specta::Type;
@@ -92,6 +96,126 @@ pub async fn search_editions_count(
         .map_err(SearchIndexError::other)?;
 
     Ok(count as i32)
+}
+
+/// One selectable value in a filter axis: a stable id plus its display label.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct FilterOption {
+    pub id: DbId,
+    pub label: String,
+}
+
+/// Every filter option the search UI can offer, grouped by axis.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct FilterOptions {
+    pub formats: Vec<FilterOption>,
+    pub languages: Vec<FilterOption>,
+    pub tags: Vec<FilterOption>,
+    pub genres: Vec<FilterOption>,
+    pub subjects: Vec<FilterOption>,
+    pub publishers: Vec<FilterOption>,
+    pub authors: Vec<FilterOption>,
+}
+
+/// Read the seven filter value tables, each ordered by name for stable display.
+#[tauri::command]
+#[specta::specta]
+pub async fn filter_options(state: State<'_, AppState>) -> Result<FilterOptions, SearchIndexError> {
+    let db = state.db.db_conn();
+
+    let formats = formats::Entity::find()
+        .order_by_asc(formats::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    let languages = languages::Entity::find()
+        .order_by_asc(languages::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    let tags = tags::Entity::find()
+        .order_by_asc(tags::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    let genres = genres::Entity::find()
+        .order_by_asc(genres::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    let subjects = subjects::Entity::find()
+        .order_by_asc(subjects::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    let publishers = publishers::Entity::find()
+        .order_by_asc(publishers::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    let authors = authors::Entity::find()
+        .order_by_asc(authors::Column::Name)
+        .all(&db)
+        .await
+        .map_err(SearchIndexError::other)?
+        .into_iter()
+        .map(|m| FilterOption {
+            id: m.id,
+            label: m.name,
+        })
+        .collect::<Vec<_>>();
+
+    Ok(FilterOptions {
+        formats,
+        languages,
+        tags,
+        genres,
+        subjects,
+        publishers,
+        authors,
+    })
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, Type)]

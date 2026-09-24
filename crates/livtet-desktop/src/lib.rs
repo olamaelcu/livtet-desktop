@@ -308,6 +308,7 @@ pub fn run() {
         commands::search::search_editions,
         commands::search::search_typeahead,
         commands::search::search_editions_count,
+        commands::search::filter_options,
         commands::import::import_file,
         commands::import::import_files,
         commands::plugins::list_plugins,
