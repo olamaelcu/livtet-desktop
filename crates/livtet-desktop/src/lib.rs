@@ -346,6 +346,11 @@ pub fn run() {
     #[cfg(feature = "e2e-testing")]
     let builder = builder.plugin(tauri_plugin_playwright::init());
 
+    // Expose the dev automation bridge (local WebSocket) only in debug builds;
+    // it grants arbitrary JS/IPC control and must never ship in release.
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
     builder
         .setup(move |app| {
             use tauri_plugin_decorum::WebviewWindowExt;

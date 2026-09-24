@@ -72,11 +72,6 @@ tauri-plugin-playwright = "0.4"
 default = ["tauri/custom-protocol"]
 e2e-testing = []
 
-# `tauri-plugin-mcp-bridge` is granted through capabilities/ but never named in
-# Rust source, so the detector cannot see the use.
-[package.metadata.cargo-machete]
-ignored = ["tauri-plugin-mcp-bridge"]
-
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tempfile = "3"
