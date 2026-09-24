@@ -172,17 +172,52 @@ onMount(() => {
       <ActionButton onclick={refreshAll} disabled={busy}>Refresh</ActionButton>
     </div>
     {#if health.data || status.data}
-      <ul class="facts">
-        <li>Daemon: {@html health.data ? `${health.data.status} <code>v${health.data.version}</code>` : 'unknown'}</li>
-        <li>Device: <code>{status.data?.device_id ?? 'unknown'}</code></li>
-        <li>Address: <code>{status.data ? `${status.data.host}:${status.data.port}` : 'unknown'}</code></li>
-        <li>Server: {running ? 'running' : 'stopped'}</li>
-        <li>Latest version: {status.data?.latest_version ?? 0}</li>
-        <li>Paired devices: {status.data?.paired_device_count ?? 0}</li>
-        <li>Pending pairings: {status.data?.pending_pairing_count ?? 0}</li>
-        <li>Requests served: {status.data?.requests_served ?? 0}</li>
-        <li>Last request: {status.data?.last_request_at ?? 'never'}</li>
-      </ul>
+      <table class="facts">
+        <thead>
+          <tr>
+            <th>Status</th>
+            <th>Value</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">Daemon</th>
+            <td>{@html health.data ? `${health.data.status} <code>v${health.data.version}</code>` : 'unknown'}</td>
+          </tr>
+          <tr>
+            <th scope="row">Device</th>
+            <td><code>{status.data?.device_id ?? 'unknown'}</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Address</th>
+            <td><code>{status.data ? `${status.data.host}:${status.data.port}` : 'unknown'}</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Server</th>
+            <td>{running ? 'running' : 'stopped'}</td>
+          </tr>
+          <tr>
+            <th scope="row">Latest version</th>
+            <td><code>{status.data?.latest_version ?? 0}</code></td>
+          </tr>
+          <tr>
+            <th scope="row">Paired devices</th>
+            <td>{status.data?.paired_device_count ?? 0}</td>
+          </tr>
+          <tr>
+            <th scope="row">Pending pairings</th>
+            <td>{status.data?.pending_pairing_count ?? 0}</td>
+          </tr>
+          <tr>
+            <th scope="row">Requests served</th>
+            <td>{status.data?.requests_served ?? 0}</td>
+          </tr>
+          <tr>
+            <th scope="row">Last request</th>
+            <td>{status.data?.last_request_at ?? 'never'}</td>
+          </tr>
+        </tbody>
+      </table>
     {:else}
       <p class="muted">Sync daemon is unavailable.</p>
     {/if}
@@ -201,20 +236,24 @@ onMount(() => {
     </div>
 
     {#if ticket}
+      <div class="code-region">
       <wa-qr-code
         class="pairing-qr"
         value={ticket.uri}
         label="Scan to pair a device"
         size={160}
       ></wa-qr-code>
+<div>
       <div class="copy-row">
-        <wa-input readonly={true} label="Pairing URI" value={ticket.uri}></wa-input>
+        <wa-input readonly={true} label="URI" value={ticket.uri}></wa-input>
         <ActionButton onclick={() => copy('Pairing URI', ticket?.uri ?? '')}>Copy</ActionButton>
       </div>
       <div class="copy-row">
-        <wa-input readonly={true} label="Pairing token" value={ticket.token}></wa-input>
+        <wa-input readonly={true} label="Token" value={ticket.token}></wa-input>
         <ActionButton onclick={() => copy('Pairing token', ticket?.token ?? '')}>Copy</ActionButton>
       </div>
+</div>
+</div>
       <p class="muted">Expires {ticket.expires_at}.</p>
     {/if}
 
@@ -360,16 +399,37 @@ onMount(() => {
   }
 
   .facts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
-    gap: var(--wa-space-xs) var(--wa-space-l);
-    margin: 0;
-    padding: 0;
-    list-style: none;
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--wa-font-size-s);
   }
 
-  .facts li {
+  .facts th,
+  .facts td {
+    padding: var(--wa-space-xs) 0;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .facts thead th {
     color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-xs);
+    font-weight: var(--wa-font-weight-medium);
+  }
+
+  .facts tbody th {
+    color: var(--wa-color-text-secondary);
+    width: 40%;
+  }
+
+  .facts tbody tr:first-child th,
+  .facts tbody tr:first-child td {
+    padding-top: 0;
+  }
+
+  .facts tbody tr:last-child th,
+  .facts tbody tr:last-child td {
+    padding-bottom: 0;
   }
 
   .row {
@@ -383,6 +443,18 @@ onMount(() => {
 
   .row:first-of-type {
     border-top: none;
+  }
+
+  .code-region {
+    display: flex;
+    align-items: center;
+
+    > div {
+      display: flex;
+      flex-direction: column;
+      gap: var(--wa-space-s);
+      flex: 1 1;
+    }
   }
 
   .pairing-qr {
