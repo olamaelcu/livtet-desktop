@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     projects: [
       {
+        plugins: [svelte()],
         resolve: { alias: aliases },
         test: {
           name: 'unit',
