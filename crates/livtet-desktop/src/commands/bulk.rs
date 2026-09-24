@@ -10,12 +10,12 @@ use tauri::State;
 use crate::types::AppState;
 
 #[derive(Debug, Clone, Serialize, Type)]
-pub struct CatalogError {
+pub struct BulkError {
     pub code: String,
     pub message: String,
 }
 
-impl CatalogError {
+impl BulkError {
     pub fn new(code: &str, message: impl Into<String>) -> Self {
         Self { code: code.into(), message: message.into() }
     }
@@ -103,14 +103,14 @@ struct DeletionPlan {
 async fn collect_deletion_plans(
     db: &livtet_core::data::orm::DatabaseConnection,
     ids: &[DbId],
-) -> Result<Vec<DeletionPlan>, CatalogError> {
+) -> Result<Vec<DeletionPlan>, BulkError> {
     let mut plans = Vec::with_capacity(ids.len());
     for id in ids {
         let inventory = digital_inventory::Entity::find()
             .filter(digital_inventory::Column::EditionId.eq(*id))
             .one(db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?;
 
         let mut cover_paths = Vec::new();
         if let Some(row) = &inventory
@@ -123,7 +123,7 @@ async fn collect_deletion_plans(
             .filter(edition_specific_covers::Column::EditionId.eq(*id))
             .all(db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?;
         cover_paths.extend(manual.into_iter().map(|m| m.cover_path));
 
         plans.push(DeletionPlan {
@@ -140,7 +140,7 @@ async fn collect_deletion_plans(
 pub async fn delete_editions(
     edition_ids: Vec<DbId>,
     state: State<'_, AppState>,
-) -> Result<DeleteOutcome, CatalogError> {
+) -> Result<DeleteOutcome, BulkError> {
     if edition_ids.is_empty() {
         return Ok(DeleteOutcome::empty());
     }
@@ -152,7 +152,7 @@ pub async fn delete_editions(
         .filter(editions::Column::Id.is_in(edition_ids.clone()))
         .exec(&db)
         .await
-        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        .map_err(|e| BulkError::new("database", e.to_string()))?;
 
     let mut outcome = DeleteOutcome {
         deleted: edition_ids.len() as i32,
@@ -207,7 +207,7 @@ pub async fn export_editions_csv(
     edition_ids: Vec<DbId>,
     path: String,
     state: State<'_, AppState>,
-) -> Result<ExportOutcome, CatalogError> {
+) -> Result<ExportOutcome, BulkError> {
     use livtet_core::data::entities::{
         authors, edition_authors, edition_identifiers, edition_publishers, editions, formats,
         identifiers, languages, publishers, works,
@@ -232,26 +232,26 @@ pub async fn export_editions_csv(
         let edition = editions::Entity::find_by_id(*id)
             .one(&db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?
-            .ok_or_else(|| CatalogError::new("not_found", format!("edition {id}")))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?
+            .ok_or_else(|| BulkError::new("not_found", format!("edition {id}")))?;
 
         let work_title = works::Entity::find_by_id(edition.work_id)
             .one(&db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?
+            .map_err(|e| BulkError::new("database", e.to_string()))?
             .map(|w| w.title);
 
         let author_rows = edition_authors::Entity::find()
             .filter(edition_authors::Column::EditionId.eq(*id))
             .all(&db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?;
         let mut author_names = Vec::new();
         for link in author_rows {
             if let Some(a) = authors::Entity::find_by_id(link.author_id)
                 .one(&db)
                 .await
-                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map_err(|e| BulkError::new("database", e.to_string()))?
             {
                 author_names.push(a.name);
             }
@@ -261,13 +261,13 @@ pub async fn export_editions_csv(
             .filter(edition_identifiers::Column::EditionId.eq(*id))
             .all(&db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?;
         let mut isbns = Vec::new();
         for link in identifier_rows {
             if let Some(i) = identifiers::Entity::find_by_id(link.identifier_id)
                 .one(&db)
                 .await
-                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map_err(|e| BulkError::new("database", e.to_string()))?
                 && i.kind.eq_ignore_ascii_case("isbn")
             {
                 isbns.push(i.value);
@@ -278,13 +278,13 @@ pub async fn export_editions_csv(
             .filter(edition_publishers::Column::EditionId.eq(*id))
             .all(&db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?;
         let mut publisher_names = Vec::new();
         for link in publisher_rows {
             if let Some(p) = publishers::Entity::find_by_id(link.publisher_id)
                 .one(&db)
                 .await
-                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map_err(|e| BulkError::new("database", e.to_string()))?
             {
                 publisher_names.push(p.name);
             }
@@ -294,7 +294,7 @@ pub async fn export_editions_csv(
             Some(lid) => languages::Entity::find_by_id(lid)
                 .one(&db)
                 .await
-                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map_err(|e| BulkError::new("database", e.to_string()))?
                 .map(|l| l.name),
             None => None,
         };
@@ -302,7 +302,7 @@ pub async fn export_editions_csv(
             Some(fid) => formats::Entity::find_by_id(fid)
                 .one(&db)
                 .await
-                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map_err(|e| BulkError::new("database", e.to_string()))?
                 .map(|f| f.name),
             None => None,
         };
@@ -325,10 +325,10 @@ pub async fn export_editions_csv(
     let body = lines.join("\n") + "\n";
     tokio::fs::write(&tmp, body.as_bytes())
         .await
-        .map_err(|e| CatalogError::new("io", e.to_string()))?;
+        .map_err(|e| BulkError::new("io", e.to_string()))?;
     tokio::fs::rename(&tmp, &path)
         .await
-        .map_err(|e| CatalogError::new("io", e.to_string()))?;
+        .map_err(|e| BulkError::new("io", e.to_string()))?;
 
     Ok(ExportOutcome { path, rows: edition_ids.len() as i32 })
 }
@@ -340,13 +340,13 @@ pub async fn add_edition_tags(
     edition_ids: Vec<DbId>,
     tag: String,
     state: State<'_, AppState>,
-) -> Result<TagMutationOutcome, CatalogError> {
+) -> Result<TagMutationOutcome, BulkError> {
     use livtet_core::data::entities::{edition_tags, tags};
     use livtet_types::now_primitive;
 
     let name = tag.trim().to_string();
     if name.is_empty() {
-        return Err(CatalogError::new("invalid_input", "tag name is empty"));
+        return Err(BulkError::new("invalid_input", "tag name is empty"));
     }
 
     let db = state.db.db_conn();
@@ -355,7 +355,7 @@ pub async fn add_edition_tags(
         .filter(tags::Column::Name.eq(name.clone()))
         .one(&db)
         .await
-        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        .map_err(|e| BulkError::new("database", e.to_string()))?;
 
     let tag = match existing {
         Some(row) => row,
@@ -369,7 +369,7 @@ pub async fn add_edition_tags(
             model
                 .insert(&db)
                 .await
-                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map_err(|e| BulkError::new("database", e.to_string()))?
         }
     };
 
@@ -380,7 +380,7 @@ pub async fn add_edition_tags(
             .filter(edition_tags::Column::TagId.eq(tag.id))
             .one(&db)
             .await
-            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+            .map_err(|e| BulkError::new("database", e.to_string()))?;
         if already.is_some() {
             continue;
         }
@@ -390,7 +390,7 @@ pub async fn add_edition_tags(
         }
         .insert(&db)
         .await
-        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        .map_err(|e| BulkError::new("database", e.to_string()))?;
         changed += 1;
     }
 
@@ -400,7 +400,7 @@ pub async fn add_edition_tags(
             index
                 .reindex(&db)
                 .await
-                .map_err(|e| CatalogError::new("index", e.to_string()))?;
+                .map_err(|e| BulkError::new("index", e.to_string()))?;
         }
     }
 
@@ -419,7 +419,7 @@ pub async fn remove_edition_tags(
     edition_ids: Vec<DbId>,
     tag_id: DbId,
     state: State<'_, AppState>,
-) -> Result<TagMutationOutcome, CatalogError> {
+) -> Result<TagMutationOutcome, BulkError> {
     use livtet_core::data::entities::{edition_tags, tags};
 
     let db = state.db.db_conn();
@@ -427,15 +427,15 @@ pub async fn remove_edition_tags(
     let tag = tags::Entity::find_by_id(tag_id)
         .one(&db)
         .await
-        .map_err(|e| CatalogError::new("database", e.to_string()))?
-        .ok_or_else(|| CatalogError::new("not_found", "tag"))?;
+        .map_err(|e| BulkError::new("database", e.to_string()))?
+        .ok_or_else(|| BulkError::new("not_found", "tag"))?;
 
     let result = edition_tags::Entity::delete_many()
         .filter(edition_tags::Column::EditionId.is_in(edition_ids))
         .filter(edition_tags::Column::TagId.eq(tag_id))
         .exec(&db)
         .await
-        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        .map_err(|e| BulkError::new("database", e.to_string()))?;
 
     let changed = result.rows_affected as i32;
     if changed > 0 {
@@ -444,7 +444,7 @@ pub async fn remove_edition_tags(
             index
                 .reindex(&db)
                 .await
-                .map_err(|e| CatalogError::new("index", e.to_string()))?;
+                .map_err(|e| BulkError::new("index", e.to_string()))?;
         }
     }
 
@@ -455,4 +455,48 @@ pub async fn remove_edition_tags(
         },
         changed,
     })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn matching_edition_ids(
+    query: Option<String>,
+    filters: Option<crate::commands::search::EditionFilters>,
+    state: State<'_, AppState>,
+) -> Result<Vec<DbId>, BulkError> {
+    use livtet_core::data::entities::editions;
+
+    let guard = state.search_index.read().await;
+    let index = guard
+        .as_ref()
+        .ok_or_else(|| BulkError::new("index", "search index unavailable"))?;
+
+    let db = state.db.db_conn();
+    let q = query.as_deref().unwrap_or("");
+
+    let (built, _opts) =
+        crate::commands::search::build_filtered(index, &db, q, filters.unwrap_or_default())
+            .await
+            .map_err(|e| BulkError::new("index", format!("{e:?}")))?;
+
+    let built_query = built
+        .build_query(index.index())
+        .map_err(|e| BulkError::new("index", e.to_string()))?;
+
+    let work_ids = index
+        .matching_work_ids_from_query(&*built_query)
+        .await
+        .map_err(|e| BulkError::new("index", e.to_string()))?;
+
+    if work_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = editions::Entity::find()
+        .filter(editions::Column::WorkId.is_in(work_ids))
+        .all(&db)
+        .await
+        .map_err(|e| BulkError::new("database", e.to_string()))?;
+
+    Ok(rows.into_iter().map(|e| e.id).collect())
 }

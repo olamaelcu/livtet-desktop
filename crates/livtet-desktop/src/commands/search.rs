@@ -13,7 +13,7 @@ use livtet_types::{DbId, SortDirection, WorkSortBy};
 use crate::error::SearchIndexError;
 use crate::types::AppState;
 
-async fn build_filtered(
+pub(crate) async fn build_filtered(
     index: &SearchIndex,
     db: &livtet_core::data::orm::DatabaseConnection,
     query: &str,
@@ -221,7 +221,7 @@ pub struct EditionFilters {
 
 impl EditionFilters {
     /// Drop the u64 `limit` field and hand the rest to the index layer.
-    fn into_core(self) -> livtet_types::WorkFilters {
+    pub(crate) fn into_core(self) -> livtet_types::WorkFilters {
         livtet_types::WorkFilters {
             tag_ids: self.tag_ids,
             genre_ids: self.genre_ids,
