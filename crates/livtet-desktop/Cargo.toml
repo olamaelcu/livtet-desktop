@@ -26,6 +26,7 @@ serde = { version = "1", features = ["derive"] }
 # Tauri dependencies
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }

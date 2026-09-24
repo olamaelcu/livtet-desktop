@@ -1,4 +1,6 @@
-//! `import_file` — import a book through the importer selected for its extension.
+//! `import_file` / `import_files` — import books through the importer selected
+//! for their extension. The batch command emits `import://batch` and
+//! `import://file` progress events and returns an aggregate per-file result.
 //!
 //! Fail-closed: the selected importer must return a title, a creator, and at
 //! least one valid ISBN, or nothing is written. All catalog rows are created
@@ -8,7 +10,7 @@
 use serde::Serialize;
 use sha2::Digest;
 use specta::Type;
-use tauri::State;
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use livtet_core::data::entities::{
@@ -56,6 +58,103 @@ impl ImportError {
 impl From<livtet_core::data::orm::DbErr> for ImportError {
     fn from(err: livtet_core::data::orm::DbErr) -> Self {
         Self::new("database", err)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ImportFileResult {
+    pub path: String,
+    /// Set when the file imported or was already present.
+    pub outcome: Option<ImportOutcome>,
+    /// Set when the file failed. Exactly one of `outcome` / `error` is set.
+    pub error: Option<ImportError>,
+}
+
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ImportBatchResult {
+    pub files: Vec<ImportFileResult>,
+    pub imported: i32,
+    pub duplicated: i32,
+    pub failed: i32,
+}
+
+const IMPORT_BATCH_EVENT: &str = "import://batch";
+const IMPORT_FILE_EVENT: &str = "import://file";
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportPhase {
+    Started,
+    Finished,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportBatchProgress {
+    pub phase: ImportPhase,
+    pub total: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result: Option<ImportBatchResult>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportFileProgress {
+    /// Zero-based position of this file within the batch.
+    pub index: i32,
+    pub total: i32,
+    pub path: String,
+    pub phase: ImportPhase,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<ImportOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<ImportError>,
+}
+
+fn emit_batch(app: &AppHandle, payload: ImportBatchProgress) {
+    if let Err(error) = app.emit(IMPORT_BATCH_EVENT, payload) {
+        tracing::warn!(error = %error, "failed to emit import batch event");
+    }
+}
+
+fn emit_file(app: &AppHandle, payload: ImportFileProgress) {
+    if let Err(error) = app.emit(IMPORT_FILE_EVENT, payload) {
+        tracing::warn!(error = %error, "failed to emit import file event");
+    }
+}
+
+/// Pair a file path with its import result. Exactly one side is populated.
+fn file_result(path: String, result: Result<ImportOutcome, ImportError>) -> ImportFileResult {
+    match result {
+        Ok(outcome) => ImportFileResult {
+            path,
+            outcome: Some(outcome),
+            error: None,
+        },
+        Err(error) => ImportFileResult {
+            path,
+            outcome: None,
+            error: Some(error),
+        },
+    }
+}
+
+/// Fold per-file results into the aggregate the frontend renders.
+fn batch_result(files: Vec<ImportFileResult>) -> ImportBatchResult {
+    let mut imported = 0;
+    let mut duplicated = 0;
+    let mut failed = 0;
+    for file in &files {
+        match (&file.outcome, &file.error) {
+            (Some(outcome), _) if outcome.duplicate => duplicated += 1,
+            (Some(_), _) => imported += 1,
+            (_, Some(_)) => failed += 1,
+            (None, None) => {}
+        }
+    }
+    ImportBatchResult {
+        files,
+        imported,
+        duplicated,
+        failed,
     }
 }
 
@@ -256,12 +355,17 @@ fn importer_source_for_extension(extension: &str) -> FileImporterSource {
 
 #[tauri::command]
 #[specta::specta]
-#[tracing::instrument(skip_all, fields(path))]
 pub async fn import_file(
     path: String,
     state: State<'_, AppState>,
 ) -> Result<ImportOutcome, ImportError> {
-    let file_path = std::path::PathBuf::from(&path);
+    import_one(&path, state.inner()).await
+}
+
+/// Import a single file. Shared by `import_file` and `import_files`.
+#[tracing::instrument(skip_all, fields(path = %path))]
+async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, ImportError> {
+    let file_path = std::path::PathBuf::from(path);
     let extension = file_path
         .extension()
         .and_then(|extension| extension.to_str())
@@ -270,7 +374,7 @@ pub async fn import_file(
     let (meta, source_bytes) = match importer_source_for_extension(&extension) {
         FileImporterSource::NativeEpub => (
             EpubImporter
-                .read_metadata(path.clone())
+                .read_metadata(path.to_string())
                 .map_err(|error| ImportError::new("parse", error))?,
             None,
         ),
@@ -502,12 +606,77 @@ pub async fn import_file(
     })
 }
 
+#[tauri::command]
+// NOTE: #[tracing::instrument] must precede #[specta::specta]; specta cannot
+// parse the `fields(count = paths.len())` expression in the other order.
+#[tracing::instrument(skip_all, fields(count = paths.len()))]
+#[specta::specta]
+/// Import several files sequentially, emitting `import://batch` and
+/// `import://file` progress events and returning the aggregate result.
+pub async fn import_files(paths: Vec<String>, app: AppHandle) -> ImportBatchResult {
+    // Tauri rejects async commands that borrow state and return a non-`Result`,
+    // so the state is fetched from the handle instead of taken as a parameter.
+    let state = app.state::<AppState>();
+    let total = paths.len() as i32;
+    emit_batch(
+        &app,
+        ImportBatchProgress {
+            phase: ImportPhase::Started,
+            total,
+            result: None,
+        },
+    );
+
+    let mut files = Vec::with_capacity(paths.len());
+    for (position, path) in paths.into_iter().enumerate() {
+        let index = position as i32;
+        emit_file(
+            &app,
+            ImportFileProgress {
+                index,
+                total,
+                path: path.clone(),
+                phase: ImportPhase::Started,
+                outcome: None,
+                error: None,
+            },
+        );
+
+        let outcome = import_one(&path, state.inner()).await;
+        let file = file_result(path, outcome);
+        emit_file(
+            &app,
+            ImportFileProgress {
+                index,
+                total,
+                path: file.path.clone(),
+                phase: ImportPhase::Finished,
+                outcome: file.outcome.clone(),
+                error: file.error.clone(),
+            },
+        );
+        files.push(file);
+    }
+
+    let batch = batch_result(files);
+    emit_batch(
+        &app,
+        ImportBatchProgress {
+            phase: ImportPhase::Finished,
+            total,
+            result: Some(batch.clone()),
+        },
+    );
+    batch
+}
+
 #[cfg(test)]
 mod tests {
     use livtet_importer::ImporterMeta;
 
     use super::{
-        FileImporterSource, ImportError, format_id_for_extension, importer_source_for_extension,
+        FileImporterSource, ImportError, ImportFileResult, ImportOutcome, batch_result,
+        file_result, format_id_for_extension, importer_source_for_extension,
         normalize_contributor_role, validate_importer_meta,
     };
 
@@ -616,5 +785,56 @@ mod tests {
             validate_importer_meta(&record).expect("ISBN variants must canonicalize"),
             vec!["9781784780609".to_string(), "9780306406157".to_string()]
         );
+    }
+
+    fn sample_outcome(duplicate: bool) -> ImportOutcome {
+        ImportOutcome {
+            work_id: "w".to_string(),
+            edition_id: "e".to_string(),
+            title: "Title".to_string(),
+            isbns: Vec::new(),
+            duplicate,
+        }
+    }
+
+    #[test]
+    fn file_result_carries_exactly_one_side() {
+        let ok = file_result("a.epub".to_string(), Ok(sample_outcome(false)));
+        assert!(ok.outcome.is_some());
+        assert!(ok.error.is_none());
+
+        let err = file_result(
+            "b.epub".to_string(),
+            Err(ImportError::new("parse", "bad metadata")),
+        );
+        assert!(err.outcome.is_none());
+        assert_eq!(err.error.as_ref().unwrap().code, "parse");
+    }
+
+    #[test]
+    fn batch_result_counts_each_category() {
+        let files = vec![
+            file_result("a.epub".to_string(), Ok(sample_outcome(false))),
+            file_result("b.epub".to_string(), Ok(sample_outcome(true))),
+            file_result("c.epub".to_string(), Ok(sample_outcome(false))),
+            file_result(
+                "d.epub".to_string(),
+                Err(ImportError::new("unsupported", "no importer")),
+            ),
+        ];
+
+        let batch = batch_result(files);
+        assert_eq!(batch.imported, 2);
+        assert_eq!(batch.duplicated, 1);
+        assert_eq!(batch.failed, 1);
+        assert_eq!(batch.files.len(), 4);
+        assert_eq!(batch.files[0].path, "a.epub");
+    }
+
+    #[test]
+    fn empty_input_is_an_empty_batch() {
+        let batch = batch_result(Vec::<ImportFileResult>::new());
+        assert_eq!((batch.imported, batch.duplicated, batch.failed), (0, 0, 0));
+        assert!(batch.files.is_empty());
     }
 }

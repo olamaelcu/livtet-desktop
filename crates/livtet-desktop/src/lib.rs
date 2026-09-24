@@ -308,6 +308,7 @@ pub fn run() {
         commands::search::search_typeahead,
         commands::search::search_editions_count,
         commands::import::import_file,
+        commands::import::import_files,
         commands::plugins::list_plugins,
         commands::sync::sync_health,
         commands::sync::sync_status,
@@ -327,6 +328,7 @@ pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_decorum::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .invoke_handler(specta_builder.invoke_handler());

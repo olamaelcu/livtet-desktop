@@ -20,6 +20,7 @@ fn main() {
         livtet_desktop_lib::commands::search::search_typeahead,
         livtet_desktop_lib::commands::search::search_editions_count,
         livtet_desktop_lib::commands::import::import_file,
+        livtet_desktop_lib::commands::import::import_files,
         livtet_desktop_lib::commands::plugins::list_plugins,
         livtet_desktop_lib::commands::sync::sync_health,
         livtet_desktop_lib::commands::sync::sync_status,
