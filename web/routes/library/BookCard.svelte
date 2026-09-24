@@ -2,16 +2,50 @@
 interface Props {
   title: string
   cover_url?: string
+  selectable?: boolean
+  selected?: boolean
   onclick?: () => void
 }
 
-let { title, cover_url = undefined, onclick }: Props = $props()
+let {
+  title,
+  cover_url = undefined,
+  selectable = false,
+  selected = false,
+  onclick,
+}: Props = $props()
 
 let failedUrl = $state<string | undefined>(undefined)
 const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
 </script>
 
+<div class="card-wrap">
+  <button class="card" type="button" {onclick}>
+    <figure class="cover {showCover ? '' : 'placeholder'}">
+      {#if showCover}
+        <img src={cover_url} alt={title} onerror={() => (failedUrl = cover_url)} />
+      {:else}
+        <figcaption>{title}</figcaption>
+      {/if}
+    </figure>
+  </button>
+  {#if selectable}
+    <input
+      class="select-box"
+      type="checkbox"
+      checked={selected}
+      aria-label={`Select ${title}`}
+      onchange={() => onclick?.()}
+    />
+  {/if}
+</div>
+
 <style>
+  .card-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+
   .card {
     all: unset;
     cursor: pointer;
@@ -51,14 +85,14 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     color: var(--wa-color-text-secondary);
     text-align: center;
   }
-</style>
 
-<button class="card" type="button" {onclick}>
-  <figure class="cover {showCover ? '' : 'placeholder'}">
-    {#if showCover}
-      <img src={cover_url} alt={title} onerror={() => (failedUrl = cover_url)} />
-    {:else}
-      <figcaption>{title}</figcaption>
-    {/if}
-  </figure>
-</button>
+  .select-box {
+    position: absolute;
+    top: var(--wa-space-3xs);
+    left: var(--wa-space-3xs);
+    z-index: 1;
+    width: 1.25rem;
+    height: 1.25rem;
+    cursor: pointer;
+  }
+</style>

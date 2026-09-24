@@ -8,9 +8,19 @@ interface Props {
   filtersExpanded?: boolean
   /** `id` for the Filters button, so a `wa-popover` can anchor to it via `for`. */
   filtersButtonId?: string
+  /** Whether the library is in selection mode; drives the Select toggle. */
+  selectionMode: boolean
+  ontoggleselect: () => void
 }
 
-let { onaddbook, activeFilterCount = 0, filtersExpanded = false, filtersButtonId }: Props = $props()
+let {
+  onaddbook,
+  activeFilterCount = 0,
+  filtersExpanded = false,
+  filtersButtonId,
+  selectionMode,
+  ontoggleselect,
+}: Props = $props()
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Library actions">
@@ -27,6 +37,10 @@ let { onaddbook, activeFilterCount = 0, filtersExpanded = false, filtersButtonId
     >
       <wa-icon name="filter"></wa-icon>
       Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+    </ActionButton>
+    <ActionButton onclick={ontoggleselect} aria-pressed={selectionMode}>
+      <wa-icon name={selectionMode ? 'xmark' : 'check'}></wa-icon>
+      {selectionMode ? 'Selecting' : 'Select'}
     </ActionButton>
     <ActionButton variant="brand" onclick={onaddbook}>
       <wa-icon name="plus"></wa-icon>

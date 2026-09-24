@@ -8,6 +8,7 @@ interface Props {
   id?: string
   'aria-haspopup'?: 'dialog' | boolean
   'aria-expanded'?: boolean
+  'aria-pressed'?: boolean
   children: Snippet
 }
 

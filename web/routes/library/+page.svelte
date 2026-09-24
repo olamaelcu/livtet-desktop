@@ -1,11 +1,29 @@
 <script lang="ts">
-import { createInfiniteQuery, createQuery, keepPreviousData } from '@tanstack/svelte-query'
+import {
+  createInfiniteQuery,
+  createQuery,
+  keepPreviousData,
+  useQueryClient,
+} from '@tanstack/svelte-query'
+import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { onDestroy } from 'svelte'
+import { toast } from 'svelte-sonner'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
+import {
+  addEditionTags,
+  deleteEditions,
+  exportEditionsCsv,
+  matchingEditionIds,
+  removeEditionTags,
+} from '../../lib/library/bulk'
+import ConfirmDialog from '../../lib/library/ConfirmDialog.svelte'
 import EditionDetailDrawer from '../../lib/library/EditionDetailDrawer.svelte'
 import FilterPanel from '../../lib/library/FilterPanel.svelte'
 import { activeChips, activeFilterCount, removeAxisId } from '../../lib/library/filterAxes'
 import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
+import SelectionActionBar, { TAG_BUTTON_ID } from '../../lib/library/SelectionActionBar.svelte'
+import { Selection } from '../../lib/library/selection.svelte'
+import TagPicker from '../../lib/library/TagPicker.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
 import {
   coverUrlFor,
@@ -23,6 +41,8 @@ const PAGE_SIZE = 20
 const TYPEAHEAD_LIMIT = 8
 const DEBOUNCE_MS = 200
 const FILTERS_BUTTON_ID = 'library-filters-button'
+
+const queryClient = useQueryClient()
 
 let queryInput = $state('')
 let query = $state('')
@@ -95,6 +115,93 @@ function openDetail(editionId: string) {
   detailOpen = true
 }
 
+const selection = new Selection()
+let busy = $state(false)
+let tagOpen = $state(false)
+let confirmDelete = $state(false)
+let selectAllIds = $state<string[]>([])
+
+function messageOf(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object' && 'message' in error) {
+    return String((error as { message: unknown }).message)
+  }
+  return 'Something went wrong'
+}
+
+async function runDelete() {
+  busy = true
+  try {
+    const outcome = await deleteEditions([...selection.selected])
+    await queryClient.invalidateQueries({ queryKey: searchKeys.all })
+    selection.clear()
+    toast.success(`Deleted ${outcome.deleted}`)
+    confirmDelete = false
+  } catch (error) {
+    toast.error(messageOf(error))
+  } finally {
+    busy = false
+  }
+}
+
+async function runExport() {
+  try {
+    const path = await saveDialog({
+      defaultPath: 'library-export.csv',
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    })
+    if (!path) return
+    busy = true
+    const outcome = await exportEditionsCsv([...selection.selected], path)
+    toast.success(`Exported ${outcome.rows} editions`)
+  } catch (error) {
+    toast.error(messageOf(error))
+  } finally {
+    busy = false
+  }
+}
+
+async function runAddTag(name: string) {
+  busy = true
+  try {
+    const outcome = await addEditionTags([...selection.selected], name)
+    await queryClient.invalidateQueries({ queryKey: searchKeys.all })
+    await queryClient.invalidateQueries({ queryKey: searchKeys.filterOptions() })
+    toast.success(`Added "${outcome.tag.label}" to ${outcome.changed} editions`)
+  } catch (error) {
+    toast.error(messageOf(error))
+  } finally {
+    busy = false
+  }
+}
+
+async function runRemoveTag(tagId: string) {
+  busy = true
+  try {
+    const outcome = await removeEditionTags([...selection.selected], tagId)
+    await queryClient.invalidateQueries({ queryKey: searchKeys.all })
+    await queryClient.invalidateQueries({ queryKey: searchKeys.filterOptions() })
+    toast.success(`Removed "${outcome.tag.label}" from ${outcome.changed} editions`)
+  } catch (error) {
+    toast.error(messageOf(error))
+  } finally {
+    busy = false
+  }
+}
+
+async function runSelectAll() {
+  busy = true
+  try {
+    selectAllIds = await matchingEditionIds(query || undefined, filters)
+    selection.selectAll(selectAllIds)
+    toast.success(`Selected ${selectAllIds.length} matching editions`)
+  } catch (error) {
+    toast.error(messageOf(error))
+  } finally {
+    busy = false
+  }
+}
+
 function loadMore() {
   if (editions.hasNextPage && !editions.isFetchingNextPage) editions.fetchNextPage()
 }
@@ -122,7 +229,30 @@ function selectSuggestion(title: string) {
   activeFilterCount={activeCount}
   filtersExpanded={filtersOpen}
   filtersButtonId={FILTERS_BUTTON_ID}
+  selectionMode={selection.mode}
+  ontoggleselect={() => (selection.mode = !selection.mode)}
 />
+{#if selection.mode}
+  <SelectionActionBar
+    count={selection.count}
+    {busy}
+    ontag={() => (tagOpen = !tagOpen)}
+    onexport={runExport}
+    ondelete={() => (confirmDelete = true)}
+    onclear={() => selection.clear()}
+    onselectall={runSelectAll}
+  />
+  <wa-popover
+    for={TAG_BUTTON_ID}
+    label="Tags"
+    placement="bottom-start"
+    open={tagOpen}
+    onwa-after-show={() => (tagOpen = true)}
+    onwa-after-hide={() => (tagOpen = false)}
+  >
+    <TagPicker onadd={runAddTag} onremove={runRemoveTag} onclose={() => (tagOpen = false)} />
+  </wa-popover>
+{/if}
 {#if chips.length > 0}
   <div class="filter-chips" role="group" aria-label="Active filters">
     {#each chips as chip (chip.key)}
@@ -197,7 +327,10 @@ function selectSuggestion(title: string) {
       <BookCard
         title={book.title}
         cover_url={coverUrlFor(coversById.get(book.edition_id))}
-        onclick={() => openDetail(book.edition_id)}
+        selectable={selection.mode}
+        selected={selection.selected.has(book.edition_id)}
+        onclick={() =>
+          selection.mode ? selection.toggle(book.edition_id) : openDetail(book.edition_id)}
       />
     {:else}
       {#if !editions.isPending && !editions.isError}
@@ -220,6 +353,15 @@ function selectSuggestion(title: string) {
   <div class="load-more-trigger" onclick={loadMore} role="button" tabindex="0" onkeydown={(e)=> e.key==='Enter' && loadMore()}></div>
 {/if}
 </main>
+
+<ConfirmDialog
+  open={confirmDelete}
+  title="Delete editions"
+  message={`Delete ${selection.count} selected ${selection.count === 1 ? 'edition' : 'editions'}? This cannot be undone.`}
+  confirmLabel="Delete"
+  onconfirm={runDelete}
+  oncancel={() => (confirmDelete = false)}
+/>
 
 <AddBookDrawer open={addBookOpen} onclose={() => (addBookOpen = false)} />
 <EditionDetailDrawer
