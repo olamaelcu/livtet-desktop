@@ -7,10 +7,14 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 ## UI
 
 - **Settings** — the `/settings` route hosting the sync panel: server status and start/stop, pairing, paired devices, conflicts, and the recent-request feed. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
+- **Library toolbar** — the action row above the library search box; today it hosts **Add book**. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
+- **add-book drawer** — the right-hand `wa-drawer` that picks or receives dropped EPUB/PDF files and shows per-file import progress.
 
 ## IPC
 
 - **import_file** — the Tauri command that imports a book through the importer selected for its extension. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
+- **import_files** — the batch Tauri command that imports a list of paths and returns an `ImportBatchResult`. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
+- **import://batch**, **import://file** — the Tauri events carrying batch and per-file import progress. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
 - **sync_\*** — the Tauri command family (`sync_health`, `sync_status`, `sync_pairing_*`, `sync_devices_*`, `sync_conflicts_*`, `sync_server_*`) proxying the sync control channel. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
 - **sync://…** — the Tauri events the app re-emits from the daemon's notifications: `sync://pairing-requested`, `sync://request`, `sync://completed`, `sync://server-started`, `sync://server-stopped`. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
 
