@@ -199,3 +199,136 @@ pub async fn delete_editions(
 
     Ok(outcome)
 }
+
+
+#[tauri::command]
+#[specta::specta]
+pub async fn export_editions_csv(
+    edition_ids: Vec<DbId>,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<ExportOutcome, CatalogError> {
+    use livtet_core::data::entities::{
+        authors, edition_authors, edition_identifiers, edition_publishers, editions, formats,
+        identifiers, languages, publishers, works,
+    };
+
+    let db = state.db.db_conn();
+
+    let mut lines: Vec<String> = Vec::with_capacity(edition_ids.len() + 1);
+    lines.push(csv_row(&[
+        "edition_id",
+        "work_id",
+        "title",
+        "authors",
+        "isbn",
+        "publisher",
+        "language",
+        "format",
+        "published_date",
+    ]));
+
+    for id in &edition_ids {
+        let edition = editions::Entity::find_by_id(*id)
+            .one(&db)
+            .await
+            .map_err(|e| CatalogError::new("database", e.to_string()))?
+            .ok_or_else(|| CatalogError::new("not_found", format!("edition {id}")))?;
+
+        let work_title = works::Entity::find_by_id(edition.work_id)
+            .one(&db)
+            .await
+            .map_err(|e| CatalogError::new("database", e.to_string()))?
+            .map(|w| w.title);
+
+        let author_rows = edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(*id))
+            .all(&db)
+            .await
+            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        let mut author_names = Vec::new();
+        for link in author_rows {
+            if let Some(a) = authors::Entity::find_by_id(link.author_id)
+                .one(&db)
+                .await
+                .map_err(|e| CatalogError::new("database", e.to_string()))?
+            {
+                author_names.push(a.name);
+            }
+        }
+
+        let identifier_rows = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(*id))
+            .all(&db)
+            .await
+            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        let mut isbns = Vec::new();
+        for link in identifier_rows {
+            if let Some(i) = identifiers::Entity::find_by_id(link.identifier_id)
+                .one(&db)
+                .await
+                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                && i.kind.eq_ignore_ascii_case("isbn")
+            {
+                isbns.push(i.value);
+            }
+        }
+
+        let publisher_rows = edition_publishers::Entity::find()
+            .filter(edition_publishers::Column::EditionId.eq(*id))
+            .all(&db)
+            .await
+            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        let mut publisher_names = Vec::new();
+        for link in publisher_rows {
+            if let Some(p) = publishers::Entity::find_by_id(link.publisher_id)
+                .one(&db)
+                .await
+                .map_err(|e| CatalogError::new("database", e.to_string()))?
+            {
+                publisher_names.push(p.name);
+            }
+        }
+
+        let language = match edition.language_id {
+            Some(lid) => languages::Entity::find_by_id(lid)
+                .one(&db)
+                .await
+                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map(|l| l.name),
+            None => None,
+        };
+        let format = match edition.format_id {
+            Some(fid) => formats::Entity::find_by_id(fid)
+                .one(&db)
+                .await
+                .map_err(|e| CatalogError::new("database", e.to_string()))?
+                .map(|f| f.name),
+            None => None,
+        };
+
+        let title = edition.title.clone().or(work_title).unwrap_or_default();
+        lines.push(csv_row(&[
+            &edition.id.to_string(),
+            &edition.work_id.to_string(),
+            &title,
+            &author_names.join("; "),
+            &isbns.join("; "),
+            &publisher_names.join("; "),
+            language.as_deref().unwrap_or(""),
+            format.as_deref().unwrap_or(""),
+            &edition.published_date.map(|d| d.to_string()).unwrap_or_default(),
+        ]));
+    }
+
+    let tmp = format!("{path}.tmp");
+    let body = lines.join("\n") + "\n";
+    tokio::fs::write(&tmp, body.as_bytes())
+        .await
+        .map_err(|e| CatalogError::new("io", e.to_string()))?;
+    tokio::fs::rename(&tmp, &path)
+        .await
+        .map_err(|e| CatalogError::new("io", e.to_string()))?;
+
+    Ok(ExportOutcome { path, rows: edition_ids.len() as i32 })
+}
