@@ -11,6 +11,8 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **add-book drawer** — the right-hand `wa-drawer` that picks or receives dropped EPUB/PDF files and shows per-file import progress.
 - **edition-detail drawer** — the right-hand `wa-drawer` opened by clicking a book in the library; shows that edition's cover, contributors, publishers, identifiers, and file. See [ADR 0015](adr/0015-add-get-edition-detail-ipc-and-edition-detail-drawer.md).
 - **Filter panel** — the popover that narrows the library by format, language, author, tag, genre, subject, and publisher, and sets sort order. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
+- **Selection mode** — the library state where cards show checkboxes and clicks toggle selection. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
+- **Selection action bar** — the toolbar that appears in selection mode with Tag, Export CSV, Delete, and Clear. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
 
 ## IPC
 
@@ -23,6 +25,7 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **sync://…** — the Tauri events the app re-emits from the daemon's notifications: `sync://pairing-requested`, `sync://request`, `sync://completed`, `sync://server-started`, `sync://server-stopped`. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
 - **EditionFilters** — the desktop filter DTO accepted by `search_editions` / `search_editions_count`. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
 - **filter_options** — the command returning filterable values per axis. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
+- **delete_editions**, **export_editions_csv**, **add_edition_tags**, **remove_edition_tags**, **matching_edition_ids** — the bulk edition commands; errors are `BulkError`. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
 
 ## Backend
 
