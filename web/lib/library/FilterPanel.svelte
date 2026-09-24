@@ -16,19 +16,20 @@ import {
 
 interface Props {
   filters: EditionFilters
+  /** Per-axis search terms, owned by the host so it can clear them on close. */
+  searches: Record<string, string>
+  onsearch: (searches: Record<string, string>) => void
   onchange: (filters: EditionFilters) => void
   onclose: () => void
 }
 
-let { filters, onchange, onclose }: Props = $props()
+let { filters, searches, onsearch, onchange, onclose }: Props = $props()
 
 const options = createQuery(() => ({
   queryKey: searchKeys.filterOptions(),
   queryFn: loadFilterOptions,
   staleTime: 5 * 60 * 1000,
 }))
-
-let searches = $state<Record<string, string>>({})
 
 function matches(list: { id: string; label: string }[], axis: FilterAxis) {
   const term = (searches[axis] ?? '').trim().toLowerCase()
@@ -45,19 +46,26 @@ function chooseSortDirection(event: Event) {
 }
 </script>
 
-<div class="panel">
+<div class="panel" role="group" aria-label="Filters">
   {#if options.isPending}
     <p class="muted">Loading filters…</p>
+  {:else if options.isError}
+    <p class="muted">Could not load filters.</p>
+    <div class="footer">
+      <ActionButton variant="brand" onclick={onclose}>Close</ActionButton>
+    </div>
   {:else if options.data}
     {#each FILTER_AXES as axis (axis.key)}
       {@const list = axis.from(options.data)}
       <section class="axis">
         <h4>{axis.label}</h4>
         <wa-input
+          size="s"
+          label="Filter {axis.label}"
           placeholder="Filter {axis.label.toLowerCase()}…"
           value={searches[axis.key] ?? ''}
           oninput={(event) =>
-            (searches = { ...searches, [axis.key]: (event.target as HTMLInputElement).value })}
+            onsearch({ ...searches, [axis.key]: (event.target as HTMLInputElement).value })}
         ></wa-input>
         <div class="choices">
           {#each matches(list, axis.key) as option (option.id)}
@@ -76,13 +84,14 @@ function chooseSortDirection(event: Event) {
 
     <div class="sort">
       <h4>Sort</h4>
-      <select value={filters.sort_by ?? ''} onchange={chooseSortField}>
+      <select aria-label="Sort field" value={filters.sort_by ?? ''} onchange={chooseSortField}>
         <option value="">Relevance</option>
         <option value="created_at">Recently added</option>
         <option value="title">Title</option>
         <option value="updated_at">Recently updated</option>
       </select>
       <select
+        aria-label="Sort direction"
         value={filters.sort_direction ?? 'desc'}
         disabled={!filters.sort_by}
         onchange={chooseSortDirection}

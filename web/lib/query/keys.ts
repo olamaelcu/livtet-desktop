@@ -20,9 +20,14 @@ function canonicalFilters(filters: Filters) {
   if (!filters) return {}
   return Object.fromEntries(
     Object.entries(filters)
-      .filter(([, v]) => v !== undefined && v !== null)
+      .filter(([key, value]) => {
+        if (value === undefined || value === null) return false
+        if (Array.isArray(value) && value.length === 0) return false
+        // `sort_direction` is meaningless without a sort field.
+        if (key === 'sort_direction') return Boolean(filters.sort_by)
+        return true
+      })
       .map(([key, value]) => [key, Array.isArray(value) ? [...value].sort() : value] as const)
-      .filter(([, value]) => !(Array.isArray(value) && value.length === 0))
       .sort(([a], [b]) => a.localeCompare(b)),
   )
 }

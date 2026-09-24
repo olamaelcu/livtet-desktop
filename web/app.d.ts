@@ -22,7 +22,7 @@ declare global {
         href?: string
         target?: string
       }
-      'wa-input': import('svelte/elements').HTMLInputAttributes & {
+      'wa-input': Omit<import('svelte/elements').HTMLInputAttributes, 'size' | 'value' | 'type'> & {
         label?: string
         hint?: string
         placeholder?: string

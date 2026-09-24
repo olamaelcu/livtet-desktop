@@ -30,6 +30,7 @@ let dismissedQuery = $state<string | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 let filters = $state<EditionFilters>({})
 let filtersOpen = $state(false)
+let filterSearches = $state<Record<string, string>>({})
 
 onDestroy(() => clearTimeout(debounceTimer))
 
@@ -118,21 +119,21 @@ function selectSuggestion(title: string) {
 <main>
 <LibraryToolbar
   onaddbook={() => (addBookOpen = true)}
-  onopenfilters={() => (filtersOpen = true)}
   activeFilterCount={activeCount}
+  filtersExpanded={filtersOpen}
   filtersButtonId={FILTERS_BUTTON_ID}
 />
 {#if chips.length > 0}
-  <div class="filter-chips" aria-label="Active filters">
+  <div class="filter-chips" role="group" aria-label="Active filters">
     {#each chips as chip (chip.key)}
       <button
         type="button"
         class="filter-chip"
+        aria-label={`Remove ${chip.label} filter`}
         onclick={() => (filters = removeAxisId(filters, chip.axis, chip.id))}
       >
         {chip.label}
-        <wa-icon name="xmark"></wa-icon>
-        <span class="visually-hidden">Remove {chip.label} filter</span>
+        <wa-icon name="xmark" aria-hidden="true"></wa-icon>
       </button>
     {/each}
     <button type="button" class="filter-chip clear" onclick={() => (filters = {})}>
@@ -142,12 +143,22 @@ function selectSuggestion(title: string) {
 {/if}
 <wa-popover
   for={FILTERS_BUTTON_ID}
+  label="Filters"
   placement="bottom-start"
   open={filtersOpen}
   onwa-after-show={() => (filtersOpen = true)}
-  onwa-after-hide={() => (filtersOpen = false)}
+  onwa-after-hide={() => {
+    filtersOpen = false
+    filterSearches = {}
+  }}
 >
-  <FilterPanel {filters} onchange={(next) => (filters = next)} onclose={() => (filtersOpen = false)} />
+  <FilterPanel
+    {filters}
+    searches={filterSearches}
+    onsearch={(next) => (filterSearches = next)}
+    onchange={(next) => (filters = next)}
+    onclose={() => (filtersOpen = false)}
+  />
 </wa-popover>
 <div class="search-container">
   <div class="search-wrapper">
@@ -337,18 +348,6 @@ function selectSuggestion(title: string) {
 
   .filter-chip.clear {
     font-weight: 500;
-  }
-
-  .visually-hidden {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
   }
 
   .error-indicator {

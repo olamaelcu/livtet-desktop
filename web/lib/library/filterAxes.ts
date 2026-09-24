@@ -52,15 +52,14 @@ export function selectedIds(filters: EditionFilters, axis: FilterAxis): string[]
 
 /** Drop empty axes, sort each axis' ids, and drop direction when there is no sort field. */
 export function normalizeFilters(filters: EditionFilters): EditionFilters {
-  const next: FiltersDraft = { ...filters }
+  const next: FiltersDraft = {}
   for (const axis of FILTER_AXES) {
     const ids = selectedIds(filters, axis.key)
     if (ids.length > 0) next[axis.key] = [...ids].sort()
-    else delete next[axis.key]
   }
-  if (!next.sort_by) {
-    delete next.sort_by
-    delete next.sort_direction
+  if (filters.sort_by) {
+    next.sort_by = filters.sort_by
+    if (filters.sort_direction) next.sort_direction = filters.sort_direction
   }
   return next
 }

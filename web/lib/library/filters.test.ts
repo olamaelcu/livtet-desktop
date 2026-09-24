@@ -22,6 +22,15 @@ describe('searchKeys.editions', () => {
       JSON.stringify(searchKeys.editions('q', {})),
     )
   })
+
+  it('drops sort_direction when there is no sort field', () => {
+    expect(JSON.stringify(searchKeys.editions('q', { sort_direction: 'asc' }))).toBe(
+      JSON.stringify(searchKeys.editions('q', {})),
+    )
+    expect(
+      JSON.stringify(searchKeys.editions('q', { sort_by: 'title', sort_direction: 'asc' })),
+    ).not.toBe(JSON.stringify(searchKeys.editions('q', { sort_by: 'title' })))
+  })
 })
 
 describe('loadEditions', () => {

@@ -3,18 +3,28 @@ import ActionButton from '../components/ActionButton.svelte'
 
 interface Props {
   onaddbook: () => void
-  onopenfilters: () => void
   activeFilterCount?: number
+  /** Whether the filter popover is open; drives `aria-expanded`. */
+  filtersExpanded?: boolean
   /** `id` for the Filters button, so a `wa-popover` can anchor to it via `for`. */
   filtersButtonId?: string
 }
 
-let { onaddbook, onopenfilters, activeFilterCount = 0, filtersButtonId }: Props = $props()
+let { onaddbook, activeFilterCount = 0, filtersExpanded = false, filtersButtonId }: Props = $props()
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Library actions">
   <wa-button-group>
-    <ActionButton id={filtersButtonId} onclick={onopenfilters}>
+    <!--
+      The popover's anchor toggles itself on click (WebAwesome owns `open`), so
+      this button intentionally has no handler; `aria-*` advertising is threaded
+      from the page.
+    -->
+    <ActionButton
+      id={filtersButtonId}
+      aria-haspopup="dialog"
+      aria-expanded={filtersExpanded}
+    >
       <wa-icon name="filter"></wa-icon>
       Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
     </ActionButton>
