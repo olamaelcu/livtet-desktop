@@ -17,7 +17,10 @@ pub struct BulkError {
 
 impl BulkError {
     pub fn new(code: &str, message: impl Into<String>) -> Self {
-        Self { code: code.into(), message: message.into() }
+        Self {
+            code: code.into(),
+            message: message.into(),
+        }
     }
 }
 
@@ -37,7 +40,12 @@ pub struct DeleteOutcome {
 
 impl DeleteOutcome {
     pub fn empty() -> Self {
-        Self { deleted: 0, files_removed: 0, covers_removed: 0, skipped: Vec::new() }
+        Self {
+            deleted: 0,
+            files_removed: 0,
+            covers_removed: 0,
+            skipped: Vec::new(),
+        }
     }
 }
 
@@ -64,12 +72,16 @@ pub fn csv_escape(value: &str) -> String {
 }
 
 pub fn csv_row(fields: &[&str]) -> String {
-    fields.iter().map(|f| csv_escape(f)).collect::<Vec<_>>().join(",")
+    fields
+        .iter()
+        .map(|f| csv_escape(f))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{csv_escape, csv_row, DeleteOutcome, DeleteSkip};
+    use super::{DeleteOutcome, DeleteSkip, csv_escape, csv_row};
     use livtet_types::DbId;
 
     #[test]
@@ -88,9 +100,19 @@ mod tests {
     #[test]
     fn empty_outcome_is_all_zero() {
         let outcome = DeleteOutcome::empty();
-        assert_eq!((outcome.deleted, outcome.files_removed, outcome.covers_removed), (0, 0, 0));
+        assert_eq!(
+            (
+                outcome.deleted,
+                outcome.files_removed,
+                outcome.covers_removed
+            ),
+            (0, 0, 0)
+        );
         assert!(outcome.skipped.is_empty());
-        let _ = DeleteSkip { edition_id: DbId::new(), reason: "x".into() };
+        let _ = DeleteSkip {
+            edition_id: DbId::new(),
+            reason: "x".into(),
+        };
     }
 }
 
@@ -199,7 +221,6 @@ pub async fn delete_editions(
 
     Ok(outcome)
 }
-
 
 #[tauri::command]
 #[specta::specta]
@@ -317,7 +338,10 @@ pub async fn export_editions_csv(
             &publisher_names.join("; "),
             language.as_deref().unwrap_or(""),
             format.as_deref().unwrap_or(""),
-            &edition.published_date.map(|d| d.to_string()).unwrap_or_default(),
+            &edition
+                .published_date
+                .map(|d| d.to_string())
+                .unwrap_or_default(),
         ]));
     }
 
@@ -330,9 +354,11 @@ pub async fn export_editions_csv(
         .await
         .map_err(|e| BulkError::new("io", e.to_string()))?;
 
-    Ok(ExportOutcome { path, rows: edition_ids.len() as i32 })
+    Ok(ExportOutcome {
+        path,
+        rows: edition_ids.len() as i32,
+    })
 }
-
 
 #[tauri::command]
 #[specta::specta]
