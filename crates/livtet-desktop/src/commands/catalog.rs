@@ -2,8 +2,12 @@
 //! library's edition-detail drawer: edition/work metadata, contributors with
 //! roles, publishers, identifiers, and the backing digital inventory row.
 //!
-//! Read-only and fail-closed: an unparseable id is rejected before any query,
-//! and a missing edition returns `None` rather than an error.
+//! `get_edition_covers` — resolve the extracted cover path for a page of
+//! editions in one indexed query, so the library grid can render covers without
+//! paying for the full detail joins per card.
+//!
+//! Both are read-only and fail-closed: an unparseable id is rejected before any
+//! query, and a missing edition returns `None` rather than an error.
 
 use std::collections::HashMap;
 
@@ -69,6 +73,14 @@ pub struct EditionDetail {
     pub updated_at: Option<String>,
 }
 
+/// One edition's extracted cover path, as stored on its digital inventory row.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct EditionCover {
+    pub edition_id: String,
+    /// Absolute path to the cover image on disk.
+    pub cover_path: String,
+}
+
 /// Fetch one edition's detail. `Ok(None)` when no edition with this id exists.
 #[tauri::command]
 #[specta::specta]
@@ -80,6 +92,53 @@ pub async fn get_edition_detail(
         .parse::<DbId>()
         .map_err(|_| CatalogError::InvalidId { id: edition_id })?;
     fetch_edition_detail(&state.db.db_conn(), id).await
+}
+
+/// Resolve the cover path for a batch of editions. Editions without a cover
+/// (or without a digital inventory row) are omitted; an empty input yields an
+/// empty result.
+#[tauri::command]
+#[specta::specta]
+pub async fn get_edition_covers(
+    edition_ids: Vec<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<EditionCover>, CatalogError> {
+    let ids = edition_ids
+        .iter()
+        .map(|id| {
+            id.parse::<DbId>()
+                .map_err(|_| CatalogError::InvalidId { id: id.clone() })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    fetch_edition_covers(&state.db.db_conn(), &ids).await
+}
+
+/// Query cover paths for a set of editions in one indexed lookup. Kept free of
+/// Tauri state so it can be unit-tested against a `TestDb`.
+pub(crate) async fn fetch_edition_covers(
+    db: &DatabaseConnection,
+    edition_ids: &[DbId],
+) -> Result<Vec<EditionCover>, CatalogError> {
+    if edition_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let rows = digital_inventory::Entity::find()
+        .filter(digital_inventory::Column::EditionId.is_in(edition_ids.iter().copied()))
+        .filter(digital_inventory::Column::CoverPath.is_not_null())
+        .all(db)
+        .await
+        .map_err(CatalogError::database)?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            row.cover_path.map(|cover_path| EditionCover {
+                edition_id: row.edition_id.to_string(),
+                cover_path,
+            })
+        })
+        .collect())
 }
 
 /// Query and assemble the detail row. Kept free of Tauri state so it can be
@@ -465,5 +524,53 @@ mod tests {
             .await
             .expect("query ok");
         assert!(detail.is_none());
+    }
+
+    #[tokio::test]
+    async fn covers_returned_only_for_editions_with_a_cover() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let seed = seed_edition(&db).await;
+
+        let covers = fetch_edition_covers(&db, &[seed.edition_id])
+            .await
+            .expect("query ok");
+        assert_eq!(
+            covers,
+            vec![EditionCover {
+                edition_id: seed.edition_id.to_string(),
+                cover_path: "/covers/x/cover.jpg".to_string(),
+            }]
+        );
+
+        assert!(
+            fetch_edition_covers(&db, &[DbId::new()])
+                .await
+                .expect("query ok")
+                .is_empty()
+        );
+        assert!(
+            fetch_edition_covers(&db, &[])
+                .await
+                .expect("query ok")
+                .is_empty()
+        );
+
+        let inventory = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(seed.edition_id))
+            .one(&db)
+            .await
+            .expect("query ok")
+            .expect("inventory row");
+        let mut model: digital_inventory::ActiveModel = inventory.into();
+        model.cover_path = Set(None);
+        model.update(&db).await.expect("update cover_path");
+
+        assert!(
+            fetch_edition_covers(&db, &[seed.edition_id])
+                .await
+                .expect("query ok")
+                .is_empty()
+        );
     }
 }

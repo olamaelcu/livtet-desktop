@@ -1,11 +1,18 @@
 <script lang="ts">
-import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query'
+import { createInfiniteQuery, createQuery, keepPreviousData } from '@tanstack/svelte-query'
 import { onDestroy } from 'svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
 import EditionDetailDrawer from '../../lib/library/EditionDetailDrawer.svelte'
 import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
-import { searchKeys } from '../../lib/query/keys'
-import { type Edition, loadEditions, mapHitToEdition, searchTypeahead } from '../../lib/search'
+import { catalogKeys, searchKeys } from '../../lib/query/keys'
+import {
+  coverUrlFor,
+  type Edition,
+  loadEditionCovers,
+  loadEditions,
+  mapHitToEdition,
+  searchTypeahead,
+} from '../../lib/search'
 import BookCard from './BookCard.svelte'
 
 const PAGE_SIZE = 20
@@ -37,6 +44,19 @@ const books = $derived(
 function isEdition(book: Edition): book is Edition & { edition_id: string } {
   return book.kind === 'edition' && book.edition_id !== null
 }
+
+const editionIds = $derived(books.map((book) => book.edition_id))
+
+const covers = createQuery(() => ({
+  queryKey: catalogKeys.editionCovers(editionIds),
+  queryFn: () => loadEditionCovers(editionIds),
+  enabled: editionIds.length > 0,
+  placeholderData: keepPreviousData,
+}))
+
+const coversById = $derived(
+  new Map((covers.data ?? []).map((cover) => [cover.edition_id, cover.cover_path])),
+)
 
 const typeahead = createQuery(() => ({
   queryKey: searchKeys.typeahead(query),
@@ -117,7 +137,7 @@ function selectSuggestion(title: string) {
     {#each books as book (book.id)}
       <BookCard
         title={book.title}
-        cover_url={book.cover_url}
+        cover_url={coverUrlFor(coversById.get(book.edition_id))}
         onclick={() => openDetail(book.edition_id)}
       />
     {:else}

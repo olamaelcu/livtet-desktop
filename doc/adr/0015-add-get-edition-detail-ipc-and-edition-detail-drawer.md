@@ -71,6 +71,24 @@ image falls back to the letter placeholder.
   `search_with_options`, kept as a client guard).
 - `mapHitToEdition` now carries `edition_id` and `kind`.
 
+### 5. Batch cover resolution for the library grid
+
+The grid needs covers too, but pulling the full detail joins per card is
+wasteful. `catalog.rs` also adds:
+
+```
+get_edition_covers(editionIds: string[]) -> EditionCover[]
+```
+
+It parses every id (fail-closed: one invalid id fails the batch) and runs a
+single indexed `digital_inventory` lookup filtered to `edition_id IN (…)` and
+`cover_path IS NOT NULL`; UNIQUE `edition_id` guarantees at most one row per
+edition. Editions without a cover are omitted, so a missing entry means "show
+the letter placeholder". The library page holds one `catalogKeys.editionCovers`
+query (with `keepPreviousData` so paging in more books does not flicker) and
+resolves each URL with the drawer's `coverUrlFor`, keeping `BookCard`
+presentational. `mapHitToEdition` no longer fabricates a `cover_url`.
+
 ## Consequences
 
 - Every "show the full record for edition X" need is one IPC call and one
@@ -79,8 +97,9 @@ image falls back to the letter placeholder.
   `$APPDATA` does not resolve to `dirs::data_dir()/<bundle-id>` on some platform,
   the scope must move to a runtime `asset_protocol_scope().allow_directory()`;
   verify on Windows in particular.
-- Covers remain unsurfaced in the list (`mapHitToEdition` still leaves
-  `cover_url` undefined); that needs a batch lookup and is out of scope.
+- The grid and the drawer now resolve covers from the same DB field through the
+  same `coverUrlFor` helper, so they cannot drift; the batch query costs one
+  indexed lookup per loaded page rather than one full-detail query per card.
 - `file_size_bytes` is a JS `number` now, not an integer; documented on the
   field.
 - ADR 0005's multi-command catalog surface is not resurrected; this is the lean

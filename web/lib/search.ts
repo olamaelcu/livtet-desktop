@@ -2,12 +2,13 @@ import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import type {
   SearchResponse as BindingResponse,
   SearchResult as BindingResult,
+  EditionCover,
   EditionDetail,
   HitKind,
 } from './bindings'
 
 // Strict re-export of generated contract — single source of truth
-export type { EditionDetail, HitKind }
+export type { EditionCover, EditionDetail, HitKind }
 export interface Author {
   name: string
   role: 'author' | 'editor' | 'translator'
@@ -21,7 +22,6 @@ export interface Edition {
   authors: Author[]
   published: string
   description: string
-  cover_url?: string
 }
 
 // Strict re-export of generated contract — single source of truth
@@ -63,13 +63,18 @@ export function mapHitToEdition(hit: SearchResult): Edition {
     })),
     published: hit.pub_date ?? '',
     description: hit.snippet_text ?? '',
-    cover_url: undefined,
   }
 }
 
 /** Fetch one edition's full catalog record for the detail drawer. */
 export async function loadEditionDetail(editionId: string): Promise<EditionDetail | null> {
   return invoke<EditionDetail | null>('get_edition_detail', { editionId })
+}
+
+/** Resolve the cover paths for a batch of editions (no cover → omitted). */
+export async function loadEditionCovers(editionIds: string[]): Promise<EditionCover[]> {
+  if (editionIds.length === 0) return []
+  return invoke<EditionCover[]>('get_edition_covers', { editionIds })
 }
 
 /** Resolve an on-disk cover path to an `asset:` URL the webview can load. */

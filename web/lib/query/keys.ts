@@ -24,4 +24,6 @@ export const catalogKeys = {
   all: ['catalog'] as const,
   editionDetail: (editionId: string) =>
     [...catalogKeys.all, 'edition-detail', { editionId }] as const,
+  editionCovers: (editionIds: string[]) =>
+    [...catalogKeys.all, 'edition-covers', { editionIds }] as const,
 }

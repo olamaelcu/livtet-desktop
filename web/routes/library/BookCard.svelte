@@ -6,6 +6,9 @@ interface Props {
 }
 
 let { title, cover_url = undefined, onclick }: Props = $props()
+
+let failedUrl = $state<string | undefined>(undefined)
+const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
 </script>
 
 <style>
@@ -23,7 +26,7 @@ let { title, cover_url = undefined, onclick }: Props = $props()
   .cover {
     --size: 8.25rem;
     width: 100%;
-    min-width: var(--size);
+    max-width: var(--size);
     height: var(--size);
     flex-shrink: 0;
     border-radius: calc(var(--wa-border-radius) - 0.125rem);
@@ -52,9 +55,9 @@ let { title, cover_url = undefined, onclick }: Props = $props()
 </style>
 
 <button class="card" type="button" {onclick}>
-  <figure class="cover {cover_url ? '' : 'placeholder'}">
-    {#if cover_url}
-      <img src={cover_url} alt={title} />
+  <figure class="cover {showCover ? '' : 'placeholder'}">
+    {#if showCover}
+      <img src={cover_url} alt={title} onerror={() => (failedUrl = cover_url)} />
     {:else}
       <figcaption>{title}</figcaption>
     {/if}

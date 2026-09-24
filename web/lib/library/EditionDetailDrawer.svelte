@@ -1,6 +1,5 @@
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
-import { onMount } from 'svelte'
 import { catalogKeys } from '../query/keys'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { fileName, formatFileSize } from './format'
@@ -23,13 +22,9 @@ const book = $derived(detail.data ?? null)
 const coverUrl = $derived(coverUrlFor(book?.file?.cover_path))
 let failedCoverId = $state<string | null>(null)
 const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
-
-onMount(() => {
-  console.log(book?.description)
-})
 </script>
 
-<wa-drawer label="Edition detail" placement="end" open={open} onwa-after-hide={onclose}>
+<wa-drawer class="drawer" label="Edition detail" placement="end" open={open} onwa-after-hide={onclose}>
   <div class="body">
     {#if detail.isPending}
       <p class="muted">Loading…</p>
@@ -142,6 +137,10 @@ onMount(() => {
     display: flex;
     flex-direction: column;
     gap: var(--wa-space-l);
+  }
+
+  .drawer {
+    --size: 50vw;
   }
 
   .header {

@@ -305,6 +305,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
 pub fn run() {
     let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
         commands::catalog::get_edition_detail,
+        commands::catalog::get_edition_covers,
         commands::search::search_editions,
         commands::search::search_typeahead,
         commands::search::search_editions_count,

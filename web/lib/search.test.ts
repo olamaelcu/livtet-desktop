@@ -6,7 +6,7 @@ const { invoke, convertFileSrc } = vi.hoisted(() => ({
 }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke, convertFileSrc }))
 
-import { coverUrlFor, loadEditionDetail, mapHitToEdition } from './search'
+import { coverUrlFor, loadEditionCovers, loadEditionDetail, mapHitToEdition } from './search'
 
 const editionHit = {
   work_id: 'w',
@@ -41,6 +41,21 @@ describe('loadEditionDetail', () => {
     invoke.mockResolvedValueOnce(null)
     await loadEditionDetail('e')
     expect(invoke).toHaveBeenCalledWith('get_edition_detail', { editionId: 'e' })
+  })
+})
+
+describe('loadEditionCovers', () => {
+  beforeEach(() => invoke.mockReset())
+
+  it('short-circuits empty input without IPC', async () => {
+    expect(await loadEditionCovers([])).toEqual([])
+    expect(invoke).not.toHaveBeenCalled()
+  })
+
+  it('invokes get_edition_covers with the edition ids', async () => {
+    invoke.mockResolvedValueOnce([])
+    await loadEditionCovers(['a', 'b'])
+    expect(invoke).toHaveBeenCalledWith('get_edition_covers', { editionIds: ['a', 'b'] })
   })
 })
 

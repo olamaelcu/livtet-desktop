@@ -14,6 +14,7 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 ## IPC
 
 - **get_edition_detail** — the read-only Tauri command returning one edition's full catalog record (`EditionDetail`), or `null` when absent. See [ADR 0015](adr/0015-add-get-edition-detail-ipc-and-edition-detail-drawer.md).
+- **get_edition_covers** — the read-only Tauri command resolving cover paths for a batch of editions in one indexed lookup (`EditionCover[]`; editions without a cover are omitted). See [ADR 0015](adr/0015-add-get-edition-detail-ipc-and-edition-detail-drawer.md).
 - **import_file** — the Tauri command that imports a book through the importer selected for its extension. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
 - **import_files** — the batch Tauri command that imports a list of paths and returns an `ImportBatchResult`. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
 - **import://batch**, **import://file** — the Tauri events carrying batch and per-file import progress. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
