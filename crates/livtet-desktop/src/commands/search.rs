@@ -123,98 +123,30 @@ pub struct FilterOptions {
 pub async fn filter_options(state: State<'_, AppState>) -> Result<FilterOptions, SearchIndexError> {
     let db = state.db.db_conn();
 
-    let formats = formats::Entity::find()
-        .order_by_asc(formats::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
-
-    let languages = languages::Entity::find()
-        .order_by_asc(languages::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
-
-    let tags = tags::Entity::find()
-        .order_by_asc(tags::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
-
-    let genres = genres::Entity::find()
-        .order_by_asc(genres::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
-
-    let subjects = subjects::Entity::find()
-        .order_by_asc(subjects::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
-
-    let publishers = publishers::Entity::find()
-        .order_by_asc(publishers::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
-
-    let authors = authors::Entity::find()
-        .order_by_asc(authors::Column::Name)
-        .all(&db)
-        .await
-        .map_err(SearchIndexError::other)?
-        .into_iter()
-        .map(|m| FilterOption {
-            id: m.id,
-            label: m.name,
-        })
-        .collect::<Vec<_>>();
+    macro_rules! axis {
+        ($entity:ident) => {
+            $entity::Entity::find()
+                .order_by_asc($entity::Column::Name)
+                .all(&db)
+                .await
+                .map_err(SearchIndexError::other)?
+                .into_iter()
+                .map(|m| FilterOption {
+                    id: m.id,
+                    label: m.name,
+                })
+                .collect::<Vec<_>>()
+        };
+    }
 
     Ok(FilterOptions {
-        formats,
-        languages,
-        tags,
-        genres,
-        subjects,
-        publishers,
-        authors,
+        formats: axis!(formats),
+        languages: axis!(languages),
+        tags: axis!(tags),
+        genres: axis!(genres),
+        subjects: axis!(subjects),
+        publishers: axis!(publishers),
+        authors: axis!(authors),
     })
 }
 
