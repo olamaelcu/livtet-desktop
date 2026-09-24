@@ -3,6 +3,7 @@ use livtet_core::data::entities::{
 };
 use livtet_core::data::orm::{EntityTrait, QueryOrder};
 use livtet_core::search::model::{SearchHit, SearchOptions};
+use livtet_search::{SearchIndex, WorkFiltersQuery};
 use serde::Serialize;
 use specta::Type;
 use tauri::State;
@@ -11,6 +12,36 @@ use livtet_types::{DbId, SortDirection, WorkSortBy};
 
 use crate::error::SearchIndexError;
 use crate::types::AppState;
+
+async fn build_filtered(
+    index: &SearchIndex,
+    db: &livtet_core::data::orm::DatabaseConnection,
+    query: &str,
+    filters: EditionFilters,
+) -> Result<(WorkFiltersQuery, SearchOptions), SearchIndexError> {
+    let (format_labels, language_labels) = index
+        .label_resolver
+        .resolve(db, &filters.format_ids, &filters.language_ids)
+        .await
+        .map_err(SearchIndexError::other)?;
+
+    // Relevance (BM25) is the default ordering. Only switch to an explicit
+    // sort when the caller asked for one, so free-text search keeps its rank.
+    let want_sort = filters.sort_by.is_some();
+
+    let resolved = livtet_search::WorkFiltersResolved {
+        filters: filters.into_core(),
+        format_labels,
+        language_labels,
+    };
+    let built = WorkFiltersQuery::new(resolved, query.to_string());
+
+    let mut opts = SearchOptions::default();
+    if want_sort {
+        opts.sort = Some(built.build_sort());
+    }
+    Ok((built, opts))
+}
 
 #[tauri::command]
 #[specta::specta]
@@ -43,6 +74,7 @@ pub async fn search_typeahead(
 #[specta::specta]
 pub async fn search_editions(
     query: Option<String>,
+    filters: Option<EditionFilters>,
     offset: Option<i32>,
     limit: Option<i32>,
     state: State<'_, AppState>,
@@ -51,23 +83,32 @@ pub async fn search_editions(
     let index = guard
         .as_ref()
         .ok_or(SearchIndexError::unavailable("search_editions"))?;
+    let db = state.db.db_conn();
 
     let q = query.as_deref().unwrap_or("");
     let offset_usize = offset.unwrap_or(0).max(0) as usize;
     let limit_usize = limit.unwrap_or(20).max(1) as usize;
 
-    let opts = SearchOptions {
-        offset: offset_usize as i64,
-        ..Default::default()
-    };
+    let (built, mut opts) = build_filtered(index, &db, q, filters.unwrap_or_default()).await?;
+    opts.offset = offset_usize as i64;
 
     let hits = index
-        .search_with_options(q, limit_usize, &opts)
+        .search_with_query(
+            built
+                .build_query(index.index())
+                .map_err(SearchIndexError::other)?,
+            limit_usize,
+            &opts,
+        )
         .await
         .map_err(SearchIndexError::other)?;
 
     let total = index
-        .count_works_filtered(q, &livtet_types::WorkFilters::default())
+        .count_with_query(
+            built
+                .build_query(index.index())
+                .map_err(SearchIndexError::other)?,
+        )
         .await
         .map_err(SearchIndexError::other)? as i32;
 
@@ -81,20 +122,26 @@ pub async fn search_editions(
 #[specta::specta]
 pub async fn search_editions_count(
     query: Option<String>,
+    filters: Option<EditionFilters>,
     state: State<'_, AppState>,
 ) -> Result<i32, SearchIndexError> {
     let guard = state.search_index.read().await;
     let index = guard
         .as_ref()
         .ok_or(SearchIndexError::unavailable("search_editions_count"))?;
+    let db = state.db.db_conn();
 
     let q = query.as_deref().unwrap_or("");
+    let (built, _opts) = build_filtered(index, &db, q, filters.unwrap_or_default()).await?;
 
-    let count: usize = index
-        .count_works_filtered(q, &livtet_types::WorkFilters::default())
+    let count = index
+        .count_with_query(
+            built
+                .build_query(index.index())
+                .map_err(SearchIndexError::other)?,
+        )
         .await
         .map_err(SearchIndexError::other)?;
-
     Ok(count as i32)
 }
 
@@ -174,7 +221,6 @@ pub struct EditionFilters {
 
 impl EditionFilters {
     /// Drop the u64 `limit` field and hand the rest to the index layer.
-    #[allow(dead_code)]
     fn into_core(self) -> livtet_types::WorkFilters {
         livtet_types::WorkFilters {
             tag_ids: self.tag_ids,
