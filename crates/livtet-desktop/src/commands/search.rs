@@ -3,6 +3,8 @@ use serde::Serialize;
 use specta::Type;
 use tauri::State;
 
+use livtet_types::{DbId, SortDirection, WorkSortBy};
+
 use crate::error::SearchIndexError;
 use crate::types::AppState;
 
@@ -92,6 +94,47 @@ pub async fn search_editions_count(
     Ok(count as i32)
 }
 
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, Type)]
+pub struct EditionFilters {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tag_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub genre_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subject_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub publisher_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub author_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub format_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub language_ids: Vec<DbId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_by: Option<WorkSortBy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_direction: Option<SortDirection>,
+}
+
+impl EditionFilters {
+    /// Drop the u64 `limit` field and hand the rest to the index layer.
+    #[allow(dead_code)]
+    fn into_core(self) -> livtet_types::WorkFilters {
+        livtet_types::WorkFilters {
+            tag_ids: self.tag_ids,
+            genre_ids: self.genre_ids,
+            subject_ids: self.subject_ids,
+            publisher_ids: self.publisher_ids,
+            author_ids: self.author_ids,
+            format_ids: self.format_ids,
+            language_ids: self.language_ids,
+            sort_by: self.sort_by,
+            sort_direction: self.sort_direction,
+            limit: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct SearchResult {
     pub work_id: String,
@@ -122,5 +165,35 @@ impl From<SearchHit> for SearchResult {
             kind: hit.kind,
             has_file: hit.has_file,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EditionFilters;
+    use livtet_types::{SortDirection, WorkSortBy};
+
+    #[test]
+    fn into_core_drops_limit_and_maps_sort() {
+        let filters = EditionFilters {
+            tag_ids: vec![livtet_types::DbId::new()],
+            sort_by: Some(WorkSortBy::Title),
+            sort_direction: Some(SortDirection::Asc),
+            ..EditionFilters::default()
+        };
+
+        let core = filters.into_core();
+        assert_eq!(core.limit, None, "desktop DTO must never carry a u64 limit");
+        assert_eq!(core.tag_ids.len(), 1);
+        assert_eq!(core.sort_by, Some(WorkSortBy::Title));
+        assert_eq!(core.sort_direction, Some(SortDirection::Asc));
+    }
+
+    #[test]
+    fn default_filters_map_to_default_core() {
+        let core = EditionFilters::default().into_core();
+        assert!(core.tag_ids.is_empty());
+        assert_eq!(core.sort_by, None);
+        assert_eq!(core.limit, None);
     }
 }
