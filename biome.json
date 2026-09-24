@@ -1,7 +1,15 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "files": {
-    "includes": ["web/**/*.ts", "web/**/*.svelte", "*.ts", "*.js", "*.json", "!web/lib/bindings.ts"]
+    "includes": [
+      "web/**/*.ts",
+      "web/**/*.svelte",
+      "*.ts",
+      "*.js",
+      "*.json",
+      "!web/lib/bindings.ts",
+      "!.worktree"
+    ]
   },
   "formatter": {
     "enabled": true,
