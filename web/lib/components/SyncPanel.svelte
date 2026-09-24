@@ -1,15 +1,9 @@
 <script lang="ts">
+import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query'
 import { onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
-import type {
-  SyncConflict,
-  SyncDevice,
-  SyncHealth,
-  SyncPairingTicket,
-  SyncPendingPairing,
-  SyncRequestRecord,
-  SyncStatusInfo,
-} from '../bindings'
+import type { SyncConflict, SyncPairingTicket } from '../bindings'
+import { syncKeys } from '../query/keys'
 import {
   listenToSyncEvents,
   syncConflictsList,
@@ -27,139 +21,116 @@ import {
   syncServerStop,
   syncStatus,
 } from '../sync'
-import SyncButton from './SyncButton.svelte'
+import ActionButton from './ActionButton.svelte'
 
-const POLL_MS = 5000
+const SYNC_POLL_MS = 30_000
 const REQUEST_LIMIT = 50
 
-let health = $state<SyncHealth | null>(null)
-let status = $state<SyncStatusInfo | null>(null)
-let pending = $state<SyncPendingPairing[]>([])
-let devices = $state<SyncDevice[]>([])
-let conflicts = $state<SyncConflict[]>([])
-let requests = $state<SyncRequestRecord[]>([])
+const queryClient = useQueryClient()
+
+function invalidateQueries(...queryKeys: ReadonlyArray<readonly unknown[]>) {
+  for (const queryKey of queryKeys) queryClient.invalidateQueries({ queryKey })
+}
+
+const health = createQuery(() => ({
+  queryKey: syncKeys.health(),
+  queryFn: syncHealth,
+  refetchInterval: SYNC_POLL_MS,
+}))
+
+const status = createQuery(() => ({
+  queryKey: syncKeys.status(),
+  queryFn: syncStatus,
+  refetchInterval: SYNC_POLL_MS,
+}))
+
+const pending = createQuery(() => ({
+  queryKey: syncKeys.pending(),
+  queryFn: syncPairingList,
+  refetchInterval: SYNC_POLL_MS,
+}))
+
+const devices = createQuery(() => ({
+  queryKey: syncKeys.devices(),
+  queryFn: syncDevicesList,
+  refetchInterval: SYNC_POLL_MS,
+}))
+
+const conflicts = createQuery(() => ({
+  queryKey: syncKeys.conflicts(),
+  queryFn: syncConflictsList,
+  refetchInterval: SYNC_POLL_MS,
+}))
+
+const requests = createQuery(() => ({
+  queryKey: syncKeys.requests(REQUEST_LIMIT),
+  queryFn: () => syncRequestsRecent(REQUEST_LIMIT),
+  refetchInterval: SYNC_POLL_MS,
+}))
+
+const running = $derived(status.data?.server_running ?? health.data?.server_running ?? false)
+
+type SyncAction = { message: string; run: () => Promise<unknown> }
+
+const action = createMutation(() => ({
+  mutationFn: (variables: SyncAction) => variables.run(),
+  onSuccess: (_data, variables) => {
+    toast.success(variables.message)
+    invalidateQueries(syncKeys.all)
+  },
+  onError: (error) => toast.error(syncErrorMessage(error)),
+}))
+
 let ticket = $state<SyncPairingTicket | null>(null)
-let busy = $state(false)
 let resolutions = $state<Record<number, string | undefined>>({})
 let mergedPayloads = $state<Record<number, string | undefined>>({})
 
-const running = $derived(status?.server_running ?? health?.server_running ?? false)
+const pairing = createMutation(() => ({
+  mutationFn: () => syncPairingBegin(),
+  onSuccess: (data) => {
+    ticket = data
+    toast.success('Pairing ticket created')
+    invalidateQueries(syncKeys.status())
+  },
+  onError: (error) => toast.error(syncErrorMessage(error)),
+}))
 
-/** Run `load`, returning its value or `undefined`, optionally toasting errors. */
-async function attempt<T>(load: () => Promise<T>, report: boolean): Promise<T | undefined> {
-  try {
-    return await load()
-  } catch (error) {
-    if (report) toast.error(syncErrorMessage(error))
-    return undefined
-  }
-}
+const busy = $derived(action.isPending || pairing.isPending)
 
-async function refreshHealth(report = false) {
-  health = (await attempt(syncHealth, report)) ?? health
-}
-
-async function refreshStatus(report = false) {
-  status = (await attempt(syncStatus, report)) ?? status
-}
-
-async function refreshPending(report = false) {
-  pending = (await attempt(syncPairingList, report)) ?? pending
-}
-
-async function refreshDevices(report = false) {
-  devices = (await attempt(syncDevicesList, report)) ?? devices
-}
-
-async function refreshConflicts(report = false) {
-  conflicts = (await attempt(syncConflictsList, report)) ?? conflicts
-}
-
-async function refreshRequests(report = false) {
-  requests = (await attempt(() => syncRequestsRecent(REQUEST_LIMIT), report)) ?? requests
-}
-
-async function refreshAll() {
-  if (busy) return
-  busy = true
-  await Promise.all([
-    refreshHealth(true),
-    refreshStatus(true),
-    refreshPending(true),
-    refreshDevices(true),
-    refreshConflicts(true),
-    refreshRequests(true),
-  ])
-  busy = false
-}
-
-/** Run a mutating action, toasting success or the daemon error. */
-async function act(message: string, action: () => Promise<unknown>) {
-  if (busy) return
-  busy = true
-  try {
-    await action()
-    toast.success(message)
-  } catch (error) {
-    toast.error(syncErrorMessage(error))
-  } finally {
-    busy = false
-  }
+function refreshAll() {
+  return invalidateQueries(syncKeys.all)
 }
 
 function startServer() {
-  return act('Sync server started', async () => {
-    await syncServerStart()
-    await refreshStatus()
-    await refreshHealth()
-  })
+  action.mutate({ message: 'Sync server started', run: syncServerStart })
 }
 
 function stopServer() {
-  return act('Sync server stopped', async () => {
-    await syncServerStop()
-    await refreshStatus()
-    await refreshHealth()
-  })
+  action.mutate({ message: 'Sync server stopped', run: syncServerStop })
 }
 
 function beginPairing() {
-  return act('Pairing ticket created', async () => {
-    ticket = await syncPairingBegin()
-  })
+  pairing.mutate()
 }
 
 function approvePairing(token: string) {
-  return act('Device paired', async () => {
-    await syncPairingApprove(token)
-    await refreshPending()
-    await refreshDevices()
-    await refreshStatus()
-  })
+  action.mutate({ message: 'Device paired', run: () => syncPairingApprove(token) })
 }
 
 function rejectPairing(token: string) {
-  return act('Pairing rejected', async () => {
-    await syncPairingReject(token)
-    await refreshPending()
-    await refreshStatus()
-  })
+  action.mutate({ message: 'Pairing rejected', run: () => syncPairingReject(token) })
 }
 
 function revokeDevice(deviceId: string) {
-  return act('Device revoked', async () => {
-    await syncDevicesRevoke(deviceId)
-    await refreshDevices()
-    await refreshStatus()
-  })
+  action.mutate({ message: 'Device revoked', run: () => syncDevicesRevoke(deviceId) })
 }
 
 function resolveConflict(conflict: SyncConflict) {
   const resolution = resolutions[conflict.id] ?? 'local'
   const merged = resolution === 'merged' ? (mergedPayloads[conflict.id] ?? '') : undefined
-  return act('Conflict resolved', async () => {
-    await syncConflictsResolve(conflict.id, resolution, merged)
-    await refreshConflicts()
+  action.mutate({
+    message: 'Conflict resolved',
+    run: () => syncConflictsResolve(conflict.id, resolution, merged),
   })
 }
 
@@ -177,44 +148,19 @@ onMount(() => {
   let disposed = false
 
   listenToSyncEvents({
-    'sync://pairing-requested': () => {
-      refreshPending()
-      refreshStatus()
-    },
-    'sync://request': () => {
-      refreshRequests()
-      refreshStatus()
-    },
-    'sync://completed': () => {
-      refreshStatus()
-      refreshConflicts()
-    },
-    'sync://server-started': () => {
-      refreshHealth()
-      refreshStatus()
-    },
-    'sync://server-stopped': () => {
-      refreshHealth()
-      refreshStatus()
-    },
+    'sync://pairing-requested': () => invalidateQueries(syncKeys.pending(), syncKeys.status()),
+    'sync://request': () => invalidateQueries(syncKeys.requests(REQUEST_LIMIT), syncKeys.status()),
+    'sync://completed': () => invalidateQueries(syncKeys.status(), syncKeys.conflicts()),
+    'sync://server-started': () => invalidateQueries(syncKeys.health(), syncKeys.status()),
+    'sync://server-stopped': () => invalidateQueries(syncKeys.health(), syncKeys.status()),
   }).then((stop) => {
     if (disposed) stop()
     else unlisten = stop
   })
 
-  refreshAll()
-  const interval = setInterval(() => {
-    refreshHealth()
-    refreshStatus()
-    refreshPending()
-    refreshDevices()
-    refreshRequests()
-  }, POLL_MS)
-
   return () => {
     disposed = true
     unlisten?.()
-    clearInterval(interval)
   }
 })
 </script>
@@ -223,61 +169,67 @@ onMount(() => {
   <section class="block" aria-labelledby="sync-status-heading">
     <div class="block-header">
       <h3 id="sync-status-heading">Status</h3>
-      <SyncButton onclick={refreshAll} disabled={busy}>Refresh</SyncButton>
+      <ActionButton onclick={refreshAll} disabled={busy}>Refresh</ActionButton>
     </div>
-    {#if health || status}
+    {#if health.data || status.data}
       <ul class="facts">
-        <li>Daemon: {health ? `${health.status} v${health.version}` : 'unknown'}</li>
-        <li>Device: {status?.device_id ?? 'unknown'}</li>
-        <li>Address: {status ? `${status.host}:${status.port}` : 'unknown'}</li>
+        <li>Daemon: {@html health.data ? `${health.data.status} <code>v${health.data.version}</code>` : 'unknown'}</li>
+        <li>Device: <code>{status.data?.device_id ?? 'unknown'}</code></li>
+        <li>Address: <code>{status.data ? `${status.data.host}:${status.data.port}` : 'unknown'}</code></li>
         <li>Server: {running ? 'running' : 'stopped'}</li>
-        <li>Latest version: {status?.latest_version ?? 0}</li>
-        <li>Paired devices: {status?.paired_device_count ?? 0}</li>
-        <li>Pending pairings: {status?.pending_pairing_count ?? 0}</li>
-        <li>Requests served: {status?.requests_served ?? 0}</li>
-        <li>Last request: {status?.last_request_at ?? 'never'}</li>
+        <li>Latest version: {status.data?.latest_version ?? 0}</li>
+        <li>Paired devices: {status.data?.paired_device_count ?? 0}</li>
+        <li>Pending pairings: {status.data?.pending_pairing_count ?? 0}</li>
+        <li>Requests served: {status.data?.requests_served ?? 0}</li>
+        <li>Last request: {status.data?.last_request_at ?? 'never'}</li>
       </ul>
     {:else}
       <p class="muted">Sync daemon is unavailable.</p>
     {/if}
     <wa-button-group>
-      <SyncButton variant="brand" onclick={startServer} disabled={busy || running}>
+      <ActionButton variant="brand" onclick={startServer} disabled={busy || running}>
         Start server
-      </SyncButton>
-      <SyncButton onclick={stopServer} disabled={busy || !running}>Stop server</SyncButton>
+      </ActionButton>
+      <ActionButton onclick={stopServer} disabled={busy || !running}>Stop server</ActionButton>
     </wa-button-group>
   </section>
 
   <section class="block" aria-labelledby="sync-pairing-heading">
     <div class="block-header">
       <h3 id="sync-pairing-heading">Pairing</h3>
-      <SyncButton variant="brand" onclick={beginPairing} disabled={busy}>Pair a device</SyncButton>
+      <ActionButton variant="brand" onclick={beginPairing} disabled={busy}>Pair a device</ActionButton>
     </div>
 
     {#if ticket}
+      <wa-qr-code
+        class="pairing-qr"
+        value={ticket.uri}
+        label="Scan to pair a device"
+        size={160}
+      ></wa-qr-code>
       <div class="copy-row">
         <wa-input readonly={true} label="Pairing URI" value={ticket.uri}></wa-input>
-        <SyncButton onclick={() => copy('Pairing URI', ticket?.uri ?? '')}>Copy</SyncButton>
+        <ActionButton onclick={() => copy('Pairing URI', ticket?.uri ?? '')}>Copy</ActionButton>
       </div>
       <div class="copy-row">
         <wa-input readonly={true} label="Pairing token" value={ticket.token}></wa-input>
-        <SyncButton onclick={() => copy('Pairing token', ticket?.token ?? '')}>Copy</SyncButton>
+        <ActionButton onclick={() => copy('Pairing token', ticket?.token ?? '')}>Copy</ActionButton>
       </div>
       <p class="muted">Expires {ticket.expires_at}.</p>
     {/if}
 
     <h4>Pending</h4>
-    {#each pending as item (item.token)}
+    {#each pending.data ?? [] as item (item.token)}
       <div class="row">
         <span>
           <strong>{item.device_name ?? 'Unknown device'}</strong>
           <span class="muted">· {item.device_type_id ?? 'unknown'} · {item.listen_on ?? '—'}</span>
         </span>
         <wa-button-group>
-          <SyncButton variant="brand" onclick={() => approvePairing(item.token)} disabled={busy}>
+          <ActionButton variant="brand" onclick={() => approvePairing(item.token)} disabled={busy}>
             Approve
-          </SyncButton>
-          <SyncButton onclick={() => rejectPairing(item.token)} disabled={busy}>Reject</SyncButton>
+          </ActionButton>
+          <ActionButton onclick={() => rejectPairing(item.token)} disabled={busy}>Reject</ActionButton>
         </wa-button-group>
       </div>
     {:else}
@@ -289,7 +241,7 @@ onMount(() => {
     <div class="block-header">
       <h3 id="sync-devices-heading">Devices</h3>
     </div>
-    {#each devices as device (device.device_id)}
+    {#each devices.data ?? [] as device (device.device_id)}
       <div class="row">
         <span>
           <strong>{device.name ?? device.device_id}</strong>
@@ -298,9 +250,9 @@ onMount(() => {
             {device.last_sync_at ? `· last sync ${device.last_sync_at}` : ''}
           </span>
         </span>
-        <SyncButton onclick={() => revokeDevice(device.device_id)} disabled={busy}>
+        <ActionButton onclick={() => revokeDevice(device.device_id)} disabled={busy}>
           Revoke
-        </SyncButton>
+        </ActionButton>
       </div>
     {:else}
       <p class="muted">No paired devices.</p>
@@ -311,7 +263,7 @@ onMount(() => {
     <div class="block-header">
       <h3 id="sync-conflicts-heading">Conflicts</h3>
     </div>
-    {#each conflicts as conflict (conflict.id)}
+    {#each conflicts.data ?? [] as conflict (conflict.id)}
       <div class="conflict">
         <span>
           <strong>{conflict.entity_type} {conflict.entity_id}</strong>
@@ -350,9 +302,9 @@ onMount(() => {
                 ></textarea>
               </label>
             {/if}
-            <SyncButton variant="brand" onclick={() => resolveConflict(conflict)} disabled={busy}>
+            <ActionButton variant="brand" onclick={() => resolveConflict(conflict)} disabled={busy}>
               Resolve
-            </SyncButton>
+            </ActionButton>
           </div>
         {/if}
       </div>
@@ -365,7 +317,7 @@ onMount(() => {
     <div class="block-header">
       <h3 id="sync-requests-heading">Recent requests</h3>
     </div>
-    {#each requests as record, index (record.at + record.path + index)}
+    {#each requests.data ?? [] as record, index (record.at + record.path + index)}
       <div class="request">
         <span class="method">{record.method}</span>
         <span class="path">{record.path}</span>
@@ -431,6 +383,14 @@ onMount(() => {
 
   .row:first-of-type {
     border-top: none;
+  }
+
+  .pairing-qr {
+    align-self: flex-start;
+    padding: var(--wa-space-m);
+    border: 0.0625rem solid var(--wa-color-border-default);
+    border-radius: var(--wa-radius-m);
+    background: var(--wa-color-surface-default);
   }
 
   .copy-row {

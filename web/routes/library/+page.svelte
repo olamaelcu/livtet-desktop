@@ -1,45 +1,47 @@
 <script lang="ts">
-import {
-  type Edition,
-  loadEditions,
-  mapHitToEdition,
-  type SearchResult,
-  searchTypeahead,
-} from '../../lib/search'
+import { createHotkey } from '@tanstack/svelte-hotkeys'
+import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query'
+import { onDestroy } from 'svelte'
+import { searchKeys } from '../../lib/query/keys'
+import { loadEditions, mapHitToEdition, searchTypeahead } from '../../lib/search'
 import BookCard from './BookCard.svelte'
 
-let books = $state<Edition[]>([])
-let query = $state('')
-let offset = $state(0)
-let total = $state(0)
-let loading = $state(false)
-
 const PAGE_SIZE = 20
+const TYPEAHEAD_LIMIT = 8
+const DEBOUNCE_MS = 200
 
-async function fetchBooks(reset = false) {
-  if (loading) return
-  loading = true
-  const reqOffset = reset ? 0 : offset
-  try {
-    const result = await loadEditions(query || undefined, reqOffset, PAGE_SIZE)
-    books = reset
-      ? result.hits.map(mapHitToEdition)
-      : [...books, ...result.hits.map(mapHitToEdition)]
-    total = result.total
-    offset = books.length
-  } finally {
-    loading = false
-  }
-}
-
-function loadMore() {
-  if (books.length >= total || loading) return
-  fetchBooks(false)
-}
-
-let suggestions = $state<SearchResult[]>([])
-let showSuggestions = $state(false)
+let queryInput = $state('')
+let query = $state('')
+let dismissedQuery = $state<string | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
+
+onDestroy(() => clearTimeout(debounceTimer))
+
+const editions = createInfiniteQuery(() => ({
+  queryKey: searchKeys.editions(query),
+  queryFn: ({ pageParam }) => loadEditions(query || undefined, pageParam, PAGE_SIZE),
+  initialPageParam: 0,
+  getNextPageParam: (lastPage, allPages) => {
+    if (lastPage.hits.length === 0) return undefined
+    const loaded = allPages.reduce((count, page) => count + page.hits.length, 0)
+    return loaded < lastPage.total ? loaded : undefined
+  },
+}))
+
+const books = $derived(
+  (editions.data?.pages ?? []).flatMap((page) => page.hits.map(mapHitToEdition)),
+)
+
+const typeahead = createQuery(() => ({
+  queryKey: searchKeys.typeahead(query),
+  queryFn: () => searchTypeahead(query, TYPEAHEAD_LIMIT),
+  enabled: query.trim().length > 0,
+}))
+
+const suggestions = $derived(typeahead.data ?? [])
+const showSuggestions = $derived(
+  query.trim().length > 0 && suggestions.length > 0 && dismissedQuery !== query,
+)
 
 let openPopoverId = $state<string | null>(null)
 
@@ -51,41 +53,41 @@ function hidePopover() {
   openPopoverId = null
 }
 
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') hidePopover()
+createHotkey('Escape', hidePopover)
+
+function loadMore() {
+  if (editions.hasNextPage && !editions.isFetchingNextPage) editions.fetchNextPage()
 }
 
-$effect(() => {
-  const q = query
+function handleSearchInput(event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  queryInput = value
   clearTimeout(debounceTimer)
-  if (!q.trim()) {
-    suggestions = []
-    showSuggestions = false
-    return
-  }
-  debounceTimer = setTimeout(async () => {
-    const results = await searchTypeahead(q, 8)
-    suggestions = results
-    showSuggestions = results.length > 0
-  }, 200)
-})
+  debounceTimer = setTimeout(() => {
+    query = value
+  }, DEBOUNCE_MS)
+}
 
-function handleSearchInput(e: Event) {
-  query = (e.target as HTMLInputElement).value
+function selectSuggestion(title: string) {
+  clearTimeout(debounceTimer)
+  queryInput = title
+  query = title
+  dismissedQuery = title
 }
 </script>
 
 <main>
-<div class="search-container" onkeydown={handleKeydown} role="textbox" tabindex={0}>
+<div class="search-container">
   <div class="search-wrapper">
     <wa-input
+      id="library-search"
       type="text"
       placeholder="Search books..."
-      value={query}
+      value={queryInput}
       class="search-input"
       oninput={handleSearchInput}
     ></wa-input>
-    {#if showSuggestions && suggestions.length > 0}
+    {#if showSuggestions}
       <div class="suggestions-dropdown" role="listbox">
         {#each suggestions as hit (hit.work_id)}
           <button
@@ -93,11 +95,7 @@ function handleSearchInput(e: Event) {
             role="option"
             type="button"
             aria-selected={false}
-            onclick={() => {
-              query = hit.title
-              showSuggestions = false
-              fetchBooks(true)
-            }}
+            onclick={() => selectSuggestion(hit.title)}
           >
             <span class="suggestion-title">{hit.title}</span>
             {#if hit.authors?.length}
@@ -138,7 +136,7 @@ function handleSearchInput(e: Event) {
           <div class="book-details">
             <h4 class="details-title">{book.title}</h4>
             <p class="details-label"><strong>Authors:</strong></p>
-            {#each book.authors as author}
+            {#each book.authors as author (author.name + author.role)}
               <div class="details-author">
                 {author.name} <wa-badge>{author.role}</wa-badge>
               </div>
@@ -154,11 +152,11 @@ function handleSearchInput(e: Event) {
   </div>
 </wa-scroller>
 
-{#if loading}
+{#if editions.isPending}
   <div class="loading-indicator">Loading...</div>
 {/if}
 
-{#if books.length > 0 && books.length < total}
+{#if editions.hasNextPage}
   <div class="load-more-trigger" onclick={loadMore} role="button" tabindex="0" onkeydown={(e)=> e.key==='Enter' && loadMore()}></div>
 {/if}
 </main>
