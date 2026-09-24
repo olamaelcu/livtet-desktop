@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use livtet_core::data::entities::{digital_inventory, edition_specific_covers, editions};
-use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
+use livtet_core::data::orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use livtet_types::DbId;
 use serde::Serialize;
 use specta::Type;
@@ -331,4 +331,128 @@ pub async fn export_editions_csv(
         .map_err(|e| CatalogError::new("io", e.to_string()))?;
 
     Ok(ExportOutcome { path, rows: edition_ids.len() as i32 })
+}
+
+
+#[tauri::command]
+#[specta::specta]
+pub async fn add_edition_tags(
+    edition_ids: Vec<DbId>,
+    tag: String,
+    state: State<'_, AppState>,
+) -> Result<TagMutationOutcome, CatalogError> {
+    use livtet_core::data::entities::{edition_tags, tags};
+    use livtet_types::now_primitive;
+
+    let name = tag.trim().to_string();
+    if name.is_empty() {
+        return Err(CatalogError::new("invalid_input", "tag name is empty"));
+    }
+
+    let db = state.db.db_conn();
+
+    let existing = tags::Entity::find()
+        .filter(tags::Column::Name.eq(name.clone()))
+        .one(&db)
+        .await
+        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+
+    let tag = match existing {
+        Some(row) => row,
+        None => {
+            let model = tags::ActiveModel {
+                id: Set(DbId::new()),
+                name: Set(name),
+                created_at: Set(now_primitive()),
+                updated_at: Set(None),
+            };
+            model
+                .insert(&db)
+                .await
+                .map_err(|e| CatalogError::new("database", e.to_string()))?
+        }
+    };
+
+    let mut changed = 0;
+    for id in &edition_ids {
+        let already = edition_tags::Entity::find()
+            .filter(edition_tags::Column::EditionId.eq(*id))
+            .filter(edition_tags::Column::TagId.eq(tag.id))
+            .one(&db)
+            .await
+            .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        if already.is_some() {
+            continue;
+        }
+        edition_tags::ActiveModel {
+            edition_id: Set(*id),
+            tag_id: Set(tag.id),
+        }
+        .insert(&db)
+        .await
+        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+        changed += 1;
+    }
+
+    if changed > 0 {
+        let guard = state.search_index.read().await;
+        if let Some(index) = guard.as_ref() {
+            index
+                .reindex(&db)
+                .await
+                .map_err(|e| CatalogError::new("index", e.to_string()))?;
+        }
+    }
+
+    Ok(TagMutationOutcome {
+        tag: crate::commands::search::FilterOption {
+            id: tag.id,
+            label: tag.name,
+        },
+        changed,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_edition_tags(
+    edition_ids: Vec<DbId>,
+    tag_id: DbId,
+    state: State<'_, AppState>,
+) -> Result<TagMutationOutcome, CatalogError> {
+    use livtet_core::data::entities::{edition_tags, tags};
+
+    let db = state.db.db_conn();
+
+    let tag = tags::Entity::find_by_id(tag_id)
+        .one(&db)
+        .await
+        .map_err(|e| CatalogError::new("database", e.to_string()))?
+        .ok_or_else(|| CatalogError::new("not_found", "tag"))?;
+
+    let result = edition_tags::Entity::delete_many()
+        .filter(edition_tags::Column::EditionId.is_in(edition_ids))
+        .filter(edition_tags::Column::TagId.eq(tag_id))
+        .exec(&db)
+        .await
+        .map_err(|e| CatalogError::new("database", e.to_string()))?;
+
+    let changed = result.rows_affected as i32;
+    if changed > 0 {
+        let guard = state.search_index.read().await;
+        if let Some(index) = guard.as_ref() {
+            index
+                .reindex(&db)
+                .await
+                .map_err(|e| CatalogError::new("index", e.to_string()))?;
+        }
+    }
+
+    Ok(TagMutationOutcome {
+        tag: crate::commands::search::FilterOption {
+            id: tag.id,
+            label: tag.name,
+        },
+        changed,
+    })
 }
