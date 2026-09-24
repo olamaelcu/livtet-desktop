@@ -4,11 +4,13 @@ import type {
   SearchResult as BindingResult,
   EditionCover,
   EditionDetail,
+  EditionFilters,
+  FilterOptions,
   HitKind,
 } from './bindings'
 
 // Strict re-export of generated contract — single source of truth
-export type { EditionCover, EditionDetail, HitKind }
+export type { EditionCover, EditionDetail, EditionFilters, FilterOptions, HitKind }
 export interface Author {
   name: string
   role: 'author' | 'editor' | 'translator'
@@ -32,11 +34,13 @@ const LIMIT = 20
 
 export async function loadEditions(
   query?: string,
+  filters?: EditionFilters,
   offset?: number,
   limit?: number,
 ): Promise<SearchResponse> {
   return invoke<SearchResponse>('search_editions', {
     query: query ?? null,
+    filters: filters ?? null,
     offset: offset ?? 0,
     limit: limit ?? LIMIT,
   })
@@ -47,8 +51,12 @@ export async function searchTypeahead(query: string, limit = 10): Promise<Search
   return invoke<SearchResult[]>('search_typeahead', { query, limit })
 }
 
-export async function countEditions(query?: string): Promise<number> {
-  return invoke<number>('search_editions_count', { query: query ?? null })
+export async function countEditions(query?: string, filters?: EditionFilters): Promise<number> {
+  return invoke<number>('search_editions_count', { query: query ?? null, filters: filters ?? null })
+}
+
+export async function loadFilterOptions(): Promise<FilterOptions> {
+  return invoke<FilterOptions>('filter_options')
 }
 
 export function mapHitToEdition(hit: SearchResult): Edition {

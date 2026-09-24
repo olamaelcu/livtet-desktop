@@ -28,7 +28,7 @@ onDestroy(() => clearTimeout(debounceTimer))
 
 const editions = createInfiniteQuery(() => ({
   queryKey: searchKeys.editions(query),
-  queryFn: ({ pageParam }) => loadEditions(query || undefined, pageParam, PAGE_SIZE),
+  queryFn: ({ pageParam }) => loadEditions(query || undefined, undefined, pageParam, PAGE_SIZE),
   initialPageParam: 0,
   getNextPageParam: (lastPage, allPages) => {
     if (lastPage.hits.length === 0) return undefined

@@ -23,7 +23,11 @@ describe('syncKeys', () => {
 
 describe('searchKeys', () => {
   it('partitions editions and typeahead by query', () => {
-    expect(searchKeys.editions('dune')).toEqual(['search', 'editions', { query: 'dune' }])
+    expect(searchKeys.editions('dune')).toEqual([
+      'search',
+      'editions',
+      { query: 'dune', filters: {} },
+    ])
     expect(searchKeys.typeahead('dune')).toEqual(['search', 'typeahead', { query: 'dune' }])
   })
 

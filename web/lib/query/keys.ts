@@ -14,10 +14,23 @@ export const syncKeys = {
   requests: (limit: number) => [...syncKeys.all, 'requests', { limit }] as const,
 }
 
+type Filters = Record<string, unknown> | undefined
+
+function canonicalFilters(filters: Filters) {
+  if (!filters) return {}
+  return Object.fromEntries(
+    Object.entries(filters)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .sort(([a], [b]) => a.localeCompare(b)),
+  )
+}
+
 export const searchKeys = {
   all: ['search'] as const,
-  editions: (query: string) => [...searchKeys.all, 'editions', { query }] as const,
+  editions: (query: string, filters: Filters = {}) =>
+    [...searchKeys.all, 'editions', { query, filters: canonicalFilters(filters) }] as const,
   typeahead: (query: string) => [...searchKeys.all, 'typeahead', { query }] as const,
+  filterOptions: () => [...searchKeys.all, 'filter-options'] as const,
 }
 
 export const catalogKeys = {
