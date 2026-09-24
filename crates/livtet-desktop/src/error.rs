@@ -23,6 +23,23 @@ impl SearchIndexError {
     }
 }
 #[derive(Debug, Clone, Error, Serialize, Type)]
+pub enum CatalogError {
+    #[error("Invalid edition id: {id}")]
+    InvalidId { id: String },
+
+    #[error("Catalog database error: {message}")]
+    Database { message: String },
+}
+
+impl CatalogError {
+    pub fn database<E: std::fmt::Display>(err: E) -> Self {
+        Self::Database {
+            message: err.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Error, Serialize, Type)]
 pub enum PluginError {
     #[error("Plugin host is unavailable: {message}")]
     Unavailable { message: String },

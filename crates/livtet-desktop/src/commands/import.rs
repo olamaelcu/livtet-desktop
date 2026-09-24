@@ -61,6 +61,12 @@ impl From<livtet_core::data::orm::DbErr> for ImportError {
     }
 }
 
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_fmt(format_args!("Import error {}: {}", self.code, self.message))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct ImportFileResult {
     pub path: String,
@@ -363,7 +369,7 @@ pub async fn import_file(
 }
 
 /// Import a single file. Shared by `import_file` and `import_files`.
-#[tracing::instrument(skip_all, fields(path = %path))]
+#[tracing::instrument(skip_all, fields(path = %path), ret, err)]
 async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, ImportError> {
     let file_path = std::path::PathBuf::from(path);
     let extension = file_path
@@ -457,8 +463,9 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
             Ok::<_, ImportError>((cover.mime.clone(), data))
         })
         .transpose()?;
-    // ADR-0008 path convention: {app_local_data_dir}/covers/{inventory_id}/cover.{ext}.
-    // covers_dir already resolves to {app_local_data_dir}/covers (Tauri identifier == BUNDLE_ID).
+    // ADR-0008 path convention: {data_dir}/data/covers/{inventory_id}/cover.{ext},
+    // where data_dir is {dirs data dir}/{BUNDLE_ID} and covers_dir already
+    // resolves to its `data/covers` child (see `Paths::new`).
     let cover_path = cover.as_ref().map(|(mime, _)| {
         state
             .covers_dir
@@ -607,9 +614,7 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
 }
 
 #[tauri::command]
-// NOTE: #[tracing::instrument] must precede #[specta::specta]; specta cannot
-// parse the `fields(count = paths.len())` expression in the other order.
-#[tracing::instrument(skip_all, fields(count = paths.len()))]
+#[tracing::instrument(skip_all, ret, fields(count = paths.len()))]
 #[specta::specta]
 /// Import several files sequentially, emitting `import://batch` and
 /// `import://file` progress events and returning the aggregate result.

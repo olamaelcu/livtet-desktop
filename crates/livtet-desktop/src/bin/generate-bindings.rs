@@ -16,6 +16,7 @@ fn main() {
         .expect("Could not determine the path on disk to the bindings.ts location.");
 
     let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
+        livtet_desktop_lib::commands::catalog::get_edition_detail,
         livtet_desktop_lib::commands::search::search_editions,
         livtet_desktop_lib::commands::search::search_typeahead,
         livtet_desktop_lib::commands::search::search_editions_count,

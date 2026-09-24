@@ -1,22 +1,18 @@
 <script lang="ts">
-export const id: string = ''
-export let title: string = ''
-export let cover_url: string | undefined = undefined
-export let popoverId: string = ''
+interface Props {
+  title: string
+  cover_url?: string
+  onclick?: () => void
+}
+
+let { title, cover_url = undefined, onclick }: Props = $props()
 </script>
 
 <style>
   .card {
-    display: flex;
-    gap: var(--wa-space-l);
-    padding: var(--wa-space-xl);
-    border: 0.0625rem solid var(--wa-color-border-default);
-    border-radius: var(--wa-border-radius);
-    background: var(--wa-color-surface-default);
+    all: unset;
     cursor: pointer;
     transition: box-shadow 0.15s ease;
-    width: 100%;
-    all: unset;
   }
 
   .card:hover,
@@ -55,7 +51,7 @@ export let popoverId: string = ''
   }
 </style>
 
-<button class="card" type="button" id={popoverId}>
+<button class="card" type="button" {onclick}>
   <figure class="cover {cover_url ? '' : 'placeholder'}">
     {#if cover_url}
       <img src={cover_url} alt={title} />
@@ -63,4 +59,4 @@ export let popoverId: string = ''
       <figcaption>{title}</figcaption>
     {/if}
   </figure>
- </button>
+</button>

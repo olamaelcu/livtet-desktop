@@ -22,6 +22,6 @@ let { onaddbook }: Props = $props()
     display: flex;
     align-items: center;
     gap: var(--wa-space-xs);
-    padding: var(--wa-space-xs) var(--wa-space-xs) 0;
+    padding: var(--wa-space-xs) var(--wa-space-m) 0;
   }
 </style>

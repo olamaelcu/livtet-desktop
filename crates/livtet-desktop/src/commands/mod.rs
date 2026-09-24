@@ -1,3 +1,4 @@
+pub mod catalog;
 pub mod import;
 pub mod importers;
 pub mod plugins;

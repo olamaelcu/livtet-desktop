@@ -1,11 +1,11 @@
 <script lang="ts">
-import { createHotkey } from '@tanstack/svelte-hotkeys'
 import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query'
 import { onDestroy } from 'svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
+import EditionDetailDrawer from '../../lib/library/EditionDetailDrawer.svelte'
 import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
 import { searchKeys } from '../../lib/query/keys'
-import { loadEditions, mapHitToEdition, searchTypeahead } from '../../lib/search'
+import { type Edition, loadEditions, mapHitToEdition, searchTypeahead } from '../../lib/search'
 import BookCard from './BookCard.svelte'
 
 const PAGE_SIZE = 20
@@ -31,8 +31,12 @@ const editions = createInfiniteQuery(() => ({
 }))
 
 const books = $derived(
-  (editions.data?.pages ?? []).flatMap((page) => page.hits.map(mapHitToEdition)),
+  (editions.data?.pages ?? []).flatMap((page) => page.hits.map(mapHitToEdition)).filter(isEdition),
 )
+
+function isEdition(book: Edition): book is Edition & { edition_id: string } {
+  return book.kind === 'edition' && book.edition_id !== null
+}
 
 const typeahead = createQuery(() => ({
   queryKey: searchKeys.typeahead(query),
@@ -45,18 +49,14 @@ const showSuggestions = $derived(
   query.trim().length > 0 && suggestions.length > 0 && dismissedQuery !== query,
 )
 
-let openPopoverId = $state<string | null>(null)
 let addBookOpen = $state(false)
+let selectedEditionId = $state<string | null>(null)
+let detailOpen = $state(false)
 
-function showPopover(id: string) {
-  openPopoverId = id
+function openDetail(editionId: string) {
+  selectedEditionId = editionId
+  detailOpen = true
 }
-
-function hidePopover() {
-  openPopoverId = null
-}
-
-createHotkey('Escape', hidePopover)
 
 function loadMore() {
   if (editions.hasNextPage && !editions.isFetchingNextPage) editions.fetchNextPage()
@@ -115,41 +115,11 @@ function selectSuggestion(title: string) {
 <wa-scroller orientation="vertical" class="book-scroller" onscrollend={loadMore}>
   <div class="book-list">
     {#each books as book (book.id)}
-      <div
-        class="book-entry"
-        role="group"
-        aria-label="Book entry: {book.title}"
-        onmouseenter={() => showPopover(book.id)}
-        onmouseleave={hidePopover}
-      >
-        <BookCard
-          id={book.id}
-          title={book.title}
-          cover_url={book.cover_url}
-          popoverId="popover-{book.id}"
-        />
-        <wa-popover
-          for="popover-{book.id}"
-          placement="top"
-          distance="12"
-          open={openPopoverId === book.id}
-          role="tooltip"
-          onmouseenter={() => showPopover(book.id)}
-          onmouseleave={hidePopover}
-        >
-          <div class="book-details">
-            <h4 class="details-title">{book.title}</h4>
-            <p class="details-label"><strong>Authors:</strong></p>
-            {#each book.authors as author (author.name + author.role)}
-              <div class="details-author">
-                {author.name} <wa-badge>{author.role}</wa-badge>
-              </div>
-            {/each}
-            <p class="details-published">Published: {book.published}</p>
-            <p class="details-description">{book.description}</p>
-          </div>
-        </wa-popover>
-      </div>
+      <BookCard
+        title={book.title}
+        cover_url={book.cover_url}
+        onclick={() => openDetail(book.edition_id)}
+      />
     {:else}
       <div class="empty">No books? No results.</div>
     {/each}
@@ -166,6 +136,11 @@ function selectSuggestion(title: string) {
 </main>
 
 <AddBookDrawer open={addBookOpen} onclose={() => (addBookOpen = false)} />
+<EditionDetailDrawer
+  editionId={selectedEditionId}
+  open={detailOpen}
+  onclose={() => (detailOpen = false)}
+/>
 
 <style>
   main {
@@ -213,12 +188,13 @@ function selectSuggestion(title: string) {
     flex-direction: column;
     gap: var(--wa-space-3xs);
     width: 100%;
-    padding: var(--wa-space-s) var(--wa-space-m);
+    padding: var(--wa-space-m);
     background: none;
     border: none;
     cursor: pointer;
     text-align: left;
     color: var(--wa-color-text-default);
+    align-items: start;
   }
 
   .suggestion-item:hover {
@@ -238,6 +214,8 @@ function selectSuggestion(title: string) {
   .book-scroller {
     flex: 1 1;
     max-width: 100%;
+    align-items: start;
+    padding: 0 var(--wa-space-l);
   }
 
   .book-list {
@@ -250,39 +228,6 @@ function selectSuggestion(title: string) {
     & > .empty {
       height: 100%;
     }
-  }
-
-  .book-entry {
-    display: flex;
-  }
-
-  .book-entry:last-of-type {
-    justify-self: flex-start;
-  }
-
-  .book-details {
-    max-width: 17.5rem;
-    font-size: 0.875rem;
-  }
-
-  .details-title {
-    margin: 0 0 var(--wa-space-m);
-  }
-
-  .details-label {
-    margin: 0 0 var(--wa-space-s);
-  }
-
-  .details-author {
-    margin: 0 0 var(--wa-space-s) var(--wa-space-l);
-  }
-
-  .details-published {
-    margin: 0;
-  }
-
-  .details-description {
-    margin: var(--wa-space-m) 0 0;
   }
 
   .loading-indicator {

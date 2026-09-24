@@ -19,3 +19,9 @@ export const searchKeys = {
   editions: (query: string) => [...searchKeys.all, 'editions', { query }] as const,
   typeahead: (query: string) => [...searchKeys.all, 'typeahead', { query }] as const,
 }
+
+export const catalogKeys = {
+  all: ['catalog'] as const,
+  editionDetail: (editionId: string) =>
+    [...catalogKeys.all, 'edition-detail', { editionId }] as const,
+}
