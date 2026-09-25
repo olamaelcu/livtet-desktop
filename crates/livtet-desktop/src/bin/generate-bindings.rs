@@ -29,6 +29,7 @@ fn main() {
         livtet_desktop_lib::commands::bulk::matching_edition_ids,
         livtet_desktop_lib::commands::import::import_file,
         livtet_desktop_lib::commands::import::import_files,
+        livtet_desktop_lib::commands::import::relink_edition_file,
         livtet_desktop_lib::commands::plugins::list_plugins,
         livtet_desktop_lib::commands::sync::sync_health,
         livtet_desktop_lib::commands::sync::sync_status,
