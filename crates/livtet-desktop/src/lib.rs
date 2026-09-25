@@ -1,6 +1,7 @@
 pub mod commands;
 mod error;
 mod roles;
+mod secrets;
 pub mod sync;
 mod types;
 
@@ -313,6 +314,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         sync: Arc::new(sync),
         opds_http,
         opds_store,
+        secrets: Arc::new(secrets::KeyringSecretStore),
     };
     {
         let mut guard = state.search_index.write().await;

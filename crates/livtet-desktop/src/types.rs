@@ -26,6 +26,8 @@ pub struct AppState {
     pub sync: Arc<crate::sync::SyncHandle>,
     /// Shared HTTP client for OPDS catalog requests.
     pub opds_http: reqwest::Client,
-    /// Rust-owned store of subscribed OPDS catalogs (includes credentials).
+    /// Rust-owned store of subscribed OPDS catalogs (metadata only).
     pub opds_store: Arc<tauri_plugin_store::Store<tauri::Wry>>,
+    /// OS-keyring-backed storage for OPDS catalog credentials.
+    pub secrets: Arc<dyn crate::secrets::SecretStore>,
 }

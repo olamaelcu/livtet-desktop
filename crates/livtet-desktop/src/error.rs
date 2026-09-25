@@ -101,6 +101,9 @@ pub enum OpdsError {
     #[error("Refusing to send credentials insecurely: {message}")]
     InsecureCredentials { message: String },
 
+    #[error("OPDS credentials unavailable: {message}")]
+    CredentialsUnavailable { message: String },
+
     #[error("OPDS request failed: {message}")]
     Network { message: String },
 
@@ -115,6 +118,17 @@ pub enum OpdsError {
 
     #[error("Import failed ({code}): {message}")]
     Import { code: String, message: String },
+}
+
+impl From<crate::secrets::SecretError> for OpdsError {
+    fn from(error: crate::secrets::SecretError) -> Self {
+        match error {
+            crate::secrets::SecretError::Unavailable(message) => {
+                Self::CredentialsUnavailable { message }
+            }
+            crate::secrets::SecretError::Malformed(message) => Self::Storage { message },
+        }
+    }
 }
 
 impl OpdsError {

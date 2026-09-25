@@ -48,6 +48,8 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **books_dir** — the library-owned file store (`{app_dir}/data/books`), held on `Paths` and `AppState`; every import materializes one `{sha256}-{original_filename}` entry here. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 - **library file** — the symlink or copy inside `books_dir` that `digital_inventory.file_path` points at after import; deleting it never touches the source. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 - **missing file** — a library file whose link target no longer exists (`EditionFile.file_status == Missing`); shown with a warning and a re-link action in the edition detail drawer. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
+- **SecretStore** — the trait fronting OS-keyring access for OPDS credentials; `KeyringSecretStore` is the real implementation (Secret Service / Keychain / Credential Manager) and tests use an in-memory one. See [ADR 0024](adr/0024-os-keyring-for-opds-credentials.md).
+- **CatalogSecret** — the credential blob (`basic` username/password or `bearer` token) held in the OS keyring under service `net.olamaelcu.livtet.opds`, keyed by catalog ULID; never written to `opds-catalogs.json`. See [ADR 0024](adr/0024-os-keyring-for-opds-credentials.md).
 
 ## Domain
 
@@ -62,6 +64,6 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **ImporterMeta** — the serde wire record an importer returns (title, contributors, ISBNs, non-ISBN identifiers, cover). A title and at least one contributor are required; ISBNs are optional. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md) and [ADR 0020](adr/0020-isbn-optional-for-epub-imports-with-a-body-text-fallback.md).
 - **SyncEngine** — the `livtet-sync` domain engine that reads and writes `change_log` and `conflicts`. See [core ADR 1](../../core/docs/adr/0001-split-sync-into-domain-transport-daemon-crates.md).
 - **SyncSession** — the app-facing `livtet-sync-http` client composing a `SyncEngine` with a `SyncHttpClient` transport. See [core ADR 1](../../core/docs/adr/0001-split-sync-into-domain-transport-daemon-crates.md).
-- **catalog** — a subscribed OPDS feed the user browses and acquires from; identified by a ULID and persisted in the Rust-owned `opds-catalogs.json` store. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
+- **catalog** — a subscribed OPDS feed the user browses and acquires from; identified by a ULID, its metadata persisted in the Rust-owned `opds-catalogs.json` store and its credentials in the OS keyring. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md) and [ADR 0024](adr/0024-os-keyring-for-opds-credentials.md).
 - **preset** — a built-in catalog (title, URL, description) the user subscribes to with one click. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
 - **acquisition link** — a publication `Link` with the `http://opds-spec.org/acquisition` relation; `open-access` EPUB is preferred when present. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).

@@ -50,5 +50,6 @@ the seam for richer OPDS features (facets, groups) without re-exporting upstream
 types.
 
 **Harder**: desktop now carries `reqwest`/`livtet-opds-*`; the DTO mapping must
-be kept in sync with any upstream model changes; credentials are stored in
-plaintext in the app data dir until an OS-keyring-backed store lands.
+be kept in sync with any upstream model changes. Credentials originally lived
+inline in the catalog store; [ADR 0024](0024-os-keyring-for-opds-credentials.md)
+moves them to the OS keyring.

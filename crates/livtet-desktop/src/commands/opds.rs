@@ -1,8 +1,9 @@
 //! OPDS catalog subscriptions and browsing.
 //!
 //! Catalogs are user-managed (CRUD) and persisted in a Tauri plugin-store file
-//! owned by Rust. Credentials live in the same store but are never returned to
-//! the frontend: list views expose only the auth kind.
+//! owned by Rust. Credentials live in the OS keyring (see [`crate::secrets`]),
+//! never in that file and never returned to the frontend: list views expose
+//! only the auth kind.
 //!
 //! Responses are flattened into specta-safe DTOs ([`OpdsFeed`]) rather than
 //! passing `livtet_opds_types` wire structs across IPC: the upstream types carry
@@ -13,6 +14,8 @@
 //! - Creating or updating a catalog probes the feed before persisting.
 //! - Credentials are refused over plain `http` unless the host is loopback, and
 //!   are only attached to requests on the catalog's own origin.
+
+use std::sync::Arc;
 
 use livtet_opds_client::{Client, OpdsAuth, default_catalogs};
 use livtet_opds_types::{Feed, Link, Publication};
@@ -25,6 +28,7 @@ use url::{Host, Url};
 
 use crate::commands::import::{ImportMode, ImportOutcome, import_one};
 use crate::error::OpdsError;
+use crate::secrets::{CatalogSecret, SecretStore};
 use crate::types::AppState;
 
 const CATALOGS_KEY: &str = "catalogs";
@@ -55,9 +59,10 @@ fn is_open_access_rel(rel: &str) -> bool {
 }
 
 /// How a request to a catalog authenticates. Never carries the secret itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum OpdsAuthKind {
+    #[default]
     None,
     Basic,
     Bearer,
@@ -127,56 +132,48 @@ pub struct OpdsFeed {
     pub has_search: bool,
 }
 
-/// Credentials as persisted (never serialized to the frontend).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-enum StoredAuth {
-    None,
-    Basic { username: String, password: String },
-    Bearer { token: String },
-}
-
-impl StoredAuth {
-    fn from_input(input: OpdsAuthInput) -> Result<Self, OpdsError> {
-        match input.kind {
-            OpdsAuthKind::None => Ok(Self::None),
-            OpdsAuthKind::Basic => {
-                let username = input.username.unwrap_or_default();
-                let password = input.password.unwrap_or_default();
-                if username.is_empty() {
-                    return Err(OpdsError::invalid_input("basic auth requires a username"));
-                }
-                Ok(Self::Basic { username, password })
+/// Build the secret half of an auth input. The `none` kind carries no secret,
+/// so it yields `None` and nothing is written to the keyring.
+fn secret_from_input(input: OpdsAuthInput) -> Result<Option<CatalogSecret>, OpdsError> {
+    match input.kind {
+        OpdsAuthKind::None => Ok(None),
+        OpdsAuthKind::Basic => {
+            let username = input.username.unwrap_or_default();
+            let password = input.password.unwrap_or_default();
+            if username.is_empty() {
+                return Err(OpdsError::invalid_input("basic auth requires a username"));
             }
-            OpdsAuthKind::Bearer => {
-                let token = input.token.unwrap_or_default();
-                if token.is_empty() {
-                    return Err(OpdsError::invalid_input("bearer auth requires a token"));
-                }
-                Ok(Self::Bearer { token })
+            Ok(Some(CatalogSecret::Basic { username, password }))
+        }
+        OpdsAuthKind::Bearer => {
+            let token = input.token.unwrap_or_default();
+            if token.is_empty() {
+                return Err(OpdsError::invalid_input("bearer auth requires a token"));
             }
+            Ok(Some(CatalogSecret::Bearer { token }))
         }
     }
+}
 
+impl CatalogSecret {
     fn kind(&self) -> OpdsAuthKind {
         match self {
-            Self::None => OpdsAuthKind::None,
             Self::Basic { .. } => OpdsAuthKind::Basic,
             Self::Bearer { .. } => OpdsAuthKind::Bearer,
         }
     }
+}
 
-    fn to_client_auth(&self) -> OpdsAuth {
-        match self {
-            Self::None => OpdsAuth::None,
-            Self::Basic { username, password } => OpdsAuth::Basic {
-                username: username.clone(),
-                password: password.clone(),
-            },
-            Self::Bearer { token } => OpdsAuth::Bearer {
-                access_token: token.clone(),
-            },
-        }
+/// Convert a stored secret into the client-crate auth type.
+fn client_auth(secret: &CatalogSecret) -> OpdsAuth {
+    match secret {
+        CatalogSecret::Basic { username, password } => OpdsAuth::Basic {
+            username: username.clone(),
+            password: password.clone(),
+        },
+        CatalogSecret::Bearer { token } => OpdsAuth::Bearer {
+            access_token: token.clone(),
+        },
     }
 }
 
@@ -186,7 +183,9 @@ struct StoredCatalog {
     id: String,
     title: String,
     feed_url: String,
-    auth: StoredAuth,
+    /// How the catalog authenticates; the secret itself lives in the keyring.
+    #[serde(default)]
+    auth_kind: OpdsAuthKind,
     created_at: String,
     updated_at: String,
 }
@@ -197,7 +196,7 @@ impl From<&StoredCatalog> for OpdsCatalog {
             id: catalog.id.clone(),
             title: catalog.title.clone(),
             feed_url: catalog.feed_url.clone(),
-            auth_kind: catalog.auth.kind(),
+            auth_kind: catalog.auth_kind,
             created_at: catalog.created_at.clone(),
             updated_at: catalog.updated_at.clone(),
         }
@@ -346,8 +345,8 @@ fn is_loopback(url: &Url) -> bool {
 }
 
 /// Refuse to attach credentials to a plain-http request to a remote host.
-fn ensure_secure_auth(url: &Url, auth: &StoredAuth) -> Result<(), OpdsError> {
-    if matches!(auth, StoredAuth::None) {
+fn ensure_secure_auth(url: &Url, kind: OpdsAuthKind) -> Result<(), OpdsError> {
+    if kind == OpdsAuthKind::None {
         return Ok(());
     }
     if url.scheme() == "http" && !is_loopback(url) {
@@ -358,22 +357,73 @@ fn ensure_secure_auth(url: &Url, auth: &StoredAuth) -> Result<(), OpdsError> {
     Ok(())
 }
 
-fn client_for(catalog: &StoredCatalog, http: &reqwest::Client) -> Result<Client, OpdsError> {
+/// Read a secret from the OS keyring on a blocking thread.
+async fn store_get(
+    secrets: Arc<dyn SecretStore>,
+    id: String,
+) -> Result<Option<CatalogSecret>, OpdsError> {
+    tokio::task::spawn_blocking(move || secrets.get(&id))
+        .await
+        .map_err(OpdsError::storage)?
+        .map_err(OpdsError::from)
+}
+
+async fn store_set(
+    secrets: Arc<dyn SecretStore>,
+    id: String,
+    secret: CatalogSecret,
+) -> Result<(), OpdsError> {
+    tokio::task::spawn_blocking(move || secrets.set(&id, &secret))
+        .await
+        .map_err(OpdsError::storage)?
+        .map_err(OpdsError::from)
+}
+
+async fn store_delete(secrets: Arc<dyn SecretStore>, id: String) -> Result<(), OpdsError> {
+    tokio::task::spawn_blocking(move || secrets.delete(&id))
+        .await
+        .map_err(OpdsError::storage)?
+        .map_err(OpdsError::from)
+}
+
+/// Resolve a catalog's credentials from the keyring. Fail closed when the
+/// catalog declares an auth kind but no secret is stored.
+async fn resolve_auth(
+    catalog: &StoredCatalog,
+    secrets: &Arc<dyn SecretStore>,
+) -> Result<OpdsAuth, OpdsError> {
+    if catalog.auth_kind == OpdsAuthKind::None {
+        return Ok(OpdsAuth::None);
+    }
+    let secret = store_get(secrets.clone(), catalog.id.clone())
+        .await?
+        .ok_or_else(|| OpdsError::CredentialsUnavailable {
+            message: format!("no stored credentials for catalog {}", catalog.id),
+        })?;
+    Ok(client_auth(&secret))
+}
+
+async fn client_for(
+    catalog: &StoredCatalog,
+    http: &reqwest::Client,
+    secrets: &Arc<dyn SecretStore>,
+) -> Result<Client, OpdsError> {
+    let auth = resolve_auth(catalog, secrets).await?;
     let client =
         Client::with_http(catalog.feed_url.clone(), http.clone()).map_err(OpdsError::from)?;
-    Ok(client.auth(catalog.auth.to_client_auth()))
+    Ok(client.auth(auth))
 }
 
 /// Fetch and flatten a catalog's root feed, proving the URL and credentials work.
 async fn probe_feed(
     catalog_url: &Url,
-    auth: &StoredAuth,
+    auth: OpdsAuth,
     http: &reqwest::Client,
 ) -> Result<OpdsFeed, OpdsError> {
     let client =
         Client::with_http(catalog_url.to_string(), http.clone()).map_err(OpdsError::from)?;
     client
-        .auth(auth.to_client_auth())
+        .auth(auth)
         .fetch_feed("")
         .await
         .map(|feed| map_feed(&feed))
@@ -444,17 +494,25 @@ pub async fn opds_catalogs_create(
         return Err(OpdsError::invalid_input("catalog title is required"));
     }
     let url = validate_feed_url(&feed_url)?;
-    let auth = StoredAuth::from_input(auth)?;
-    ensure_secure_auth(&url, &auth)?;
-    probe_feed(&url, &auth, &state.opds_http).await?;
+    let secret = secret_from_input(auth)?;
+    let kind = secret
+        .as_ref()
+        .map_or(OpdsAuthKind::None, CatalogSecret::kind);
+    ensure_secure_auth(&url, kind)?;
+    let probe_auth = secret.as_ref().map_or(OpdsAuth::None, client_auth);
+    probe_feed(&url, probe_auth, &state.opds_http).await?;
 
+    let id = DbId::new().to_string();
+    if let Some(secret) = &secret {
+        store_set(state.secrets.clone(), id.clone(), secret.clone()).await?;
+    }
     let mut catalogs = load_catalogs(&state.opds_store)?;
     let now = now_rfc3339();
     let catalog = StoredCatalog {
-        id: DbId::new().to_string(),
+        id,
         title,
         feed_url: url.to_string(),
-        auth,
+        auth_kind: kind,
         created_at: now.clone(),
         updated_at: now,
     };
@@ -493,15 +551,41 @@ pub async fn opds_catalogs_update(
         catalog.feed_url = validate_feed_url(&feed_url)?.to_string();
         needs_probe = true;
     }
+
+    let mut pending_secret: Option<Option<CatalogSecret>> = None;
     if let Some(auth_input) = auth {
-        catalog.auth = StoredAuth::from_input(auth_input)?;
+        pending_secret = Some(secret_from_input(auth_input)?);
         needs_probe = true;
     }
 
     if needs_probe {
         let url = validate_feed_url(&catalog.feed_url)?;
-        ensure_secure_auth(&url, &catalog.auth)?;
-        probe_feed(&url, &catalog.auth, &state.opds_http).await?;
+        let kind = match &pending_secret {
+            Some(secret) => secret
+                .as_ref()
+                .map_or(OpdsAuthKind::None, CatalogSecret::kind),
+            None => catalog.auth_kind,
+        };
+        ensure_secure_auth(&url, kind)?;
+        let probe_auth = match &pending_secret {
+            Some(Some(secret)) => client_auth(secret),
+            Some(None) => OpdsAuth::None,
+            None => resolve_auth(&catalog, &state.secrets).await?,
+        };
+        probe_feed(&url, probe_auth, &state.opds_http).await?;
+    }
+
+    if let Some(secret) = pending_secret {
+        match secret {
+            Some(secret) => {
+                store_set(state.secrets.clone(), catalog.id.clone(), secret.clone()).await?;
+                catalog.auth_kind = secret.kind();
+            }
+            None => {
+                store_delete(state.secrets.clone(), catalog.id.clone()).await?;
+                catalog.auth_kind = OpdsAuthKind::None;
+            }
+        }
     }
 
     catalog.updated_at = now_rfc3339();
@@ -512,12 +596,14 @@ pub async fn opds_catalogs_update(
 
 #[tauri::command]
 #[specta::specta]
-pub fn opds_catalogs_remove(id: String, state: State<'_, AppState>) -> Result<(), OpdsError> {
+pub async fn opds_catalogs_remove(id: String, state: State<'_, AppState>) -> Result<(), OpdsError> {
     let mut catalogs = load_catalogs(&state.opds_store)?;
-    let before = catalogs.len();
-    catalogs.retain(|catalog| catalog.id != id);
-    if catalogs.len() == before {
+    let Some(index) = catalogs.iter().position(|catalog| catalog.id == id) else {
         return Err(OpdsError::NotFound { id });
+    };
+    let removed = catalogs.remove(index);
+    if removed.auth_kind != OpdsAuthKind::None {
+        store_delete(state.secrets.clone(), removed.id.clone()).await?;
     }
     save_catalogs(&state.opds_store, &catalogs)
 }
@@ -530,15 +616,17 @@ pub async fn opds_catalogs_test(
 ) -> Result<OpdsFeed, OpdsError> {
     let catalog = find_catalog(&state.opds_store, &id)?;
     let url = validate_feed_url(&catalog.feed_url)?;
-    ensure_secure_auth(&url, &catalog.auth)?;
-    probe_feed(&url, &catalog.auth, &state.opds_http).await
+    ensure_secure_auth(&url, catalog.auth_kind)?;
+    let auth = resolve_auth(&catalog, &state.secrets).await?;
+    probe_feed(&url, auth, &state.opds_http).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn opds_feed(id: String, state: State<'_, AppState>) -> Result<OpdsFeed, OpdsError> {
     let catalog = find_catalog(&state.opds_store, &id)?;
-    client_for(&catalog, &state.opds_http)?
+    client_for(&catalog, &state.opds_http, &state.secrets)
+        .await?
         .fetch_feed("")
         .await
         .map(|feed| map_feed(&feed))
@@ -567,7 +655,8 @@ pub async fn opds_page(
             "page link points outside the catalog",
         ));
     }
-    client_for(&catalog, &state.opds_http)?
+    client_for(&catalog, &state.opds_http, &state.secrets)
+        .await?
         .fetch_feed(target.as_str())
         .await
         .map(|feed| map_feed(&feed))
@@ -582,7 +671,7 @@ pub async fn opds_search(
     state: State<'_, AppState>,
 ) -> Result<OpdsFeed, OpdsError> {
     let catalog = find_catalog(&state.opds_store, &id)?;
-    let client = client_for(&catalog, &state.opds_http)?;
+    let client = client_for(&catalog, &state.opds_http, &state.secrets).await?;
     livtet_opds_client::search::search(&client, "", &query)
         .await
         .map(|feed| map_feed(&feed))
@@ -599,13 +688,13 @@ pub async fn opds_acquire(
     let catalog = find_catalog(&state.opds_store, &id)?;
     let catalog_url = validate_feed_url(&catalog.feed_url)?;
     let url = validate_feed_url(&item_url)?;
-    ensure_secure_auth(&url, &catalog.auth)?;
+    ensure_secure_auth(&url, catalog.auth_kind)?;
 
     // Credentials only ever travel to the catalog's own origin; a CDN-hosted
     // acquisition link gets the request without them.
     let mut request = state.opds_http.get(url.clone());
     if same_origin(&catalog_url, &url) {
-        request = catalog.auth.to_client_auth().apply(request);
+        request = resolve_auth(&catalog, &state.secrets).await?.apply(request);
     }
     let mut response = request.send().await.map_err(OpdsError::network)?;
     if !response.status().is_success() {
@@ -701,24 +790,25 @@ mod tests {
 
     #[test]
     fn credentials_refused_over_plain_http_but_allowed_on_loopback() {
-        let basic = StoredAuth::Basic {
+        let basic = CatalogSecret::Basic {
             username: "u".into(),
             password: "p".into(),
         };
+        let kind = basic.kind();
         let remote = Url::parse("http://example.test/opds").unwrap();
-        assert!(ensure_secure_auth(&remote, &basic).is_err());
+        assert!(ensure_secure_auth(&remote, kind).is_err());
 
         let local = Url::parse("http://127.0.0.1:8080/opds").unwrap();
-        assert!(ensure_secure_auth(&local, &basic).is_ok());
+        assert!(ensure_secure_auth(&local, kind).is_ok());
 
         let secure = Url::parse("https://example.test/opds").unwrap();
-        assert!(ensure_secure_auth(&secure, &basic).is_ok());
+        assert!(ensure_secure_auth(&secure, kind).is_ok());
     }
 
     #[test]
     fn no_credentials_never_triggers_insecure_refusal() {
         let remote = Url::parse("http://example.test/opds").unwrap();
-        assert!(ensure_secure_auth(&remote, &StoredAuth::None).is_ok());
+        assert!(ensure_secure_auth(&remote, OpdsAuthKind::None).is_ok());
     }
 
     #[test]
@@ -821,14 +911,14 @@ mod tests {
     }
 
     #[test]
-    fn auth_input_requires_the_matching_secret() {
+    fn secret_from_input_requires_the_matching_secret() {
         let missing_username = OpdsAuthInput {
             kind: OpdsAuthKind::Basic,
             username: Some(String::new()),
             password: Some("p".into()),
             token: None,
         };
-        assert!(StoredAuth::from_input(missing_username).is_err());
+        assert!(secret_from_input(missing_username).is_err());
 
         let missing_token = OpdsAuthInput {
             kind: OpdsAuthKind::Bearer,
@@ -836,6 +926,61 @@ mod tests {
             password: None,
             token: None,
         };
-        assert!(StoredAuth::from_input(missing_token).is_err());
+        assert!(secret_from_input(missing_token).is_err());
+    }
+
+    #[test]
+    fn secret_from_input_treats_none_kind_as_no_secret() {
+        let none = OpdsAuthInput {
+            kind: OpdsAuthKind::None,
+            username: None,
+            password: None,
+            token: None,
+        };
+        assert_eq!(secret_from_input(none).unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn resolve_auth_reads_the_keyring_and_fails_closed() {
+        use crate::secrets::InMemorySecretStore;
+
+        let secrets: Arc<dyn SecretStore> = Arc::new(InMemorySecretStore::new());
+        let mut catalog = StoredCatalog {
+            id: "01CATALOG".into(),
+            title: "Catalog".into(),
+            feed_url: "https://example.test/opds".into(),
+            auth_kind: OpdsAuthKind::Basic,
+            created_at: String::new(),
+            updated_at: String::new(),
+        };
+
+        // Declares basic auth but no secret is stored: fail closed.
+        let error = resolve_auth(&catalog, &secrets)
+            .await
+            .expect_err("missing secret should fail closed");
+        assert!(
+            matches!(error, OpdsError::CredentialsUnavailable { .. }),
+            "got {error:?}"
+        );
+
+        secrets
+            .set(
+                "01CATALOG",
+                &CatalogSecret::Basic {
+                    username: "u".into(),
+                    password: "p".into(),
+                },
+            )
+            .unwrap();
+        assert!(matches!(
+            resolve_auth(&catalog, &secrets).await.unwrap(),
+            OpdsAuth::Basic { .. }
+        ));
+
+        catalog.auth_kind = OpdsAuthKind::None;
+        assert!(matches!(
+            resolve_auth(&catalog, &secrets).await.unwrap(),
+            OpdsAuth::None
+        ));
     }
 }
