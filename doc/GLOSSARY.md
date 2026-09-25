@@ -30,6 +30,10 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **delete_editions**, **export_editions_csv**, **add_edition_tags**, **remove_edition_tags**, **matching_edition_ids** — the bulk edition commands; errors are `BulkError`. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
 - **ImportMode** — the per-batch import storage mode (`link` | `copy`) accepted by `import_file` / `import_files`; `link` (default) symlinks the source into the library, `copy` duplicates its bytes. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 - **relink_edition_file** — the Tauri command that repoints a library file at a newly picked source, updating the edition's file identity. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
+- **opds_catalogs_list**, **opds_catalogs_create**, **opds_catalogs_update**, **opds_catalogs_remove**, **opds_catalogs_test** — catalog subscription CRUD (`OpdsCatalog`); create/update probe the feed and store credentials without ever returning them. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
+- **opds_default_catalogs** — the command returning built-in presets (`OpdsPreset[]`: Gutenberg, Standard Ebooks, Internet Archive).
+- **opds_feed**, **opds_page**, **opds_search**, **opds_acquire** — catalog browsing and acquisition commands; all return the flattened `OpdsFeed` except `opds_acquire`, which returns an `ImportOutcome`. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
+- **OpdsFeed**, **OpdsPublication**, **OpdsNavigation** — the specta-safe feed DTOs handed to the frontend (flattened from `livtet-opds-types`, whose `u64` fields cannot be exported). See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
 
 ## Backend
 
@@ -58,3 +62,6 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **ImporterMeta** — the serde wire record an importer returns (title, contributors, ISBNs, non-ISBN identifiers, cover). A title and at least one contributor are required; ISBNs are optional. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md) and [ADR 0020](adr/0020-isbn-optional-for-epub-imports-with-a-body-text-fallback.md).
 - **SyncEngine** — the `livtet-sync` domain engine that reads and writes `change_log` and `conflicts`. See [core ADR 1](../../core/docs/adr/0001-split-sync-into-domain-transport-daemon-crates.md).
 - **SyncSession** — the app-facing `livtet-sync-http` client composing a `SyncEngine` with a `SyncHttpClient` transport. See [core ADR 1](../../core/docs/adr/0001-split-sync-into-domain-transport-daemon-crates.md).
+- **catalog** — a subscribed OPDS feed the user browses and acquires from; identified by a ULID and persisted in the Rust-owned `opds-catalogs.json` store. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
+- **preset** — a built-in catalog (title, URL, description) the user subscribes to with one click. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
+- **acquisition link** — a publication `Link` with the `http://opds-spec.org/acquisition` relation; `open-access` EPUB is preferred when present. See [ADR 0023](adr/0023-in-app-opds-catalog-browsing-and-acquisition.md).
