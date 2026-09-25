@@ -12,7 +12,7 @@ const catalogs = createQuery(() => ({
 <main class="catalogs">
   <header class="catalogs-header">
     <h2>Catalogs</h2>
-    <a class="manage" href="/settings">Manage catalogs</a>
+    <wa-button href="/settings">Manage catalogs</wa-button>
   </header>
 
   {#if catalogs.isPending}
