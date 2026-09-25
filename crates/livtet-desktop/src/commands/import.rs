@@ -71,20 +71,22 @@ impl std::fmt::Display for ImportError {
 }
 
 /// How an imported file is stored in the library (`books_dir`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub enum ImportMode {
     /// Symlink the source into the library (default). Falls back to a copy
     /// where the platform refuses symlinks.
+    #[default]
     Link,
     /// Duplicate the file bytes into the library.
     Copy,
 }
 
-impl Default for ImportMode {
-    fn default() -> Self {
-        Self::Link
-    }
+/// Where and how an imported file is stored in the library.
+#[derive(Debug, Clone, Copy)]
+struct LibraryTarget<'a> {
+    dir: &'a camino::Utf8Path,
+    mode: ImportMode,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -630,8 +632,10 @@ async fn import_one(
     let outcome = persist_import(
         &state.db,
         &state.covers_dir,
-        &state.books_dir,
-        mode,
+        LibraryTarget {
+            dir: &state.books_dir,
+            mode,
+        },
         &meta,
         &bytes,
         &file_path,
@@ -668,8 +672,7 @@ async fn import_one(
 async fn persist_import(
     db: &livtet_core::data::SharedState,
     covers_dir: &camino::Utf8Path,
-    books_dir: &camino::Utf8Path,
-    mode: ImportMode,
+    target: LibraryTarget<'_>,
     meta: &ImporterMeta,
     bytes: &[u8],
     file_path: &std::path::Path,
@@ -704,8 +707,10 @@ async fn persist_import(
     // The library owns its file reference: materialize the link/copy before any
     // row is written, so a storage failure fails the whole import. A hash match
     // above already returned, so this path always names fresh content.
-    let library_path = books_dir.join(library_store_name(&file_hash, file_path, extension));
-    materialize_library_file(&library_path, file_path, bytes, mode)?;
+    let library_path = target
+        .dir
+        .join(library_store_name(&file_hash, file_path, extension));
+    materialize_library_file(&library_path, file_path, bytes, target.mode)?;
 
     let committed = async {
         let title = meta.title.clone();
@@ -1065,10 +1070,11 @@ mod tests {
     use livtet_types::DbId;
 
     use super::{
-        FileImporterSource, ImportError, ImportFileResult, ImportMode, ImportOutcome, batch_result,
-        contributor_bindings, file_result, format_id_for_extension, identifier_kind,
-        importer_source_for_extension, is_inside_dir, library_store_name, materialize_library_file,
-        normalize_contributor_role, persist_import, relink_edition, validate_importer_meta,
+        FileImporterSource, ImportError, ImportFileResult, ImportMode, ImportOutcome,
+        LibraryTarget, batch_result, contributor_bindings, file_result, format_id_for_extension,
+        identifier_kind, importer_source_for_extension, is_inside_dir, library_store_name,
+        materialize_library_file, normalize_contributor_role, persist_import, relink_edition,
+        validate_importer_meta,
     };
     use crate::commands::catalog::FileStatus;
     use livtet_core::data::orm::{ActiveModelTrait, Set};
@@ -1384,8 +1390,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"epub bytes",
             std::path::Path::new("/books/positive-obsession.epub"),
@@ -1433,8 +1441,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"duplicate binding bytes",
             std::path::Path::new("/books/duplicate.epub"),
@@ -1467,8 +1477,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"duplicate subject bytes",
             std::path::Path::new("/books/duplicate-subjects.epub"),
@@ -1497,8 +1509,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"duplicate isbn bytes",
             std::path::Path::new("/books/duplicate-isbns.epub"),
@@ -1532,8 +1546,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"non-isbn identifier bytes",
             std::path::Path::new("/books/non-isbn-identifiers.epub"),
@@ -1580,8 +1596,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"identifierless bytes",
             std::path::Path::new("/books/identifierless.epub"),
@@ -1618,8 +1636,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"duplicate identifier bytes",
             std::path::Path::new("/books/duplicate-identifier.epub"),
@@ -1655,8 +1675,10 @@ mod tests {
         let first = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             bytes,
             std::path::Path::new("/books/first.epub"),
@@ -1669,8 +1691,10 @@ mod tests {
         let second = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             bytes,
             std::path::Path::new("/books/second.epub"),
@@ -1773,8 +1797,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"library bytes",
             source,
@@ -1807,8 +1833,10 @@ mod tests {
         let first = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             bytes,
             std::path::Path::new("/books/first.epub"),
@@ -1821,8 +1849,10 @@ mod tests {
         let second = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             bytes,
             std::path::Path::new("/books/second.epub"),
@@ -1867,8 +1897,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"original bytes",
             std::path::Path::new("/books/original.epub"),
@@ -1920,8 +1952,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Copy,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Copy,
+            },
             &meta,
             b"copied bytes",
             std::path::Path::new("/books/copied.epub"),
@@ -1959,8 +1993,10 @@ mod tests {
         let outcome = persist_import(
             &state,
             &covers_dir,
-            &books_dir,
-            ImportMode::Link,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
             &meta,
             b"legacy bytes",
             std::path::Path::new("/books/legacy.epub"),
