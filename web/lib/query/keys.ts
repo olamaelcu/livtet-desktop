@@ -40,6 +40,15 @@ export const searchKeys = {
   filterOptions: () => [...searchKeys.all, 'filter-options'] as const,
 }
 
+export const opdsKeys = {
+  all: ['opds'] as const,
+  catalogs: () => [...opdsKeys.all, 'catalogs'] as const,
+  presets: () => [...opdsKeys.all, 'presets'] as const,
+  feed: (catalogId: string) => [...opdsKeys.all, 'feed', { catalogId }] as const,
+  search: (catalogId: string, query: string) =>
+    [...opdsKeys.all, 'search', { catalogId, query }] as const,
+}
+
 export const catalogKeys = {
   all: ['catalog'] as const,
   editionDetail: (editionId: string) =>

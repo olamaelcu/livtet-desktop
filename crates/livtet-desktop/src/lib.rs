@@ -288,6 +288,19 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let sync_db_path = paths.database_path.join("livtet.db");
     let sync = crate::sync::SyncHandle::spawn(app.handle(), &sync_db_path)?;
 
+    // Shared HTTP client for OPDS catalog requests: consistent User-Agent and a
+    // bounded timeout. All remote fetches stay in Rust (CSP keeps `connect-src`
+    // at 'self').
+    let opds_http = reqwest::Client::builder()
+        .user_agent(concat!("livtet-desktop/", env!("CARGO_PKG_VERSION")))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+
+    let opds_store = tauri_plugin_store::StoreBuilder::new(&*app, "opds-catalogs.json")
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+
     let state = AppState {
         search_index: ArcMut::new(RwLock::new(None)),
         db,
@@ -297,6 +310,8 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         plugin_host_config,
         plugins_dir,
         sync: Arc::new(sync),
+        opds_http,
+        opds_store,
     };
     {
         let mut guard = state.search_index.write().await;
@@ -326,6 +341,16 @@ pub fn run() {
         commands::import::import_files,
         commands::import::relink_edition_file,
         commands::plugins::list_plugins,
+        commands::opds::opds_default_catalogs,
+        commands::opds::opds_catalogs_list,
+        commands::opds::opds_catalogs_create,
+        commands::opds::opds_catalogs_update,
+        commands::opds::opds_catalogs_remove,
+        commands::opds::opds_catalogs_test,
+        commands::opds::opds_feed,
+        commands::opds::opds_page,
+        commands::opds::opds_search,
+        commands::opds::opds_acquire,
         commands::sync::sync_health,
         commands::sync::sync_status,
         commands::sync::sync_requests_recent,

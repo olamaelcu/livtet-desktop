@@ -24,4 +24,8 @@ pub struct AppState {
     pub plugins_dir: Utf8PathBuf,
     /// Bridge to the out-of-process sync daemon.
     pub sync: Arc<crate::sync::SyncHandle>,
+    /// Shared HTTP client for OPDS catalog requests.
+    pub opds_http: reqwest::Client,
+    /// Rust-owned store of subscribed OPDS catalogs (includes credentials).
+    pub opds_store: Arc<tauri_plugin_store::Store<tauri::Wry>>,
 }

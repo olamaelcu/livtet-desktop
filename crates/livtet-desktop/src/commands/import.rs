@@ -593,9 +593,10 @@ pub async fn import_file(
     import_one(&path, mode, state.inner()).await
 }
 
-/// Import a single file. Shared by `import_file` and `import_files`.
+/// Import a single file. Shared by `import_file`, `import_files`, and the
+/// OPDS acquisition handoff.
 #[tracing::instrument(skip_all, fields(path = %path), ret, err)]
-async fn import_one(
+pub(crate) async fn import_one(
     path: &str,
     mode: ImportMode,
     state: &AppState,

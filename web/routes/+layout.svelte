@@ -107,6 +107,7 @@ onMount(() => {
     <aside slot="navigation">
       <wa-button-group orientation="vertical" label="Navigation">
         <wa-button href="/library">Library</wa-button>
+        <wa-button href="/catalog">Catalogs</wa-button>
         <wa-button href="/settings">Settings</wa-button>
       </wa-button-group>
     </aside>

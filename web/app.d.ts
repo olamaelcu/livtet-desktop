@@ -105,6 +105,23 @@ declare global {
         loading?: 'eager' | 'lazy'
         shape?: 'circle' | 'square' | 'rounded'
       }
+      'wa-tab-group': import('svelte/elements').HTMLAttributes<HTMLElement> & {
+        active?: string
+        placement?: 'top' | 'bottom' | 'start' | 'end'
+        activation?: 'auto' | 'manual'
+        'without-scroll-controls'?: boolean
+        'onwa-tab-show'?: (event: CustomEvent<{ name: string }>) => void
+        'onwa-tab-hide'?: (event: CustomEvent<{ name: string }>) => void
+      }
+      'wa-tab': import('svelte/elements').HTMLAttributes<HTMLElement> & {
+        panel?: string
+        active?: boolean
+        disabled?: boolean
+      }
+      'wa-tab-panel': import('svelte/elements').HTMLAttributes<HTMLElement> & {
+        name?: string
+        active?: boolean
+      }
     }
   }
 

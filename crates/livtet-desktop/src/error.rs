@@ -87,3 +87,79 @@ impl SyncError {
         }
     }
 }
+#[derive(Debug, Clone, Error, Serialize, Type)]
+pub enum OpdsError {
+    #[error("Invalid catalog URL: {message}")]
+    InvalidUrl { message: String },
+
+    #[error("Invalid OPDS input: {message}")]
+    InvalidInput { message: String },
+
+    #[error("Catalog not found: {id}")]
+    NotFound { id: String },
+
+    #[error("Refusing to send credentials insecurely: {message}")]
+    InsecureCredentials { message: String },
+
+    #[error("OPDS request failed: {message}")]
+    Network { message: String },
+
+    #[error("OPDS server returned status {status}")]
+    Http { status: i32 },
+
+    #[error("OPDS feed error: {message}")]
+    Feed { message: String },
+
+    #[error("OPDS catalog storage error: {message}")]
+    Storage { message: String },
+
+    #[error("Import failed ({code}): {message}")]
+    Import { code: String, message: String },
+}
+
+impl OpdsError {
+    pub fn invalid_input(message: impl std::fmt::Display) -> Self {
+        Self::InvalidInput {
+            message: message.to_string(),
+        }
+    }
+
+    pub fn feed(message: impl std::fmt::Display) -> Self {
+        Self::Feed {
+            message: message.to_string(),
+        }
+    }
+
+    pub fn network<E: std::fmt::Display>(err: E) -> Self {
+        Self::Network {
+            message: err.to_string(),
+        }
+    }
+
+    pub fn storage<E: std::fmt::Display>(err: E) -> Self {
+        Self::Storage {
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<livtet_opds_types::OpdsError> for OpdsError {
+    fn from(err: livtet_opds_types::OpdsError) -> Self {
+        use livtet_opds_types::OpdsError as Opds;
+        match err {
+            Opds::Http(status) => Self::Http {
+                status: i32::from(status),
+            },
+            Opds::Network(message) => Self::Network { message },
+            Opds::InvalidUrl(err) => Self::InvalidUrl {
+                message: err.to_string(),
+            },
+            Opds::MissingField(field) => Self::Feed {
+                message: format!("missing field: {field}"),
+            },
+            other => Self::Feed {
+                message: other.to_string(),
+            },
+        }
+    }
+}
