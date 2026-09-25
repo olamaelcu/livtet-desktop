@@ -7,10 +7,12 @@
 mod audio;
 mod epub;
 mod mobi;
+mod pdf;
 
 pub use audio::AudiobookImporter;
 pub use epub::EpubImporter;
 pub use mobi::MobiImporter;
+pub use pdf::PdfImporter;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as Json};

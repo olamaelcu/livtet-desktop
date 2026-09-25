@@ -25,6 +25,7 @@ use livtet_core::data::orm::{
 };
 use livtet_importer::{
     AudiobookImporter, EpubImporter, Importer, ImporterContributor, ImporterMeta, MobiImporter,
+    PdfImporter,
 };
 use livtet_types::{
     CommonLanguages, DbId, FormatMetadataSchema, Isbn, KnownFormats, Urn, now_primitive,
@@ -410,6 +411,7 @@ enum FileImporterSource {
     NativeEpub,
     NativeMobi,
     NativeAudio,
+    NativePdf,
     Remote,
 }
 
@@ -587,6 +589,8 @@ fn importer_source_for_extension(extension: &str) -> FileImporterSource {
         FileImporterSource::NativeMobi
     } else if extension.eq_ignore_ascii_case("m4b") || extension.eq_ignore_ascii_case("m4a") {
         FileImporterSource::NativeAudio
+    } else if extension.eq_ignore_ascii_case("pdf") {
+        FileImporterSource::NativePdf
     } else {
         FileImporterSource::Remote
     }
@@ -669,6 +673,12 @@ pub(crate) async fn import_one(
         ),
         FileImporterSource::NativeAudio => (
             AudiobookImporter
+                .read_metadata(path.to_string())
+                .map_err(|error| ImportError::new("parse", error))?,
+            None,
+        ),
+        FileImporterSource::NativePdf => (
+            PdfImporter
                 .read_metadata(path.to_string())
                 .map_err(|error| ImportError::new("parse", error))?,
             None,
@@ -1184,9 +1194,17 @@ mod tests {
     }
 
     #[test]
+    fn pdf_extension_uses_the_native_pdf_importer() {
+        assert!(matches!(
+            importer_source_for_extension("PDF"),
+            FileImporterSource::NativePdf
+        ));
+    }
+
+    #[test]
     fn unknown_extensions_use_remote_importers() {
         assert!(matches!(
-            importer_source_for_extension("pdf"),
+            importer_source_for_extension("mobi"),
             FileImporterSource::Remote
         ));
     }

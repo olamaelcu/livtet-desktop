@@ -14,8 +14,10 @@ base64 = "0.22"
 livtet-audio.workspace = true
 livtet-epub.workspace = true
 livtet-mobi.workspace = true
+livtet-pdf.workspace = true
 
 [dev-dependencies]
 serde_json = "1"
 tempfile = "3"
 zip = { version = "8", default-features = false, features = ["deflate"] }
+pdf_oxide = "=0.3.78"
