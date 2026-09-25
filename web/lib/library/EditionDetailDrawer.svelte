@@ -1,11 +1,12 @@
 <script lang="ts">
 import { createQuery, useQueryClient } from '@tanstack/svelte-query'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
 import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
 import { coverUrlFor, loadEditionDetail } from '../search'
-import { fileName, formatFileSize } from './format'
+import { fileName, formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
 
 interface Props {
@@ -46,6 +47,14 @@ async function relinkFile() {
     relinking = false
   }
 }
+
+async function revealFile(path: string) {
+  try {
+    await revealItemInDir(path)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Could not reveal the file')
+  }
+}
 </script>
 
 <wa-drawer class="drawer" label="Edition detail" placement="end" open={open} onwa-after-hide={onclose}>
@@ -74,7 +83,7 @@ async function relinkFile() {
               {#each book.authors as author (author.name + author.role)}
                 <li class="author">
                   <span>{author.name}</span>
-                  <wa-badge>{author.role}</wa-badge>
+                  <wa-badge title={author.role}>{author.role_label}</wa-badge>
                 </li>
               {/each}
             </ul>
@@ -89,8 +98,8 @@ async function relinkFile() {
         {#if book.published_date}
           <div class="fact"><dt>Published</dt><dd>{book.published_date}</dd></div>
         {/if}
-        {#if book.language_code}
-          <div class="fact"><dt>Language</dt><dd>{book.language_code}</dd></div>
+        {#if book.language_name}
+          <div class="fact"><dt>Language</dt><dd>{book.language_name}</dd></div>
         {/if}
         {#if book.publishers.length > 0}
           <div class="fact"><dt>Publisher</dt><dd>{book.publishers.join(', ')}</dd></div>
@@ -104,7 +113,7 @@ async function relinkFile() {
             {#each book.identifiers as identifier (identifier.value)}
               <li class="identifier">
                 <wa-badge>{identifier.kind}</wa-badge>
-                <span class="mono">{identifier.value}</span>
+                <span class="mono" title={identifier.value}>{formatIdentifier(identifier.value)}</span>
               </li>
             {/each}
           </ul>
@@ -116,9 +125,6 @@ async function relinkFile() {
         <section class="section">
           <h3 class="section-title">File</h3>
           <dl class="facts">
-            {#if file.file_format}
-              <div class="fact"><dt>Format</dt><dd>{file.file_format}</dd></div>
-            {/if}
             {#if file.file_size_bytes !== null}
               {@const size = file.file_size_bytes}
               <div class="fact">
@@ -130,7 +136,15 @@ async function relinkFile() {
               {@const path = file.file_path}
               <div class="fact">
                 <dt>Path</dt>
-                <dd class="mono" title={path}>{fileName(path)}</dd>
+                <dd class="path">
+                  <ActionButton
+                    onclick={() => revealFile(path)}
+                    disabled={file.file_status === 'missing'}
+                  >
+                    <wa-icon name="folder-open"></wa-icon>
+                    Open
+                  </ActionButton>
+                </dd>
               </div>
             {/if}
           </dl>
@@ -174,15 +188,16 @@ async function relinkFile() {
   .header {
     display: flex;
     gap: var(--wa-space-l);
-    align-items: flex-start;
+    align-items: center;
+    flex-direction: column;
   }
 
   .cover {
-    --size: 7rem;
+    --size: 50%;
     width: var(--size);
     min-width: var(--size);
     height: calc(var(--size) * 1.5);
-    margin: 0;
+    margin: 0 auto;
     overflow: hidden;
     border: 0.0625rem solid var(--wa-color-border-default);
     border-radius: var(--wa-border-radius);
@@ -255,6 +270,14 @@ async function relinkFile() {
     margin: 0;
     text-align: right;
     overflow-wrap: anywhere;
+  }
+
+  .path {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--wa-space-s);
+    min-width: 0;
   }
 
   .section {

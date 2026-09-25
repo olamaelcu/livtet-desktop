@@ -23,13 +23,16 @@ use livtet_core::data::orm::{ColumnTrait, DatabaseConnection, EntityTrait, Query
 use livtet_types::DbId;
 
 use crate::error::CatalogError;
+use crate::roles::role_label;
 use crate::types::AppState;
 
-/// A contributor attached to an edition, with their role code (e.g. `aut`).
+/// A contributor attached to an edition, with their role code (e.g. `aut`)
+/// and its human-readable label (e.g. `Author`).
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct Contributor {
     pub name: String,
     pub role: String,
+    pub role_label: String,
 }
 
 /// One identifier attached to an edition (e.g. `kind = "isbn"`,
@@ -74,6 +77,8 @@ pub struct EditionDetail {
     pub published_date: Option<String>,
     pub format: Option<String>,
     pub language_code: Option<String>,
+    /// English display name from `languages.name` (e.g. `"English"`).
+    pub language_name: Option<String>,
     pub notes: Option<String>,
     pub description: Option<String>,
     pub authors: Vec<Contributor>,
@@ -181,14 +186,15 @@ async fn assemble_edition_detail(
             .map(|format| format.name),
         None => None,
     };
-    let language_code = match model.language_id {
+    let language = match model.language_id {
         Some(id) => languages::Entity::find_by_id(id)
             .one(db)
             .await
-            .map_err(CatalogError::database)?
-            .map(|language| language.code),
+            .map_err(CatalogError::database)?,
         None => None,
     };
+    let language_code = language.as_ref().map(|language| language.code.clone());
+    let language_name = language.as_ref().map(|language| language.name.clone());
 
     Ok(EditionDetail {
         id: model.id.to_string(),
@@ -197,6 +203,7 @@ async fn assemble_edition_detail(
         published_date: model.published_date.map(format_date),
         format,
         language_code,
+        language_name,
         notes: model.notes,
         description: model.description,
         authors: contributors_for_edition(db, model.id).await?,
@@ -237,6 +244,7 @@ async fn contributors_for_edition(
         .filter_map(|link| {
             names.get(&link.author_id).map(|name| Contributor {
                 name: name.clone(),
+                role_label: role_label(&link.role),
                 role: link.role,
             })
         })
@@ -516,12 +524,14 @@ mod tests {
         assert_eq!(detail.published_date.as_deref(), Some("2001-09-11"));
         assert_eq!(detail.format.as_deref(), Some("EPUB"));
         assert_eq!(detail.language_code.as_deref(), Some("eng"));
+        assert_eq!(detail.language_name.as_deref(), Some("English"));
         assert_eq!(detail.notes.as_deref(), Some("A note"));
         assert_eq!(
             detail.authors,
             vec![Contributor {
                 name: "Ada Lovelace".to_string(),
                 role: "aut".to_string(),
+                role_label: "Author".to_string(),
             }]
         );
         assert_eq!(detail.publishers, vec!["Acme Press".to_string()]);

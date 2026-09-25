@@ -16,3 +16,9 @@ export function formatFileSize(bytes: number): string {
 export function fileName(path: string): string {
   return path.split(/[/\\]/).pop() ?? path
 }
+
+/** Strip a leading `urn:<scheme>:` so identifiers show just their value. */
+export function formatIdentifier(value: string): string {
+  const match = /^urn:[^:]+:(.+)$/i.exec(value.trim())
+  return match ? match[1] : value
+}

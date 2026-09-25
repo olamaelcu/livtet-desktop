@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fileName, formatFileSize } from './format'
+import { fileName, formatFileSize, formatIdentifier } from './format'
 
 describe('formatFileSize', () => {
   it('renders bytes without a unit divisor', () => {
@@ -22,5 +22,32 @@ describe('fileName', () => {
   it('returns the trailing segment for posix and windows paths', () => {
     expect(fileName('/a/b/book.epub')).toBe('book.epub')
     expect(fileName('C:\\a\\book.epub')).toBe('book.epub')
+  })
+})
+
+describe('formatIdentifier', () => {
+  it('strips urn prefixes to the bare value', () => {
+    expect(formatIdentifier('urn:isbn:9780306406157')).toBe('9780306406157')
+    expect(formatIdentifier('urn:uuid:372c43e0-812a-4ab2-8076-84c7b1c474af')).toBe(
+      '372c43e0-812a-4ab2-8076-84c7b1c474af',
+    )
+  })
+
+  it('matches the urn scheme case-insensitively', () => {
+    expect(formatIdentifier('URN:UUID:372c43e0-812a-4ab2-8076-84c7b1c474af')).toBe(
+      '372c43e0-812a-4ab2-8076-84c7b1c474af',
+    )
+  })
+
+  it('leaves bare identifiers unchanged', () => {
+    expect(formatIdentifier('372c43e0-812a-4ab2-8076-84c7b1c474af')).toBe(
+      '372c43e0-812a-4ab2-8076-84c7b1c474af',
+    )
+    expect(formatIdentifier('B0CR977BQH')).toBe('B0CR977BQH')
+    expect(formatIdentifier('example.com/books/1')).toBe('example.com/books/1')
+  })
+
+  it('leaves a prefix with an empty value unchanged', () => {
+    expect(formatIdentifier('urn:isbn:')).toBe('urn:isbn:')
   })
 })

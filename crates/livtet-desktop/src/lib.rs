@@ -1,5 +1,6 @@
 pub mod commands;
 mod error;
+mod roles;
 pub mod sync;
 mod types;
 
