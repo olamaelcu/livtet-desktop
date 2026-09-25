@@ -14,6 +14,8 @@ pub struct AppState {
     pub db: SharedState,
     /// Where extracted cover images are written (`<data>/covers`).
     pub covers_dir: Utf8PathBuf,
+    /// Where library-owned book files live (`<data>/books`).
+    pub books_dir: Utf8PathBuf,
     /// Path to the plugin host binary.
     pub plugin_host_path: Utf8PathBuf,
     /// Path to the host.toml configuration.

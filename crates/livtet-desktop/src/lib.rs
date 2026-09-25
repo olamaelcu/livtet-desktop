@@ -121,6 +121,7 @@ pub struct Paths {
     pub logs_dir: Utf8PathBuf,
     pub search_index_path: Utf8PathBuf,
     pub covers_dir: Utf8PathBuf,
+    pub books_dir: Utf8PathBuf,
     pub plugins_dir: Utf8PathBuf,
 }
 
@@ -133,6 +134,7 @@ impl Paths {
 
         Self {
             covers_dir: data_dir.join("covers"),
+            books_dir: data_dir.join("books"),
             database_path: data_dir,
             logs_dir: logs,
             search_index_path: search_index,
@@ -270,6 +272,10 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .await
         .into_diagnostic()?;
 
+    fs_err::tokio::create_dir_all(&paths.books_dir)
+        .await
+        .into_diagnostic()?;
+
     let (plugin_host_path, plugin_host_config, plugins_dir) =
         setup_plugin_host(&data_dir, &paths.plugins_dir)
             .await
@@ -286,6 +292,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         search_index: ArcMut::new(RwLock::new(None)),
         db,
         covers_dir: paths.covers_dir.clone(),
+        books_dir: paths.books_dir.clone(),
         plugin_host_path,
         plugin_host_config,
         plugins_dir,
