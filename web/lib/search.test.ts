@@ -25,6 +25,7 @@ describe('mapHitToEdition', () => {
     expect(edition.id).toBe('e')
     expect(edition.edition_id).toBe('e')
     expect(edition.kind).toBe('edition')
+    expect(edition.has_file).toBe(true)
   })
 
   it('falls back to the work id and a null edition id for work hits', () => {

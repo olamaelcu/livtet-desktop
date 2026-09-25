@@ -11,6 +11,7 @@ import {
   normalizeFilters,
   selectedIds,
   setAxisIds,
+  setHasFile,
   setSortBy,
   setSortDirection,
 } from './filterAxes'
@@ -41,6 +42,17 @@ function chooseSortField(event: Event) {
 
 function chooseSortDirection(event: Event) {
   onchange(setSortDirection(filters, selectValue(event) === 'asc' ? 'asc' : 'desc'))
+}
+
+function availabilityValue(current: EditionFilters): string {
+  if (current.has_file === true) return 'true'
+  if (current.has_file === false) return 'false'
+  return ''
+}
+
+function chooseHasFile(event: Event) {
+  const value = selectValue(event)
+  onchange(setHasFile(filters, value === '' ? null : value === 'true'))
 }
 
 function chooseAxisIds(axis: FilterAxis) {
@@ -92,6 +104,21 @@ const decorateTags: Attachment<HTMLElement> = (node) => {
       <ActionButton variant="brand" onclick={onclose}>Close</ActionButton>
     </div>
   {:else if options.data}
+    <section class="axis">
+      <h4>Availability</h4>
+      <wa-select
+        size="s"
+        class="axis-select"
+        aria-label="Availability"
+        value={availabilityValue(filters)}
+        onchange={chooseHasFile}
+      >
+        <wa-option value="">Any</wa-option>
+        <wa-option value="true">In filesystem</wa-option>
+        <wa-option value="false">Not in filesystem</wa-option>
+      </wa-select>
+    </section>
+
     {#each FILTER_AXES as axis (axis.key)}
       {@const list = axis.from(options.data)}
       {@const selected = selectedIds(filters, axis.key)}

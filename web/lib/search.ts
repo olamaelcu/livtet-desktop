@@ -25,6 +25,8 @@ export interface Edition {
   authors: Author[]
   published: string
   description: string
+  /** Whether the edition has a file on disk (`digital_inventory` row). */
+  has_file: boolean
 }
 
 // Strict re-export of generated contract — single source of truth
@@ -72,6 +74,7 @@ export function mapHitToEdition(hit: SearchResult): Edition {
     })),
     published: hit.pub_date ?? '',
     description: hit.snippet_text ?? '',
+    has_file: hit.has_file,
   }
 }
 

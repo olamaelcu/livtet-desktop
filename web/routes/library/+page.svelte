@@ -341,6 +341,7 @@ function selectSuggestion(title: string) {
         selectable={selection.mode}
         selected={selection.selected.has(book.edition_id)}
         scale={COVER_SCALE[coverSize]}
+        in_filesystem={book.has_file}
         onclick={() =>
           selection.mode ? selection.toggle(book.edition_id) : openDetail(book.edition_id)}
       />

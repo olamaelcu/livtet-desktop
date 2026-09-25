@@ -34,4 +34,13 @@ describe('searchKeys', () => {
   it('produces distinct keys for distinct queries', () => {
     expect(searchKeys.editions('dune')).not.toEqual(searchKeys.editions('neuromancer'))
   })
+
+  it('keeps a false availability filter as a distinct key', () => {
+    expect(searchKeys.editions('', { has_file: false })).not.toEqual(searchKeys.editions('', {}))
+    expect(searchKeys.editions('', { has_file: false })).toEqual([
+      'search',
+      'editions',
+      { query: '', filters: { has_file: false } },
+    ])
+  })
 })

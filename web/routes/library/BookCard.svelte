@@ -5,6 +5,8 @@ interface Props {
   selectable?: boolean
   selected?: boolean
   scale?: number
+  /** File availability: `true` = on disk, `false` = virtual/remote. */
+  in_filesystem?: boolean
   onclick?: () => void
 }
 
@@ -14,6 +16,7 @@ let {
   selectable = false,
   selected = false,
   scale = 1,
+  in_filesystem = undefined,
   onclick,
 }: Props = $props()
 
@@ -38,6 +41,16 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
   </button>
   {#if selectable && selected}
     <span class="check-badge" aria-hidden="true"><wa-icon name="check"></wa-icon></span>
+  {/if}
+  {#if in_filesystem !== undefined}
+    <span
+      class="file-badge {in_filesystem ? 'is-local' : 'is-remote'}"
+      role="img"
+      aria-label={in_filesystem ? 'In filesystem' : 'Not in filesystem'}
+      title={in_filesystem ? 'In filesystem' : 'Not in filesystem'}
+    >
+      <wa-icon name={in_filesystem ? 'hard-drive' : 'cloud'}></wa-icon>
+    </span>
   {/if}
 </div>
 
@@ -107,5 +120,25 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     background: var(--wa-color-brand-fill-loud);
     color: var(--wa-color-brand-on-loud);
     font-size: var(--wa-font-size-2xs, 0.75rem);
+  }
+
+  .file-badge {
+    position: absolute;
+    top: var(--wa-space-2xs);
+    right: var(--wa-space-2xs);
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 50%;
+    border: 1px solid var(--wa-color-border-default);
+    background: var(--wa-color-surface-default);
+    color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-2xs, 0.75rem);
+  }
+
+  .file-badge.is-local {
+    color: var(--wa-color-brand-fill-loud);
   }
 </style>
