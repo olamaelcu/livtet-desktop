@@ -5,7 +5,9 @@ Date: 2026-09-20
 ## Status
 
 Accepted; partially superseded by [0011](0011-importer-plugin-contract-and-import-file-command.md)
-for the direct `livtet-epub`/`import_epub` wiring.
+for the direct `livtet-epub`/`import_epub` wiring. The decision to delegate
+parsing to the `epub` crate is superseded by
+[0018](0018-replace-the-epub-crate-with-an-in-crate-ocf-opf-parser.md).
 
 ## Context
 

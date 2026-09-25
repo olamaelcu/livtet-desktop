@@ -2,15 +2,22 @@
 
 EPUB parsing and metadata extraction for Livtet imports.
 
-Layers Livtet's normalization on top of the [`epub`](https://docs.rs/epub)
-crate and enforces import requirements: every extracted record carries a
-non-empty title and at least one validated ISBN-13.
+Reads the OCF container, the OPF package document, and `META-INF/encryption.xml`
+with a tolerant in-crate parser (no third-party EPUB library) and enforces
+import requirements: every extracted record carries a non-empty title, at
+least one contributor, and at least one validated ISBN-13.
+
+Contributors from `dc:creator` and `dc:contributor` are de-duplicated by
+`(name, role)`; a role-less contributor that merely repeats a creator is
+dropped. `title_sort` is taken from the main title's `file-as` refinement or
+`calibre:title_sort`.
 
 ```rust,ignore
 let meta = livtet_epub::read_metadata(path)?;
-meta.title;    // non-empty
-meta.creators; // ≥1 contributor with MARC-relator role
-meta.isbns;    // ≥1 validated ISBN-13 (ISBN-10 converted, Sigil prefixes handled)
+meta.title;       // non-empty
+meta.title_sort;  // Option<String>, from file-as / calibre:title_sort
+meta.creators;    // ≥1 contributor, de-duplicated by (name, role)
+meta.isbns;       // ≥1 validated ISBN-13 (ISBN-10 converted, Sigil prefixes handled)
 ```
 
 Extraction fails closed: unreadable files, missing titles/creators, and

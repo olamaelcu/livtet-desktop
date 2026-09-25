@@ -1,16 +1,30 @@
 //! # Livtet EPUB
 //!
 //! Parse EPUB 2/3 files and extract bibliographic metadata for import into
-//! Livtet. Parsing is delegated to the [`epub`] crate; this crate layers
-//! Livtet's normalization and fail-closed requirements on top.
+//! Livtet. The container (OCF), package document (OPF), and encryption
+//! metadata are read by the tolerant in-crate parser in this module tree; no
+//! third-party EPUB library is involved.
 //!
-//! [`epub`]: https://docs.rs/epub
+//! Extraction is fail-closed: an unreadable archive, a missing title or
+//! creator, and the absence of any valid ISBN are errors, never partial
+//! records.
+//!
+//! Contributors from `dc:creator`/`dc:contributor` are de-duplicated by
+//! `(name, role)`; a role-less contributor that repeats a creator is dropped.
+//! [`EpubMetadata::title_sort`] comes from the main title's `file-as`
+//! refinement or `calibre:title_sort`.
 
 mod cover;
+mod encryption;
 mod error;
 mod metadata;
+mod ocf;
+mod xml;
+mod zip;
 
-use epub::doc::EpubDoc;
+#[cfg(test)]
+mod test_support;
+
 use std::path::Path;
 
 pub use cover::Cover;
@@ -26,9 +40,10 @@ pub type Result<T> = std::result::Result<T, EpubError>;
 
 /// Open `path` as an EPUB and extract bibliographic metadata.
 ///
-/// Fails closed: an unreadable file, a missing title, or the absence of at
-/// least one valid ISBN anywhere in the metadata is an error.
+/// Fails closed: an unreadable file, a missing title or creator, or the
+/// absence of at least one valid ISBN anywhere in the metadata is an error.
 pub fn read_metadata(path: &Path) -> Result<EpubMetadata> {
-    let mut doc = EpubDoc::new(path)?;
-    metadata::extract(&mut doc)
+    let bytes = std::fs::read(path)?;
+    let mut archive = zip::Archive::open(bytes)?;
+    metadata::extract(&mut archive)
 }
