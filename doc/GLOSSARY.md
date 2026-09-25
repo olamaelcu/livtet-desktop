@@ -10,7 +10,9 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **Library toolbar** — the action row above the library search box; today it hosts **Add book**. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
 - **add-book drawer** — the right-hand `wa-drawer` that picks or receives dropped EPUB/PDF files and shows per-file import progress.
 - **edition-detail drawer** — the right-hand `wa-drawer` opened by clicking a book in the library; shows that edition's cover, contributors, publishers, identifiers, and file. See [ADR 0015](adr/0015-add-get-edition-detail-ipc-and-edition-detail-drawer.md).
-- **Filter panel** — the popover that narrows the library by format, language, author, tag, genre, subject, and publisher, and sets sort order. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
+- **Filter panel** — the popover that narrows the library by availability, format, language, author, tag, genre, subject, and publisher, and sets sort order. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
+- **Availability filter** — the filter panel's tri-state (Any / In filesystem / Not in filesystem) control, backed by `EditionFilters.has_file`. See [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
+- **File-availability badge** — the paired badge on a library card: `hard-drive` when the edition's file is on disk, `cloud` when it is virtual or remotely referenced. See [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
 - **Selection mode** — the library state where cards show checkboxes and clicks toggle selection. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
 - **Selection action bar** — the toolbar that appears in selection mode with Tag, Export CSV, Delete, and Clear. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
 
@@ -23,7 +25,7 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **import://batch**, **import://file** — the Tauri events carrying batch and per-file import progress. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
 - **sync_\*** — the Tauri command family (`sync_health`, `sync_status`, `sync_pairing_*`, `sync_devices_*`, `sync_conflicts_*`, `sync_server_*`) proxying the sync control channel. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
 - **sync://…** — the Tauri events the app re-emits from the daemon's notifications: `sync://pairing-requested`, `sync://request`, `sync://completed`, `sync://server-started`, `sync://server-stopped`. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
-- **EditionFilters** — the desktop filter DTO accepted by `search_editions` / `search_editions_count`. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
+- **EditionFilters** — the desktop filter DTO accepted by `search_editions` / `search_editions_count`; carries the id axes, `has_file` availability, and sort. See [ADR 0016](adr/0016-filtered-library-search-ipc.md) and [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
 - **filter_options** — the command returning filterable values per axis. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
 - **delete_editions**, **export_editions_csv**, **add_edition_tags**, **remove_edition_tags**, **matching_edition_ids** — the bulk edition commands; errors are `BulkError`. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
 

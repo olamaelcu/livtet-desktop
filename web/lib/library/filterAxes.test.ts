@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeChips,
   activeFilterCount,
   normalizeFilters,
   removeAxisId,
   setAxisIds,
+  setHasFile,
   setSortBy,
   setSortDirection,
 } from './filterAxes'
@@ -74,5 +76,35 @@ describe('activeFilterCount', () => {
   it('counts selected ids across every axis, excluding sort', () => {
     expect(activeFilterCount({})).toBe(0)
     expect(activeFilterCount({ tag_ids: ['a', 'b'], format_ids: ['x'], sort_by: 'title' })).toBe(3)
+  })
+})
+
+describe('setHasFile', () => {
+  it('sets and clears the availability filter', () => {
+    expect(setHasFile({}, true)).toEqual({ has_file: true })
+    expect(setHasFile({ has_file: true }, null)).toEqual({})
+  })
+
+  it('keeps `false` as a real constraint, not an empty value', () => {
+    expect(setHasFile({}, false)).toEqual({ has_file: false })
+    expect(normalizeFilters({ has_file: false })).toEqual({ has_file: false })
+  })
+})
+
+describe('availability', () => {
+  it('counts the availability toggle as one filter', () => {
+    expect(activeFilterCount({ has_file: false })).toBe(1)
+    expect(activeFilterCount({ tag_ids: ['a'], has_file: true })).toBe(2)
+  })
+
+  it('emits a labelled chip and clears it via removeAxisId', () => {
+    expect(activeChips({ has_file: true })).toContainEqual({
+      key: 'has_file',
+      axis: 'has_file',
+      id: 'true',
+      label: 'In filesystem',
+    })
+    expect(activeChips({ has_file: false })[0]?.label).toBe('Not in filesystem')
+    expect(removeAxisId({ has_file: true }, 'has_file', 'true')).toEqual({})
   })
 })

@@ -230,6 +230,10 @@ pub struct EditionFilters {
     pub format_ids: Vec<DbId>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub language_ids: Vec<DbId>,
+    /// File availability: `None` = any, `Some(true)` = on disk,
+    /// `Some(false)` = virtual / remotely referenced.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_file: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_by: Option<WorkSortBy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -247,6 +251,7 @@ impl EditionFilters {
             author_ids: self.author_ids,
             format_ids: self.format_ids,
             language_ids: self.language_ids,
+            has_file: self.has_file,
             sort_by: self.sort_by,
             sort_direction: self.sort_direction,
             limit: None,
@@ -314,5 +319,16 @@ mod tests {
         assert!(core.tag_ids.is_empty());
         assert_eq!(core.sort_by, None);
         assert_eq!(core.limit, None);
+        assert_eq!(core.has_file, None, "no availability constraint by default");
+    }
+
+    #[test]
+    fn into_core_carries_has_file() {
+        let core = EditionFilters {
+            has_file: Some(false),
+            ..EditionFilters::default()
+        }
+        .into_core();
+        assert_eq!(core.has_file, Some(false));
     }
 }
