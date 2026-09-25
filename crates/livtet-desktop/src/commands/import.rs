@@ -2,8 +2,10 @@
 //! for their extension. The batch command emits `import://batch` and
 //! `import://file` progress events and returns an aggregate per-file result.
 //!
-//! Fail-closed: the selected importer must return a title, a creator, and at
-//! least one valid ISBN, or nothing is written. All catalog rows are created
+//! Fail-closed: the selected importer must return a title and a creator, or
+//! nothing is written. ISBNs are optional: any entry that fails to parse is
+//! demoted to a non-ISBN identifier, and non-ISBN identifiers are persisted so
+//! an edition without an ISBN still has identity. All catalog rows are created
 //! in a single transaction; re-importing the identical file is a no-op that
 //! returns the pre-existing edition id.
 
@@ -297,7 +299,14 @@ enum FileImporterSource {
     Remote,
 }
 
-fn validate_importer_meta(meta: &ImporterMeta) -> Result<Vec<String>, ImportError> {
+/// Validate the catalog minimum and split identifiers into canonical ISBNs and
+/// non-ISBN identifiers.
+///
+/// A title and at least one non-empty contributor are required; ISBNs are not.
+/// Every `isbns` entry is canonicalized with [`Isbn::parse`], and an entry that
+/// fails to parse is demoted to `other_identifiers` rather than failing the
+/// import. Both returned lists are de-duplicated in first-seen order.
+fn validate_importer_meta(meta: &ImporterMeta) -> Result<(Vec<String>, Vec<String>), ImportError> {
     if meta.title.trim().is_empty() {
         return Err(ImportError::new(
             "parse",
@@ -315,18 +324,81 @@ fn validate_importer_meta(meta: &ImporterMeta) -> Result<Vec<String>, ImportErro
             "importer metadata is missing a creator",
         ));
     }
-    if meta.isbns.is_empty() {
-        return Err(ImportError::new(
-            "parse",
-            "importer metadata is missing an ISBN",
-        ));
-    }
     let mut canonical_isbns = Vec::with_capacity(meta.isbns.len());
+    let mut demoted = Vec::new();
     for isbn in &meta.isbns {
-        let canonical = Isbn::parse(isbn).map_err(|error| ImportError::new("parse", error))?;
-        canonical_isbns.push(canonical.as_str().to_string());
+        match Isbn::parse(isbn) {
+            Ok(canonical) => canonical_isbns.push(canonical.as_str().to_string()),
+            Err(_) => demoted.push(isbn.clone()),
+        }
     }
-    Ok(canonical_isbns)
+    let mut other_identifiers = meta.other_identifiers.clone();
+    other_identifiers.extend(demoted);
+    Ok((
+        unique_preserving_order(&canonical_isbns),
+        unique_preserving_order(&other_identifiers),
+    ))
+}
+
+/// Derive the stored `identifiers.kind` for a non-ISBN identifier value.
+///
+/// UUIDs (bare or `urn:uuid:`) are labeled `uuid`; 10-character `[A-Z0-9]`
+/// values are labeled `asin`; everything else is `other`.
+fn identifier_kind(value: &str) -> &'static str {
+    let trimmed = value.trim();
+    let normalized = trimmed.to_ascii_lowercase();
+    if normalized.starts_with("urn:uuid:") || is_uuid_shape(&normalized) {
+        return "uuid";
+    }
+    if trimmed.chars().count() == 10
+        && trimmed
+            .chars()
+            .all(|character| character.is_ascii_uppercase() || character.is_ascii_digit())
+    {
+        return "asin";
+    }
+    "other"
+}
+
+/// Whether `value` is a bare 36-character hyphenated UUID (`8-4-4-4-12` hex).
+/// `value` is expected to be already trimmed and lowercased.
+fn is_uuid_shape(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    bytes.iter().enumerate().all(|(index, byte)| {
+        if matches!(index, 8 | 13 | 18 | 23) {
+            *byte == b'-'
+        } else {
+            byte.is_ascii_hexdigit()
+        }
+    })
+}
+
+/// Build the `(stored value, kind)` rows for an edition's identifiers, ISBNs
+/// first. Values are de-duplicated on the final stored string so a value can
+/// never produce two `edition_identifiers` rows.
+fn edition_identifier_rows(
+    isbns: &[String],
+    other_identifiers: &[String],
+) -> Vec<(String, &'static str)> {
+    let mut rows: Vec<(String, &'static str)> =
+        Vec::with_capacity(isbns.len() + other_identifiers.len());
+    for isbn in isbns {
+        push_unique_row(&mut rows, Urn::new("isbn", isbn).to_string(), "isbn");
+    }
+    for identifier in other_identifiers {
+        push_unique_row(&mut rows, identifier.clone(), identifier_kind(identifier));
+    }
+    rows
+}
+
+/// Append `(value, kind)` to `rows` unless `value` is already present.
+fn push_unique_row(rows: &mut Vec<(String, &'static str)>, value: String, kind: &'static str) {
+    if !rows.iter().any(|(seen, _)| seen == &value) {
+        rows.push((value, kind));
+    }
 }
 
 /// Whether `role` is one of the core MARC relator codes the native importer
@@ -488,7 +560,7 @@ async fn persist_import(
     file_path: &std::path::Path,
     extension: &str,
 ) -> Result<ImportOutcome, ImportError> {
-    let isbn_strings = unique_preserving_order(&validate_importer_meta(meta)?);
+    let (isbn_strings, other_identifiers) = validate_importer_meta(meta)?;
     let file_hash = hex::encode(sha2::Sha256::digest(bytes));
 
     let conn = db.db_conn();
@@ -618,9 +690,8 @@ async fn persist_import(
         .await?;
     }
 
-    for isbn in &isbn_strings {
-        let urn_value = Urn::new("isbn", isbn).to_string();
-        let identifier_id = upsert_identifier(&txn, &urn_value, "isbn").await?;
+    for (value, kind) in edition_identifier_rows(&isbn_strings, &other_identifiers) {
+        let identifier_id = upsert_identifier(&txn, &value, kind).await?;
         edition_identifiers::ActiveModel {
             edition_id: Set(edition_id),
             identifier_id: Set(identifier_id),
@@ -750,7 +821,7 @@ pub async fn import_files(paths: Vec<String>, app: AppHandle) -> ImportBatchResu
 #[cfg(test)]
 mod tests {
     use livtet_core::data::entities::{
-        edition_authors, edition_identifiers, edition_subjects, editions, works,
+        edition_authors, edition_identifiers, edition_subjects, editions, identifiers, works,
     };
     use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
     use livtet_core::data::{Kind, TestDb};
@@ -759,8 +830,9 @@ mod tests {
 
     use super::{
         FileImporterSource, ImportError, ImportFileResult, ImportOutcome, batch_result,
-        contributor_bindings, file_result, format_id_for_extension, importer_source_for_extension,
-        normalize_contributor_role, persist_import, validate_importer_meta,
+        contributor_bindings, file_result, format_id_for_extension, identifier_kind,
+        importer_source_for_extension, normalize_contributor_role, persist_import,
+        validate_importer_meta,
     };
 
     #[test]
@@ -847,17 +919,41 @@ mod tests {
         let mut record = valid_record();
         record.contributors[0].name = "   ".to_string();
         assert!(validate_importer_meta(&record).is_err());
+    }
 
+    #[test]
+    fn importer_metadata_accepts_empty_isbns() {
         let mut record = valid_record();
         record.isbns.clear();
-        assert!(validate_importer_meta(&record).is_err());
 
+        assert_eq!(
+            validate_importer_meta(&record).expect("ISBNs are optional"),
+            (Vec::<String>::new(), Vec::<String>::new())
+        );
+    }
+
+    #[test]
+    fn importer_metadata_demotes_a_bad_isbn_to_other_identifiers() {
         let mut record = valid_record();
         record.isbns = vec!["not-an-isbn".to_string()];
-        assert!(matches!(
-            validate_importer_meta(&record),
-            Err(ImportError { code, .. }) if code == "parse"
-        ));
+
+        assert_eq!(
+            validate_importer_meta(&record).expect("a bad ISBN must be demoted"),
+            (Vec::<String>::new(), vec!["not-an-isbn".to_string()])
+        );
+    }
+
+    #[test]
+    fn identifier_kinds_are_derived_from_the_value() {
+        let cases = [
+            ("urn:uuid:372c43e0-812a-4ab2-8076-84c7b1c474af", "uuid"),
+            ("372c43e0-812a-4ab2-8076-84c7b1c474af", "uuid"),
+            ("B0CR977BQH", "asin"),
+            ("urn:oclc:12345", "other"),
+        ];
+        for (value, kind) in cases {
+            assert_eq!(identifier_kind(value), kind, "{value}");
+        }
     }
 
     #[test]
@@ -867,7 +963,10 @@ mod tests {
 
         assert_eq!(
             validate_importer_meta(&record).expect("ISBN variants must canonicalize"),
-            vec!["9781784780609".to_string(), "9780306406157".to_string()]
+            (
+                vec!["9781784780609".to_string(), "9780306406157".to_string()],
+                Vec::<String>::new()
+            )
         );
     }
 
@@ -963,6 +1062,21 @@ mod tests {
         (dir, path)
     }
 
+    /// Scaffolding shared by the `persist_import` tests: an isolated database,
+    /// its state, and a temporary covers directory. Both temp dirs are returned
+    /// so the caller keeps them alive for the test's duration.
+    async fn persist_fixture() -> (
+        TestDb,
+        livtet_core::data::SharedState,
+        tempfile::TempDir,
+        camino::Utf8PathBuf,
+    ) {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let state = test_db.state();
+        let (covers, covers_dir) = temporary_covers_dir();
+        (test_db, state, covers, covers_dir)
+    }
+
     #[test]
     fn contributor_bindings_dedupes_same_name_and_role() {
         assert_eq!(
@@ -1014,9 +1128,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_import_records_metadata_and_sort_title() {
-        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
-        let state = test_db.state();
-        let (_covers, covers_dir) = temporary_covers_dir();
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
         let meta = importable_record("Positive Obsession", Some("Morris, Susana M."));
 
         let outcome = persist_import(
@@ -1059,9 +1171,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_import_dedupes_duplicate_contributor_bindings() {
-        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
-        let state = test_db.state();
-        let (_covers, covers_dir) = temporary_covers_dir();
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
         let mut meta = importable_record("Positive Obsession", None);
         meta.contributors = vec![
             contributor("Susana M. Morris", Some("aut")),
@@ -1092,9 +1202,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_import_dedupes_duplicate_subjects() {
-        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
-        let state = test_db.state();
-        let (_covers, covers_dir) = temporary_covers_dir();
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
         let mut meta = importable_record("Positive Obsession", None);
         meta.subjects = vec![
             "Fiction".to_string(),
@@ -1126,9 +1234,7 @@ mod tests {
 
     #[tokio::test]
     async fn persist_import_dedupes_duplicate_isbns() {
-        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
-        let state = test_db.state();
-        let (_covers, covers_dir) = temporary_covers_dir();
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
         let mut meta = importable_record("Positive Obsession", None);
         meta.isbns = vec!["9781784780609".to_string(), "978-1-78478-060-9".to_string()];
 
@@ -1156,10 +1262,129 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn persist_import_persists_non_isbn_identifiers() {
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
+        let mut meta = importable_record("No ISBN Edition", None);
+        meta.isbns.clear();
+        meta.other_identifiers = vec![
+            "urn:uuid:372c43e0-812a-4ab2-8076-84c7b1c474af".to_string(),
+            "B0CR977BQH".to_string(),
+        ];
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"non-isbn identifier bytes",
+            std::path::Path::new("/books/non-isbn-identifiers.epub"),
+            "epub",
+        )
+        .await
+        .expect("editions without an ISBN must persist");
+        assert!(!outcome.duplicate);
+        assert!(outcome.isbns.is_empty());
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let edition_identifier_rows = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition identifiers");
+        assert_eq!(edition_identifier_rows.len(), 2);
+
+        let uuid = identifiers::Entity::find()
+            .filter(identifiers::Column::Value.eq("urn:uuid:372c43e0-812a-4ab2-8076-84c7b1c474af"))
+            .one(&conn)
+            .await
+            .expect("uuid query")
+            .expect("uuid identifier");
+        assert_eq!(uuid.kind, "uuid");
+
+        let asin = identifiers::Entity::find()
+            .filter(identifiers::Column::Value.eq("B0CR977BQH"))
+            .one(&conn)
+            .await
+            .expect("asin query")
+            .expect("asin identifier");
+        assert_eq!(asin.kind, "asin");
+    }
+
+    #[tokio::test]
+    async fn persist_import_without_any_identifier_succeeds() {
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
+        let mut meta = importable_record("Identifierless Edition", None);
+        meta.isbns.clear();
+        meta.other_identifiers.clear();
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"identifierless bytes",
+            std::path::Path::new("/books/identifierless.epub"),
+            "epub",
+        )
+        .await
+        .expect("editions without any identifier must persist");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let edition = editions::Entity::find_by_id(edition_id)
+            .one(&conn)
+            .await
+            .expect("edition query")
+            .expect("edition present");
+        assert_eq!(edition.id, edition_id);
+
+        let edition_identifier_rows = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition identifiers");
+        assert!(edition_identifier_rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn persist_import_dedupes_identifier_values() {
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
+        let mut meta = importable_record("Duplicate Identifier Edition", None);
+        meta.isbns = vec!["not-an-isbn".to_string()];
+        meta.other_identifiers = vec!["not-an-isbn".to_string()];
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"duplicate identifier bytes",
+            std::path::Path::new("/books/duplicate-identifier.epub"),
+            "epub",
+        )
+        .await
+        .expect("duplicate identifier values must persist once");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let edition_identifier_rows = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition identifiers");
+        assert_eq!(edition_identifier_rows.len(), 1);
+
+        let identifier_rows = identifiers::Entity::find()
+            .filter(identifiers::Column::Value.eq("not-an-isbn"))
+            .all(&conn)
+            .await
+            .expect("identifiers");
+        assert_eq!(identifier_rows.len(), 1);
+    }
+
+    #[tokio::test]
     async fn persist_import_dedupes_identical_file_hash() {
-        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
-        let state = test_db.state();
-        let (_covers, covers_dir) = temporary_covers_dir();
+        let (_db, state, _covers, covers_dir) = persist_fixture().await;
         let meta = importable_record("Positive Obsession", None);
         let bytes = b"identical epub bytes";
 

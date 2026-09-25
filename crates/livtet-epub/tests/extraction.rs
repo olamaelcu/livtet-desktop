@@ -37,6 +37,58 @@ fn cover_for(metadata_body: &str, manifest_extra: &str, guide: &str, file: &[u8]
     read_metadata(epub.tempfile().path()).unwrap().cover
 }
 
+/// Metadata carrying no ISBN at all: only a UUID identifier.
+const UUID_ONLY_METADATA: &str = r##"
+    <dc:identifier id="bookid">urn:uuid:45f50eae-2b3c-48c5</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator>Someone</dc:creator>
+    "##;
+
+fn other_identifiers(metadata: &EpubMetadata) -> Vec<&str> {
+    metadata
+        .other_identifiers
+        .iter()
+        .map(|identifier| identifier.0.as_str())
+        .collect()
+}
+
+fn assert_uuid_only_identifier(metadata: &EpubMetadata) {
+    assert!(metadata.isbns.is_empty());
+    assert_eq!(
+        other_identifiers(metadata),
+        vec!["urn:uuid:45f50eae-2b3c-48c5"]
+    );
+}
+
+/// Build an EPUB whose `chapter.xhtml` content document holds `chapter`, then
+/// extract its metadata.
+fn epub_with_chapter(metadata: &str, chapter: impl Into<Vec<u8>>) -> EpubMetadata {
+    let epub = EpubBuilder::new(package3(metadata, "", "")).file("OEBPS/chapter.xhtml", chapter);
+    read_metadata(epub.tempfile().path()).unwrap()
+}
+
+/// A minimal OPF metadata body carrying `identifier` as the sole
+/// `dc:identifier`, with the `X`/`Y` title and creator the ISBN tests use.
+fn metadata_with_identifier(identifier: &str) -> String {
+    format!(
+        r##"
+    <dc:identifier id="bookid">{identifier}</dc:identifier>
+    <dc:title>X</dc:title>
+    <dc:creator>Y</dc:creator>
+    "##
+    )
+}
+
+/// The canonical ISBNs extracted from a minimal record whose only identifier
+/// is `identifier`.
+fn isbns_from_identifier(identifier: &str) -> Vec<String> {
+    meta_for(&metadata_with_identifier(identifier))
+        .isbns
+        .iter()
+        .map(|isbn| isbn.as_str().to_string())
+        .collect()
+}
+
 #[test]
 fn extracts_full_record_mirroring_real_book() {
     let metadata = r##"
@@ -224,29 +276,18 @@ fn reads_bare_and_opf_role_attributes() {
 }
 
 #[test]
-fn upgrades_isbn10_and_strips_uppercase_urn() {
-    let m = meta_for(
-        r##"
-    <dc:identifier id="bookid">URN:ISBN:0-306-40615-2</dc:identifier>
-    <dc:title>X</dc:title>
-    <dc:creator>Y</dc:creator>
-    "##,
-    );
-    assert_eq!(m.isbns.len(), 1);
-    assert_eq!(m.isbns[0].as_str(), "9780306406157");
-}
-
-#[test]
-fn recovers_sigil_prefixed_identifier() {
-    let m = meta_for(
-        r##"
-    <dc:identifier id="bookid">a9781784780609</dc:identifier>
-    <dc:title>X</dc:title>
-    <dc:creator>Y</dc:creator>
-    "##,
-    );
-    assert_eq!(m.isbns.len(), 1);
-    assert_eq!(m.isbns[0].as_str(), "9781784780609");
+fn canonicalizes_isbn_identifier_forms() {
+    let cases: &[(&str, &str)] = &[
+        ("URN:ISBN:0-306-40615-2", "9780306406157"),
+        ("a9781784780609", "9781784780609"),
+    ];
+    for (identifier, expected) in cases {
+        assert_eq!(
+            isbns_from_identifier(identifier),
+            vec![expected.to_string()],
+            "{identifier}"
+        );
+    }
 }
 
 #[test]
@@ -262,9 +303,8 @@ fn preserves_non_isbn_identifiers() {
     );
     assert_eq!(m.isbns.len(), 1);
     assert_eq!(m.isbns[0].as_str(), "9780063211841");
-    let others: Vec<&str> = m.other_identifiers.iter().map(|i| i.0.as_str()).collect();
     assert_eq!(
-        others,
+        other_identifiers(&m),
         vec!["urn:uuid:45f50eae-2b3c-48c5", "example.com/books/1"]
     );
 }
@@ -272,18 +312,6 @@ fn preserves_non_isbn_identifiers() {
 #[test]
 fn read_metadata_fails_closed() {
     let cases: &[(&str, &str, ErrorCheck)] = &[
-        (
-            "no isbn",
-            r##"<dc:identifier id="bookid">not-an-isbn</dc:identifier>
-                <dc:title>T</dc:title><dc:creator>C</dc:creator>"##,
-            |error| matches!(error, EpubError::MissingIsbn),
-        ),
-        (
-            "bad isbn checksum",
-            r##"<dc:identifier id="bookid">urn:isbn:9780063211842</dc:identifier>
-                <dc:title>T</dc:title><dc:creator>C</dc:creator>"##,
-            |error| matches!(error, EpubError::MissingIsbn),
-        ),
         (
             "no title",
             r##"<dc:identifier id="bookid">urn:isbn:9780063211841</dc:identifier>
@@ -302,6 +330,63 @@ fn read_metadata_fails_closed() {
         let error = try_body(metadata).expect_err(name);
         assert!(expected(&error), "case {name} produced {error:?}");
     }
+}
+
+#[test]
+fn non_epub_input_is_rejected() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), b"this is not an epub").unwrap();
+    let error = read_metadata(file.path()).unwrap_err();
+    assert!(matches!(error, EpubError::Zip(_)), "got {error:?}");
+}
+
+#[test]
+fn no_isbn_metadata_succeeds_with_other_identifiers() {
+    let m = meta_for(UUID_ONLY_METADATA);
+    assert_uuid_only_identifier(&m);
+}
+
+#[test]
+fn bad_checksum_identifier_is_preserved_not_an_error() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">urn:isbn:9780063211842</dc:identifier>
+    <dc:title>T</dc:title>
+    <dc:creator>C</dc:creator>
+    "##,
+    );
+    assert!(m.isbns.is_empty());
+    assert_eq!(other_identifiers(&m), vec!["urn:isbn:9780063211842"]);
+}
+
+#[test]
+fn body_text_isbn_is_recovered() {
+    let m = epub_with_chapter(
+        UUID_ONLY_METADATA,
+        r#"<html><body><p>ISBN 978-0-692-93303-9</p></body></html>"#,
+    );
+    assert_eq!(m.isbns.len(), 1);
+    assert_eq!(m.isbns[0].as_str(), "9780692933039");
+}
+
+#[test]
+fn no_isbn_anywhere_succeeds() {
+    let m = epub_with_chapter(
+        UUID_ONLY_METADATA,
+        "<html><body><p>No identifier here.</p></body></html>",
+    );
+    assert_uuid_only_identifier(&m);
+}
+
+#[test]
+fn body_scan_respects_size_cap() {
+    let mut body = String::from("<html><body>ISBN 978-0-692-93303-9");
+    while body.len() < 2 * 1024 * 1024 + 64 {
+        body.push(' ');
+    }
+    body.push_str("</body></html>");
+    let m = epub_with_chapter(UUID_ONLY_METADATA, body);
+    assert!(m.isbns.is_empty());
 }
 
 #[test]
@@ -381,8 +466,7 @@ fn non_ascii_identifiers_do_not_panic() {
     <dc:creator>Y</dc:creator>
     "##,
     );
-    let others: Vec<&str> = m.other_identifiers.iter().map(|i| i.0.as_str()).collect();
-    assert_eq!(others, vec!["€x", "日本語", "€é"]);
+    assert_eq!(other_identifiers(&m), vec!["€x", "日本語", "€é"]);
 }
 
 #[test]
@@ -455,6 +539,43 @@ fn reads_real_positive_obsession_when_available() {
     assert_eq!(m.creators[0].file_as.as_deref(), Some("Morris, Susana M."));
     let isbns: Vec<&str> = m.isbns.iter().map(|i| i.as_str()).collect();
     assert_eq!(isbns, vec!["9780063211841", "9780063212077"]);
+}
+
+#[test]
+#[ignore = "set LIVTET_BOOKS_DIR to a directory containing .epub files"]
+fn parses_every_epub_in_books_dir() {
+    let Ok(dir) = std::env::var("LIVTET_BOOKS_DIR") else {
+        return;
+    };
+
+    let mut scanned = 0;
+    let mut failures = Vec::new();
+    for entry in std::fs::read_dir(&dir).expect("read LIVTET_BOOKS_DIR") {
+        let path = entry.expect("directory entry").path();
+        if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("epub") {
+            continue;
+        }
+        scanned += 1;
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        match read_metadata(&path) {
+            Ok(metadata) => eprintln!(
+                "OK   {name}: title={:?} isbns={} other_identifiers={}",
+                metadata.title.0,
+                metadata.isbns.len(),
+                metadata.other_identifiers.len(),
+            ),
+            Err(error) => {
+                eprintln!("FAIL {name}: {error}");
+                failures.push((name, error));
+            }
+        }
+    }
+
+    eprintln!("scanned {scanned} EPUB(s), {} failed", failures.len());
+    assert!(
+        failures.is_empty(),
+        "EPUBs that failed to parse: {failures:?}"
+    );
 }
 
 /// Real-cipher algorithm URI; a cover encrypted with it must be skipped.

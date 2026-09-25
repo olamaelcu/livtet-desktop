@@ -20,7 +20,4 @@ pub enum EpubError {
 
     #[error("missing required metadata: {0}")]
     MissingRequired(&'static str),
-
-    #[error("no valid ISBN found in metadata (ISBNs are required for import)")]
-    MissingIsbn,
 }

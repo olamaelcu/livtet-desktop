@@ -5,9 +5,12 @@
 //! metadata are read by the tolerant in-crate parser in this module tree; no
 //! third-party EPUB library is involved.
 //!
-//! Extraction is fail-closed: an unreadable archive, a missing title or
-//! creator, and the absence of any valid ISBN are errors, never partial
-//! records.
+//! Extraction is fail-closed: an unreadable archive and a missing title or
+//! creator are errors, never partial records. An ISBN is optional: when the
+//! metadata declares none, the content documents are scanned (spine first) for
+//! one, and `isbns` may legitimately be empty. Non-ISBN identifiers (UUID,
+//! ASIN, publisher ids) are preserved in `other_identifiers` so an edition
+//! without an ISBN still has identity.
 //!
 //! Contributors from `dc:creator`/`dc:contributor` are de-duplicated by
 //! `(name, role)`; a role-less contributor that repeats a creator is dropped.
@@ -40,8 +43,9 @@ pub type Result<T> = std::result::Result<T, EpubError>;
 
 /// Open `path` as an EPUB and extract bibliographic metadata.
 ///
-/// Fails closed: an unreadable file, a missing title or creator, or the
-/// absence of at least one valid ISBN anywhere in the metadata is an error.
+/// Fails closed: an unreadable file or a missing title or creator is an error.
+/// A missing ISBN is not: when the metadata carries none, the content documents
+/// are scanned for one, so [`EpubMetadata::isbns`] may be empty.
 pub fn read_metadata(path: &Path) -> Result<EpubMetadata> {
     let bytes = std::fs::read(path)?;
     let mut archive = zip::Archive::open(bytes)?;

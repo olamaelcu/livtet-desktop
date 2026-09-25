@@ -119,7 +119,7 @@ fn guide_cover_href(package: &Element) -> Option<&str> {
 }
 
 /// Resolve an href relative to the OPF directory and percent-decode it.
-fn resolve_path(opf_dir: &str, href: &str) -> String {
+pub(crate) fn resolve_path(opf_dir: &str, href: &str) -> String {
     let decoded = percent_decode(href);
     let joined = if let Some(stripped) = decoded.strip_prefix('/') {
         stripped.to_string()
