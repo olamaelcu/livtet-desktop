@@ -1,17 +1,18 @@
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
+import type { Attachment } from 'svelte/attachments'
 import type { WorkSortBy } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
 import { searchKeys } from '../query/keys'
-import { type EditionFilters, type FilterOptions, loadFilterOptions } from '../search'
+import { type EditionFilters, type FilterOption, loadFilterOptions } from '../search'
 import {
   FILTER_AXES,
   type FilterAxis,
   normalizeFilters,
   selectedIds,
+  setAxisIds,
   setSortBy,
   setSortDirection,
-  toggleAxis,
 } from './filterAxes'
 
 interface Props {
@@ -31,18 +32,74 @@ const options = createQuery(() => ({
   staleTime: 5 * 60 * 1000,
 }))
 
-function matches(list: { id: string; label: string }[], axis: FilterAxis) {
+/**
+ * Narrow an axis by its search term, but always keep the currently selected
+ * options in the DOM: `wa-select multiple` only tracks options present in the
+ * DOM, so filtering a selected one out would desync the value and its tag.
+ */
+function visibleOptions(
+  list: FilterOption[],
+  axis: FilterAxis,
+  selected: string[],
+): FilterOption[] {
   const term = (searches[axis] ?? '').trim().toLowerCase()
-  return term ? list.filter((option) => option.label.toLowerCase().includes(term)) : list
+  if (!term) return list
+  return list.filter(
+    (option) => selected.includes(option.id) || option.label.toLowerCase().includes(term),
+  )
+}
+
+function selectValue(event: Event): string {
+  const value = (event.currentTarget as WaSelectElement).value
+  return typeof value === 'string' ? value : ''
 }
 
 function chooseSortField(event: Event) {
-  const value = (event.target as HTMLSelectElement).value
+  const value = selectValue(event)
   onchange(setSortBy(filters, value ? (value as WorkSortBy) : undefined))
 }
 
 function chooseSortDirection(event: Event) {
-  onchange(setSortDirection(filters, (event.target as HTMLSelectElement).value as 'asc' | 'desc'))
+  onchange(setSortDirection(filters, selectValue(event) === 'asc' ? 'asc' : 'desc'))
+}
+
+function chooseAxisIds(axis: FilterAxis) {
+  return (event: Event) => {
+    const value = (event.currentTarget as WaSelectElement).value
+    onchange(setAxisIds(filters, axis, Array.isArray(value) ? value : [value]))
+  }
+}
+
+function initials(label: string): string {
+  return label
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0])
+    .join('')
+    .toUpperCase()
+}
+
+/**
+ * Render a selected option as a removable tag, reusing the option's own
+ * `slot="start"` decoration (flag emoji or publisher avatar). Builds elements
+ * directly rather than HTML so imported labels can never be injected.
+ */
+function tagFor(option: WaOptionElement): HTMLElement {
+  const tag = document.createElement('wa-tag')
+  tag.setAttribute('with-remove', '')
+  tag.setAttribute('data-value', option.value)
+  const decoration = option.querySelector<HTMLElement>('[slot="start"]')
+  if (decoration) {
+    tag.append(decoration.cloneNode(true))
+    tag.append(document.createTextNode(' '))
+  }
+  tag.append(document.createTextNode(option.getAttribute('data-label') ?? option.label))
+  return tag
+}
+
+const decorateTags: Attachment<HTMLElement> = (node) => {
+  ;(node as WaSelectElement).getTag = (option) => tagFor(option)
 }
 </script>
 
@@ -57,6 +114,7 @@ function chooseSortDirection(event: Event) {
   {:else if options.data}
     {#each FILTER_AXES as axis (axis.key)}
       {@const list = axis.from(options.data)}
+      {@const selected = selectedIds(filters, axis.key)}
       <section class="axis">
         <h4>{axis.label}</h4>
         <wa-input
@@ -67,38 +125,64 @@ function chooseSortDirection(event: Event) {
           oninput={(event) =>
             onsearch({ ...searches, [axis.key]: (event.target as HTMLInputElement).value })}
         ></wa-input>
-        <div class="choices">
-          {#each matches(list, axis.key) as option (option.id)}
-            <label class="choice">
-              <input
-                type="checkbox"
-                checked={selectedIds(filters, axis.key).includes(option.id)}
-                onchange={() => onchange(toggleAxis(filters, axis.key, option.id))}
-              />
+        <wa-select
+          multiple
+          with-clear
+          size="s"
+          class="axis-select"
+          aria-label="Select {axis.label}"
+          placeholder="Any {axis.label.toLowerCase()}"
+          value={selected}
+          onchange={chooseAxisIds(axis.key)}
+          {@attach decorateTags}
+        >
+          {#each visibleOptions(list, axis.key, selected) as option (option.id)}
+            <wa-option value={option.id} data-label={option.label}>
+              {#if option.flag_emoji}
+                <span slot="start" class="opt-flag">{option.flag_emoji}</span>
+              {:else if option.logo_url}
+                <wa-avatar
+                  slot="start"
+                  image={option.logo_url}
+                  initials={initials(option.label)}
+                  label={option.label}
+                  shape="rounded"
+                  loading="lazy"
+                  style="--size: 1.25rem;"
+                ></wa-avatar>
+              {/if}
               {option.label}
-            </label>
+            </wa-option>
           {/each}
-        </div>
+        </wa-select>
       </section>
     {/each}
 
     <div class="sort">
       <h4>Sort</h4>
-      <select aria-label="Sort field" value={filters.sort_by ?? ''} onchange={chooseSortField}>
-        <option value="">Relevance</option>
-        <option value="created_at">Recently added</option>
-        <option value="title">Title</option>
-        <option value="updated_at">Recently updated</option>
-      </select>
-      <select
+      <wa-select
+        size="s"
+        class="sort-select"
+        aria-label="Sort field"
+        value={filters.sort_by ?? ''}
+        onchange={chooseSortField}
+      >
+        <wa-option value="">Relevance</wa-option>
+        <wa-option value="created_at">Recently added</wa-option>
+        <wa-option value="title">Title</wa-option>
+        <wa-option value="updated_at">Recently updated</wa-option>
+      </wa-select>
+      <wa-select
+        size="s"
+        class="sort-select"
         aria-label="Sort direction"
         value={filters.sort_direction ?? 'desc'}
         disabled={!filters.sort_by}
         onchange={chooseSortDirection}
       >
-        <option value="desc">Descending</option>
-        <option value="asc">Ascending</option>
-      </select>
+        <wa-option value="desc">Descending</wa-option>
+        <wa-option value="asc">Ascending</wa-option>
+      </wa-select>
     </div>
 
     <div class="footer">
@@ -127,17 +211,13 @@ function chooseSortDirection(event: Event) {
     margin: 0;
   }
 
-  .choices {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--wa-space-2xs);
+  .axis-select {
+    width: 100%;
   }
 
-  .choice {
-    display: flex;
-    align-items: center;
-    gap: var(--wa-space-3xs);
-    font-size: var(--wa-font-size-s);
+  .opt-flag {
+    font-size: 1rem;
+    line-height: 1;
   }
 
   .sort {
@@ -149,6 +229,10 @@ function chooseSortDirection(event: Event) {
 
   .sort h4 {
     flex-basis: 100%;
+  }
+
+  .sort-select {
+    flex: 1 1 8rem;
   }
 
   .footer {

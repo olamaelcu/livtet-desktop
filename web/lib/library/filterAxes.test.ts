@@ -3,27 +3,25 @@ import {
   activeFilterCount,
   normalizeFilters,
   removeAxisId,
+  setAxisIds,
   setSortBy,
   setSortDirection,
-  toggleAxis,
 } from './filterAxes'
 
-describe('toggleAxis', () => {
-  it('adds and removes an id, preserving the order of the rest', () => {
-    expect(toggleAxis({}, 'tag_ids', 'a')).toEqual({ tag_ids: ['a'] })
-    expect(toggleAxis({ tag_ids: ['a'] }, 'tag_ids', 'b')).toEqual({ tag_ids: ['a', 'b'] })
-    expect(toggleAxis({ tag_ids: ['a', 'b'] }, 'tag_ids', 'a')).toEqual({ tag_ids: ['b'] })
+describe('setAxisIds', () => {
+  it('replaces the axis selection and normalizes order', () => {
+    expect(setAxisIds({}, 'tag_ids', ['b', 'a'])).toEqual({ tag_ids: ['a', 'b'] })
   })
 
-  it('is order-stable: adding the same ids in different orders normalizes equal', () => {
-    const first = toggleAxis(toggleAxis({}, 'tag_ids', 'b'), 'tag_ids', 'a')
-    const second = toggleAxis(toggleAxis({}, 'tag_ids', 'a'), 'tag_ids', 'b')
+  it('two insertion orders produce equal output', () => {
+    const first = setAxisIds({}, 'tag_ids', ['b', 'a'])
+    const second = setAxisIds({}, 'tag_ids', ['a', 'b'])
     expect(first).toEqual(second)
     expect(JSON.stringify(first)).toBe(JSON.stringify(second))
   })
 
-  it('drops an axis once its last id is deselected', () => {
-    expect(toggleAxis({ tag_ids: ['a'] }, 'tag_ids', 'a')).toEqual({})
+  it('drops the axis when the selection is emptied', () => {
+    expect(setAxisIds({ tag_ids: ['a'] }, 'tag_ids', [])).toEqual({})
   })
 })
 

@@ -434,6 +434,8 @@ pub async fn add_edition_tags(
         tag: crate::commands::search::FilterOption {
             id: tag.id,
             label: tag.name,
+            flag_emoji: None,
+            logo_url: None,
         },
         changed,
     })
@@ -478,6 +480,8 @@ pub async fn remove_edition_tags(
         tag: crate::commands::search::FilterOption {
             id: tag.id,
             label: tag.name,
+            flag_emoji: None,
+            logo_url: None,
         },
         changed,
     })

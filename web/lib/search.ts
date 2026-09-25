@@ -5,12 +5,13 @@ import type {
   EditionCover,
   EditionDetail,
   EditionFilters,
+  FilterOption,
   FilterOptions,
   HitKind,
 } from './bindings'
 
 // Strict re-export of generated contract — single source of truth
-export type { EditionCover, EditionDetail, EditionFilters, FilterOptions, HitKind }
+export type { EditionCover, EditionDetail, EditionFilters, FilterOption, FilterOptions, HitKind }
 export interface Author {
   name: string
   role: 'author' | 'editor' | 'translator'

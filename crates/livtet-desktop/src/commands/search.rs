@@ -146,10 +146,16 @@ pub async fn search_editions_count(
 }
 
 /// One selectable value in a filter axis: a stable id plus its display label.
+///
+/// At most one of `flag_emoji` / `logo_url` is set, and only for the axis that
+/// owns that kind of decoration: languages carry a flag emoji, publishers carry
+/// a remote logo URL. Every other axis leaves both empty.
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct FilterOption {
     pub id: DbId,
     pub label: String,
+    pub flag_emoji: Option<String>,
+    pub logo_url: Option<String>,
 }
 
 /// Every filter option the search UI can offer, grouped by axis.
@@ -171,29 +177,40 @@ pub async fn filter_options(state: State<'_, AppState>) -> Result<FilterOptions,
     let db = state.db.db_conn();
 
     macro_rules! axis {
-        ($entity:ident) => {
+        ($entity:ident, $decorate:expr) => {
             $entity::Entity::find()
                 .order_by_asc($entity::Column::Name)
                 .all(&db)
                 .await
                 .map_err(SearchIndexError::other)?
                 .into_iter()
-                .map(|m| FilterOption {
-                    id: m.id,
-                    label: m.name,
+                .map(|m| {
+                    let (flag_emoji, logo_url) = $decorate(&m);
+                    FilterOption {
+                        id: m.id,
+                        label: m.name,
+                        flag_emoji,
+                        logo_url,
+                    }
                 })
                 .collect::<Vec<_>>()
         };
     }
 
     Ok(FilterOptions {
-        formats: axis!(formats),
-        languages: axis!(languages),
-        tags: axis!(tags),
-        genres: axis!(genres),
-        subjects: axis!(subjects),
-        publishers: axis!(publishers),
-        authors: axis!(authors),
+        formats: axis!(formats, |_| (None, None)),
+        languages: axis!(languages, |m: &languages::Model| (
+            m.flag_emoji.clone(),
+            None
+        )),
+        tags: axis!(tags, |_| (None, None)),
+        genres: axis!(genres, |_| (None, None)),
+        subjects: axis!(subjects, |_| (None, None)),
+        publishers: axis!(publishers, |m: &publishers::Model| (
+            None,
+            m.logo_url.clone()
+        )),
+        authors: axis!(authors, |_| (None, None)),
     })
 }
 

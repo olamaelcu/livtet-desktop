@@ -1,5 +1,5 @@
 import type { SortDirection, WorkSortBy } from '../bindings'
-import type { EditionFilters, FilterOptions } from '../search'
+import type { EditionFilters, FilterOption, FilterOptions } from '../search'
 
 /** The seven selectable filter axes (everything in `EditionFilters` except sort). */
 export type FilterAxis =
@@ -14,7 +14,7 @@ export type FilterAxis =
 interface FilterAxisConfig {
   key: FilterAxis
   label: string
-  from: (options: FilterOptions) => { id: string; label: string }[]
+  from: (options: FilterOptions) => FilterOption[]
 }
 
 /** Ordered axes, shared by the panel (checkboxes) and the page (chip labels). */
@@ -64,9 +64,11 @@ export function normalizeFilters(filters: EditionFilters): EditionFilters {
   return next
 }
 
-export function toggleAxis(filters: EditionFilters, axis: FilterAxis, id: string): EditionFilters {
-  const current = selectedIds(filters, axis)
-  const ids = current.includes(id) ? current.filter((value) => value !== id) : [...current, id]
+export function setAxisIds(
+  filters: EditionFilters,
+  axis: FilterAxis,
+  ids: string[],
+): EditionFilters {
   const next: FiltersDraft = { ...filters }
   next[axis] = ids
   return normalizeFilters(next)
