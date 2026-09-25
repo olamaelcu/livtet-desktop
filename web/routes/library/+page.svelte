@@ -19,7 +19,7 @@ import {
 } from '../../lib/library/bulk'
 import ConfirmDialog from '../../lib/library/ConfirmDialog.svelte'
 import {
-  COVER_SCALE,
+  COVER_MIN_WIDTH,
   type CoverSize,
   loadCoverSize,
   saveCoverSize,
@@ -333,14 +333,17 @@ function selectSuggestion(title: string) {
 </div>
 
 <wa-scroller orientation="vertical" class="book-scroller" onscrollend={loadMore}>
-  <div class="book-list" class:selection-docked={selection.mode}>
+  <div
+    class="book-list"
+    class:selection-docked={selection.mode}
+    style="--col-min: {COVER_MIN_WIDTH[coverSize]}"
+  >
     {#each books as book (book.id)}
       <BookCard
         title={book.title}
         cover_url={coverUrlFor(coversById.get(book.edition_id))}
         selectable={selection.mode}
         selected={selection.selected.has(book.edition_id)}
-        scale={COVER_SCALE[coverSize]}
         in_filesystem={book.has_file}
         onclick={() =>
           selection.mode ? selection.toggle(book.edition_id) : openDetail(book.edition_id)}
@@ -460,11 +463,11 @@ function selectSuggestion(title: string) {
   }
 
   .book-list {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--col-min, 8rem), 1fr));
     gap: var(--wa-space-s);
     justify-content: start;
+    width: 100%;
   
     & > .empty {
       height: 100%;

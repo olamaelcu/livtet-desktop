@@ -64,7 +64,7 @@ async function relinkFile() {
               onerror={() => (failedCoverId = book?.id ?? '')}
             />
           {:else}
-            <figcaption class="placeholder">{book.title ?? 'Untitled'}</figcaption>
+            <figcaption class="detail-placeholder">{book.title ?? 'Untitled'}</figcaption>
           {/if}
         </figure>
         <div class="heading">
@@ -196,7 +196,7 @@ async function relinkFile() {
     display: block;
   }
 
-  .placeholder {
+  .detail-placeholder {
     display: flex;
     align-items: center;
     justify-content: center;

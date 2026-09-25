@@ -4,7 +4,6 @@ interface Props {
   cover_url?: string
   selectable?: boolean
   selected?: boolean
-  scale?: number
   /** File availability: `true` = on disk, `false` = virtual/remote. */
   in_filesystem?: boolean
   onclick?: () => void
@@ -15,7 +14,6 @@ let {
   cover_url = undefined,
   selectable = false,
   selected = false,
-  scale = 1,
   in_filesystem = undefined,
   onclick,
 }: Props = $props()
@@ -31,7 +29,7 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     aria-pressed={selectable ? selected : undefined}
     {onclick}
   >
-    <figure class="cover {showCover ? '' : 'placeholder'}" style="--scale: {scale}">
+    <figure class="cover {showCover ? '' : 'placeholder'}">
       {#if showCover}
         <img src={cover_url} alt={title} onerror={() => (failedUrl = cover_url)} />
       {:else}
@@ -57,12 +55,15 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
 <style>
   .card-wrap {
     position: relative;
-    display: inline-flex;
+    display: block;
+    min-width: 0;
     padding: var(--wa-space-2xs);
   }
 
   .card {
     all: unset;
+    display: block;
+    width: 100%;
     cursor: pointer;
     transition: box-shadow 0.15s ease;
   }
@@ -73,16 +74,15 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
   }
 
   .cover {
-    --size: 8.25rem;
-    --scale: 1;
-    min-width: calc(var(--size) * 0.75 * var(--scale));
-    max-width: calc(var(--size) * var(--scale));
-    height: calc(var(--size) * var(--scale));
-    flex-shrink: 0;
+    box-sizing: border-box;
+    width: 100%;
+    aspect-ratio: 3 / 4;
+    height: auto;
     overflow: hidden;
     border: 0.0625rem solid var(--wa-color-border-default);
     background: var(--wa-color-surface-alt);
     margin: 0;
+    padding: 0;
   }
 
   .cover img {
@@ -97,9 +97,15 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     display: flex;
     align-items: center;
     justify-content: center;
+    padding: 0;
     font-size: 0.65rem;
     color: var(--wa-color-text-secondary);
     text-align: center;
+  }
+
+  .placeholder figcaption {
+    padding: var(--wa-space-s);
+    overflow: hidden;
   }
 
   .card.is-selected .cover {

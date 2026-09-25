@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  COVER_SCALE,
+  COVER_MIN_WIDTH,
   COVER_SIZES,
   coverSizeFromIndex,
   coverSizeIndex,
@@ -28,20 +28,20 @@ function memoryStorage(): Storage {
   }
 }
 
-describe('COVER_SCALE', () => {
-  it('maps each fixed size to its multiplier', () => {
-    expect(COVER_SCALE).toEqual({
-      tiny: 0.5,
-      small: 0.7,
-      medium: 1,
-      large: 2,
-      huge: 3,
+describe('COVER_MIN_WIDTH', () => {
+  it('maps each size to its grid min column width', () => {
+    expect(COVER_MIN_WIDTH).toEqual({
+      tiny: '4.5rem',
+      small: '6rem',
+      medium: '8rem',
+      large: '11rem',
+      huge: '14rem',
     })
   })
 
-  it('orders tiny below medium below large', () => {
-    expect(COVER_SCALE.tiny).toBeLessThan(COVER_SCALE.medium)
-    expect(COVER_SCALE.medium).toBeLessThan(COVER_SCALE.large)
+  it('orders tiny below medium below huge', () => {
+    expect(parseFloat(COVER_MIN_WIDTH.tiny)).toBeLessThan(parseFloat(COVER_MIN_WIDTH.medium))
+    expect(parseFloat(COVER_MIN_WIDTH.medium)).toBeLessThan(parseFloat(COVER_MIN_WIDTH.huge))
   })
 })
 
