@@ -21,6 +21,7 @@ mp4ameta = "0.13"
 livtet-mobi = { path = "crates/livtet-mobi" }
 livtet-pdf = { path = "crates/livtet-pdf" }
 livtet-importer = { path = "crates/livtet-importer" }
+livtet-reader = { path = "crates/livtet-reader" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["remote", "lua54", "vendored"] }
 livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main", features = ["atom"] }
 livtet-opds-types = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }

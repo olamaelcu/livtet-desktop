@@ -40,6 +40,48 @@ impl CatalogError {
 }
 
 #[derive(Debug, Clone, Error, Serialize, Type)]
+pub enum ReaderError {
+    #[error("Unknown edition: {id}")]
+    UnknownEdition { id: String },
+
+    #[error("Edition has no file")]
+    NoFile,
+
+    #[error("Edition file is missing")]
+    MissingFile,
+
+    #[error("Unsupported format: {format}")]
+    UnsupportedFormat { format: String },
+
+    #[error("Publication error: {message}")]
+    Publication { message: String },
+}
+
+impl ReaderError {
+    pub fn unknown_edition(id: impl Into<String>) -> Self {
+        Self::UnknownEdition { id: id.into() }
+    }
+
+    pub fn unsupported_format(format: impl Into<String>) -> Self {
+        Self::UnsupportedFormat {
+            format: format.into(),
+        }
+    }
+
+    pub fn publication(message: impl std::fmt::Display) -> Self {
+        Self::Publication {
+            message: message.to_string(),
+        }
+    }
+}
+
+impl From<livtet_reader::ReaderError> for ReaderError {
+    fn from(err: livtet_reader::ReaderError) -> Self {
+        Self::publication(err)
+    }
+}
+
+#[derive(Debug, Clone, Error, Serialize, Type)]
 pub enum PluginError {
     #[error("Plugin host is unavailable: {message}")]
     Unavailable { message: String },

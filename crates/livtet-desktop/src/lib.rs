@@ -9,6 +9,7 @@ pub use error::{PluginError, SearchIndexError};
 pub use types::{AppState, ArcMut};
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -324,6 +325,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         opds_http,
         opds_store,
         secrets: Arc::new(secrets::KeyringSecretStore),
+        readers: Arc::new(Mutex::new(HashMap::new())),
     };
     {
         let mut guard = state.search_index.write().await;
@@ -333,6 +335,14 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     app.manage(state);
 
     Ok(())
+}
+
+/// Empty `reader` protocol response for a status with no body (400/404/500).
+fn reader_status(status: tauri::http::StatusCode) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .body(Vec::new())
+        .expect("reader status is a valid response")
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -362,6 +372,9 @@ pub fn run() {
         commands::opds::opds_page,
         commands::opds::opds_search,
         commands::opds::opds_acquire,
+        commands::reader::open_reader,
+        commands::reader::reader_publication,
+        commands::reader::reader_resource,
         commands::sync::sync_health,
         commands::sync::sync_status,
         commands::sync::sync_requests_recent,
@@ -387,7 +400,63 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_decorum::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .invoke_handler(specta_builder.invoke_handler());
+        .invoke_handler(specta_builder.invoke_handler())
+        .register_asynchronous_uri_scheme_protocol("reader", |ctx, request, responder| {
+            let path = request.uri().path().to_string();
+            let Some((edition_id, href)) = crate::commands::reader::parse_reader_uri(&path) else {
+                responder.respond(reader_status(tauri::http::StatusCode::BAD_REQUEST));
+                return;
+            };
+            let Ok(id) = edition_id.parse::<livtet_types::DbId>() else {
+                responder.respond(reader_status(tauri::http::StatusCode::NOT_FOUND));
+                return;
+            };
+            // The cache is populated by `open_reader`/`reader_publication`
+            // before any window can request it; serve cached books only.
+            let reader = ctx
+                .app_handle()
+                .try_state::<AppState>()
+                .and_then(|state| crate::commands::reader::cached_lookup(&state, &id));
+            let Some(reader) = reader else {
+                responder.respond(reader_status(tauri::http::StatusCode::NOT_FOUND));
+                return;
+            };
+            // The href goes in exactly as received: decoding and validation
+            // happen in `Reader::read`.
+            match reader.read(href) {
+                Some((media_type, bytes)) => responder.respond(
+                    tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::OK)
+                        .header("Content-Type", media_type)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .header("Cache-Control", "no-store")
+                        .body(bytes)
+                        .unwrap_or_else(|_| {
+                            reader_status(tauri::http::StatusCode::INTERNAL_SERVER_ERROR)
+                        }),
+                ),
+                None => responder.respond(reader_status(tauri::http::StatusCode::NOT_FOUND)),
+            }
+        })
+        .on_window_event(|window, event| {
+            if !matches!(event, tauri::WindowEvent::Destroyed) {
+                return;
+            }
+            let Some(edition_id) = window
+                .label()
+                .strip_prefix(crate::commands::reader::READER_WINDOW_PREFIX)
+            else {
+                return;
+            };
+            let Ok(id) = edition_id.parse::<livtet_types::DbId>() else {
+                return;
+            };
+            if let Some(state) = window.try_state::<AppState>()
+                && let Ok(mut readers) = state.readers.lock()
+            {
+                readers.remove(&id);
+            }
+        });
 
     #[cfg(debug_assertions)]
     {

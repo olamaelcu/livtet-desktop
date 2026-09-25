@@ -4148,6 +4148,7 @@ dependencies = [
  "livtet-importer",
  "livtet-opds-client",
  "livtet-opds-types",
+ "livtet-reader",
  "livtet-search",
  "livtet-sync-server",
  "livtet-types",
@@ -4180,6 +4181,7 @@ dependencies = [
  "tracing-forest",
  "tracing-subscriber",
  "url",
+ "zip",
 ]
 
 [[package]]

@@ -1,9 +1,11 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 use camino::Utf8PathBuf;
 use livtet_core::data::SharedState;
 use livtet_core::search::SearchIndex;
+use livtet_types::DbId;
 
 pub type ArcMut<T> = Arc<RwLock<T>>;
 
@@ -32,4 +34,9 @@ pub struct AppState {
     pub secrets: Arc<dyn crate::secrets::SecretStore>,
     /// Loopback HTTP server serving audiobook bytes to `<audio>`.
     pub audio: crate::commands::audio_server::AudioServer,
+    /// Open EPUB publications cached by edition id for the reader window.
+    ///
+    /// `DbId` is `Hash`, so it works as the cache key directly. Entries are
+    /// removed when their `reader-{id}` window is destroyed.
+    pub readers: Arc<Mutex<HashMap<DbId, Arc<livtet_reader::Reader>>>>,
 }

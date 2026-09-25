@@ -41,6 +41,7 @@ livtet-types.workspace = true
 livtet-search.workspace = true
 livtet-sync-server.workspace = true
 livtet-importer.workspace = true
+livtet-reader.workspace = true
 livtet-opds-client.workspace = true
 livtet-opds-types.workspace = true
 stanchion.workspace = true
@@ -86,3 +87,4 @@ e2e-testing = []
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tempfile = "3"
 poem = { version = "3.1", default-features = false, features = ["server", "test"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
