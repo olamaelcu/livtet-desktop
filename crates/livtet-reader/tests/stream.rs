@@ -4,7 +4,7 @@
 #[path = "../../livtet-epub/src/test_support.rs"]
 mod test_support;
 
-use livtet_reader::Reader;
+use livtet_reader::{Reader, ReaderError};
 use serde_json::json;
 use test_support::EpubBuilder;
 
@@ -112,7 +112,8 @@ fn positions_follow_reading_order() {
     assert_eq!(positions.len(), 2);
     assert_eq!(positions[0].locations.position, 1);
     assert_eq!(positions[0].locations.progression, 0.0);
-    assert_eq!(positions[1].locations.total_progression, 1.0);
+    assert_eq!(positions[0].locations.total_progression, 0.0);
+    assert_eq!(positions[1].locations.total_progression, 0.5);
     assert_eq!(positions[0].title.as_deref(), Some("Chapter One"));
 
     let value = serde_json::to_value(&positions[0]).unwrap();
@@ -207,4 +208,29 @@ fn resolves_manifest_media_type_for_encoded_href() {
 
     let (mime, _) = reader.read("weird%20file.bin").unwrap();
     assert_eq!(mime, "application/x-myformat");
+}
+
+#[test]
+fn open_rejects_epub_without_reading_order() {
+    const NO_SPINE_OPF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>No Spine</dc:title>
+    <dc:creator>Jane Doe</dc:creator>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine/>
+</package>"#;
+
+    let file = EpubBuilder::new(NO_SPINE_OPF)
+        .file("OEBPS/ch1.xhtml", b"<html/>".to_vec())
+        .tempfile();
+
+    assert!(matches!(
+        Reader::open(file.path()),
+        Err(ReaderError::Unsupported(_))
+    ));
 }

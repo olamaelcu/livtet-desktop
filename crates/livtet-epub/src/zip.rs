@@ -131,8 +131,8 @@ impl Archive {
     }
 
     /// Every entry name in the archive, normalized to forward slashes.
-    pub fn entries(&self) -> Vec<String> {
-        self.names.clone()
+    pub fn entries(&self) -> &[String] {
+        &self.names
     }
 
     /// Read an entry's decompressed bytes, or `None` if it is missing, is a
@@ -474,8 +474,8 @@ mod tests {
     #[test]
     fn lists_entry_names() {
         let archive = Archive::open(sample_zip()).unwrap();
-        let mut entries = archive.entries();
-        entries.sort();
+        let mut entries: Vec<&str> = archive.entries().iter().map(String::as_str).collect();
+        entries.sort_unstable();
         assert_eq!(entries, vec!["OEBPS/content.opf", "mimetype"]);
     }
 }

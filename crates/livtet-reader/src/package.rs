@@ -45,7 +45,8 @@ pub(crate) fn parse(
     let opf_bytes = archive
         .read(opf_path)
         .ok_or_else(|| ReaderError::Package(format!("OPF document {opf_path} is missing")))?;
-    let root = xml::parse(&opf_bytes)?;
+    let root = xml::parse(&opf_bytes)
+        .map_err(|error| ReaderError::Package(format!("OPF XML: {error}")))?;
     let base_dir = ocf::base_dir(opf_path);
     let metadata = root.find("metadata").unwrap_or(&root);
 

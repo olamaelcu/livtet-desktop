@@ -12,7 +12,7 @@ mod path;
 pub use error::ReaderError;
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use livtet_epub::{Archive, ocf};
 
@@ -74,8 +74,12 @@ impl Reader {
             "readingProgression": &package.reading_progression,
             "conformsTo": ["https://readium.org/webpub-manifest/profiles/epub"],
         });
-        metadata["author"] = serde_json::json!(&package.authors);
-        metadata["language"] = serde_json::json!(&package.language);
+        if !package.authors.is_empty() {
+            metadata["author"] = serde_json::json!(&package.authors);
+        }
+        if !package.language.is_empty() {
+            metadata["language"] = serde_json::json!(&package.language);
+        }
 
         let reading_order: Vec<serde_json::Value> =
             package.reading_order.iter().map(link).collect();
@@ -121,7 +125,7 @@ impl Reader {
                     locations: LocationDetail {
                         progression: 0.0,
                         position,
-                        total_progression: position as f64 / total as f64,
+                        total_progression: index as f64 / total as f64,
                     },
                 }
             })
@@ -136,12 +140,7 @@ impl Reader {
     /// directory. `None` is returned for anything missing, encrypted, or
     /// refused by the archive.
     pub fn read(&self, href: &str) -> Option<(String, Vec<u8>)> {
-        let decoded = path::decode_and_validate(href)?;
-        let candidate = if self.exists_in_archive(&decoded) {
-            decoded
-        } else {
-            path::resolve(&self.base_dir, &decoded)
-        };
+        let candidate = self.candidate(href)?;
         let media_type = self
             .package
             .media_types
@@ -149,7 +148,7 @@ impl Reader {
             .cloned()
             .or_else(|| path::media_type_for_extension(&candidate).map(str::to_string))
             .unwrap_or_else(|| "application/octet-stream".to_string());
-        let bytes = self.archive.lock().ok()?.read(&candidate)?;
+        let bytes = self.lock_archive().read(&candidate)?;
         Some((media_type, bytes))
     }
 
@@ -158,21 +157,41 @@ impl Reader {
     ///
     /// [`read`]: Reader::read
     pub fn contains(&self, href: &str) -> bool {
-        let Some(decoded) = path::decode_and_validate(href) else {
-            return false;
-        };
-        self.exists_in_archive(&decoded)
-            || self.exists_in_archive(&path::resolve(&self.base_dir, &decoded))
+        self.candidate(href)
+            .is_some_and(|candidate| self.exists_in_archive(&candidate))
+    }
+
+    /// The archive path for an href: percent-decoded and validated, then
+    /// prefixed with the OPF directory when it is not already
+    /// archive-root-relative.
+    fn candidate(&self, href: &str) -> Option<String> {
+        let decoded = path::decode_and_validate(href)?;
+        Some(if self.exists_in_archive(&decoded) {
+            decoded
+        } else {
+            path::resolve(&self.base_dir, &decoded)
+        })
     }
 
     fn exists_in_archive(&self, name: &str) -> bool {
+        self.lock_archive().contains(name)
+    }
+
+    /// A poisoned lock means a previous holder panicked; the archive itself is
+    /// still intact, so recover it rather than reporting every later read as
+    /// missing.
+    fn lock_archive(&self) -> MutexGuard<'_, Archive> {
         self.archive
             .lock()
-            .map(|archive| archive.contains(name))
-            .unwrap_or(false)
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
 fn link(item: &ManifestItem) -> serde_json::Value {
     serde_json::json!({ "href": &item.href, "type": &item.media_type })
 }
+
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Reader>();
+};
