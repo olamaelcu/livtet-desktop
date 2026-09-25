@@ -1,4 +1,4 @@
-# 17. Replace the epub crate with an in-crate OCF/OPF parser
+# 18. Replace the epub crate with an in-crate OCF/OPF parser
 
 Date: 2026-09-24
 
