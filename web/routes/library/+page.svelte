@@ -7,6 +7,7 @@ import {
 } from '@tanstack/svelte-query'
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { onDestroy } from 'svelte'
+import { fly } from 'svelte/transition'
 import { toast } from 'svelte-sonner'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
 import {
@@ -233,19 +234,21 @@ function selectSuggestion(title: string) {
   ontoggleselect={() => (selection.mode = !selection.mode)}
 />
 {#if selection.mode}
-  <SelectionActionBar
-    count={selection.count}
-    {busy}
-    ontag={() => (tagOpen = !tagOpen)}
-    onexport={runExport}
-    ondelete={() => (confirmDelete = true)}
-    onclear={() => selection.clear()}
-    onselectall={runSelectAll}
-  />
+  <div class="selection-dock" in:fly={{ y: 24, duration: 180 }} out:fly={{ y: 24, duration: 150 }}>
+    <SelectionActionBar
+      count={selection.count}
+      {busy}
+      ontag={() => (tagOpen = !tagOpen)}
+      onexport={runExport}
+      ondelete={() => (confirmDelete = true)}
+      onclear={() => selection.clear()}
+      onselectall={runSelectAll}
+    />
+  </div>
   <wa-popover
     for={TAG_BUTTON_ID}
     label="Tags"
-    placement="bottom-start"
+    placement="top-start"
     open={tagOpen}
     onwa-after-show={() => (tagOpen = true)}
     onwa-after-hide={() => (tagOpen = false)}
@@ -322,7 +325,7 @@ function selectSuggestion(title: string) {
 </div>
 
 <wa-scroller orientation="vertical" class="book-scroller" onscrollend={loadMore}>
-  <div class="book-list">
+  <div class="book-list" class:selection-docked={selection.mode}>
     {#each books as book (book.id)}
       <BookCard
         title={book.title}
@@ -456,6 +459,25 @@ function selectSuggestion(title: string) {
     & > .empty {
       height: 100%;
     }
+  }
+
+  .book-list.selection-docked {
+    padding-bottom: calc(var(--wa-space-l) * 2.5);
+  }
+
+  .selection-dock {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--wa-space-l);
+    width: max-content;
+    margin-inline: auto;
+    z-index: 40;
+    display: flex;
+    background: var(--wa-color-surface-default);
+    border: 1px solid var(--wa-color-border-default);
+    border-radius: var(--wa-radius-m);
+    box-shadow: var(--wa-shadow-l);
   }
 
   .loading-indicator {
