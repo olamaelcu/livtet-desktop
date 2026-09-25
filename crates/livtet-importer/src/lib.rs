@@ -5,8 +5,10 @@
 //! Remote callers use [`ImporterMeta`] as the JSON boundary.
 
 mod epub;
+mod mobi;
 
 pub use epub::EpubImporter;
+pub use mobi::MobiImporter;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as Json};
@@ -158,4 +160,15 @@ pub trait Importer {
 
     /// Extract bibliographic metadata from a file path.
     fn read_metadata(&self, path: String) -> Result<ImporterMeta>;
+}
+
+pub(crate) fn role_string(role: &livtet_epub::Role) -> String {
+    match role {
+        livtet_epub::Role::Author => "aut",
+        livtet_epub::Role::Editor => "edt",
+        livtet_epub::Role::Translator => "trl",
+        livtet_epub::Role::Illustrator => "ill",
+        livtet_epub::Role::Other(raw) => raw,
+    }
+    .to_string()
 }

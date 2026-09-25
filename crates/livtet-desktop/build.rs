@@ -39,9 +39,10 @@ fn main() {
 
     if !env_path.exists() {
         eprintln!(
-            "error: '.mise/secrets.env' is missing.\n\
+            "error: '{}' is missing.\n\
              Run: 'mise run secrets-decrypt' && 'mise run secrets-export-env'\n
-            "
+            ",
+            env_path.display()
         );
         std::process::exit(1);
     }

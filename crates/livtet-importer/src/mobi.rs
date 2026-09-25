@@ -5,16 +5,16 @@ use stanchion::mlua;
 
 use crate::{Importer, ImporterContributor, ImporterCover, ImporterMeta, ImporterPublicationDate};
 
-/// Native EPUB importer behind the shared contract.
-pub struct EpubImporter;
+/// Native MOBI-family importer behind the shared contract.
+pub struct MobiImporter;
 
-impl Importer for EpubImporter {
+impl Importer for MobiImporter {
     fn extensions(&self) -> mlua::Result<Vec<String>> {
-        Ok(vec!["epub".to_string()])
+        Ok(vec!["azw3".to_string(), "azw".to_string()])
     }
 
     fn read_metadata(&self, path: String) -> mlua::Result<ImporterMeta> {
-        let parsed = livtet_epub::read_metadata(Path::new(&path)).map_err(mlua::Error::external)?;
+        let parsed = livtet_mobi::read_metadata(Path::new(&path)).map_err(mlua::Error::external)?;
 
         Ok(ImporterMeta {
             title: parsed.title.0,

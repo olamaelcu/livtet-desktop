@@ -18,10 +18,11 @@ CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG = true
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
 [tasks.generate-bindings]
+depends = ["secrets-export-env"]
 run = "cargo run --bin generate-bindings"
 
 [tasks.dev]
-depends = ["generate-bindings", "secrets-export-env"]
+depends = ["generate-bindings"]
 run = "pnpm tauri dev"
 
 # --- Local parity with CI ---

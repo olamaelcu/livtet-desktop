@@ -3751,6 +3751,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "livtet-epub",
+ "livtet-mobi",
  "serde",
  "serde_json",
  "stanchion",
