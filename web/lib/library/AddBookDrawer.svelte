@@ -23,7 +23,7 @@ interface Props {
 let { open, onclose }: Props = $props()
 
 const queryClient = useQueryClient()
-const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'pdf'] }]
+const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf'] }]
 
 let rows = $state<ImportRow[]>([])
 let summary = $state<ImportBatchResult | null>(null)
@@ -143,7 +143,7 @@ $effect(() => {
 
     <div class="drop-zone">
       <wa-icon name="file-arrow-up"></wa-icon>
-      <p>Drag EPUB or PDF files here</p>
+      <p>Drag EPUB, AZW3, AZW or PDF files here</p>
       <ActionButton variant="brand" onclick={chooseFiles} disabled={busy}>Choose files…</ActionButton>
       <wa-switch
         checked={copy}

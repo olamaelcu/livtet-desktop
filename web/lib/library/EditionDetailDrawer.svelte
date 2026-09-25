@@ -28,7 +28,7 @@ let failedCoverId = $state<string | null>(null)
 const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
 
 const queryClient = useQueryClient()
-const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'pdf'] }]
+const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf'] }]
 let relinking = $state(false)
 
 async function relinkFile() {

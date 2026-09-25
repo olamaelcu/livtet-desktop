@@ -23,7 +23,7 @@ use livtet_core::data::orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter, Set, TransactionTrait,
 };
-use livtet_importer::{EpubImporter, Importer, ImporterContributor, ImporterMeta};
+use livtet_importer::{EpubImporter, Importer, ImporterContributor, ImporterMeta, MobiImporter};
 use livtet_types::{CommonLanguages, DbId, Isbn, KnownFormats, Urn, now_primitive};
 
 use super::catalog::{EditionFile, FileStatus};
@@ -404,6 +404,7 @@ fn cover_extension(mime: &str) -> &str {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileImporterSource {
     NativeEpub,
+    NativeMobi,
     Remote,
 }
 
@@ -561,6 +562,10 @@ fn contributor_bindings(contributors: &[ImporterContributor]) -> Vec<(String, St
 fn format_id_for_extension(extension: &str) -> Option<DbId> {
     if extension.eq_ignore_ascii_case("epub") {
         Some(KnownFormats::Epub.into())
+    } else if extension.eq_ignore_ascii_case("azw3") {
+        Some(KnownFormats::Azw3.into())
+    } else if extension.eq_ignore_ascii_case("azw") {
+        Some(KnownFormats::Mobi.into())
     } else if extension.eq_ignore_ascii_case("pdf") {
         Some(KnownFormats::Pdf.into())
     } else {
@@ -571,6 +576,8 @@ fn format_id_for_extension(extension: &str) -> Option<DbId> {
 fn importer_source_for_extension(extension: &str) -> FileImporterSource {
     if extension.eq_ignore_ascii_case("epub") {
         FileImporterSource::NativeEpub
+    } else if extension.eq_ignore_ascii_case("azw3") || extension.eq_ignore_ascii_case("azw") {
+        FileImporterSource::NativeMobi
     } else {
         FileImporterSource::Remote
     }
@@ -602,6 +609,12 @@ async fn import_one(
     let (meta, source_bytes) = match importer_source_for_extension(&extension) {
         FileImporterSource::NativeEpub => (
             EpubImporter
+                .read_metadata(path.to_string())
+                .map_err(|error| ImportError::new("parse", error))?,
+            None,
+        ),
+        FileImporterSource::NativeMobi => (
+            MobiImporter
                 .read_metadata(path.to_string())
                 .map_err(|error| ImportError::new("parse", error))?,
             None,
@@ -1089,6 +1102,18 @@ mod tests {
     }
 
     #[test]
+    fn azw3_and_azw_extensions_use_the_native_mobi_importer() {
+        assert!(matches!(
+            importer_source_for_extension("AZW3"),
+            FileImporterSource::NativeMobi
+        ));
+        assert!(matches!(
+            importer_source_for_extension("azw"),
+            FileImporterSource::NativeMobi
+        ));
+    }
+
+    #[test]
     fn unknown_extensions_use_remote_importers() {
         assert!(matches!(
             importer_source_for_extension("pdf"),
@@ -1118,6 +1143,14 @@ mod tests {
         assert_eq!(
             format_id_for_extension("epub"),
             Some(livtet_types::KnownFormats::Epub.into())
+        );
+        assert_eq!(
+            format_id_for_extension("azw3"),
+            Some(livtet_types::KnownFormats::Azw3.into())
+        );
+        assert_eq!(
+            format_id_for_extension("AZW"),
+            Some(livtet_types::KnownFormats::Mobi.into())
         );
         assert_eq!(
             format_id_for_extension("PDF"),
