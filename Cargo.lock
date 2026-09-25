@@ -4293,6 +4293,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "livtet-reader"
+version = "0.1.0"
+dependencies = [
+ "livtet-epub",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
+ "zip",
+]
+
+[[package]]
 name = "livtet-search"
 version = "0.1.0"
 source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"

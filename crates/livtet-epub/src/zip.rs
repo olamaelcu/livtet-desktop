@@ -27,7 +27,7 @@ pub(crate) const MAX_ENTRY_BYTES: usize = 64 * 1024 * 1024;
 const INITIAL_READ_CAPACITY: usize = 1 << 20;
 
 /// An open EPUB archive. Entries are keyed by normalized (forward-slash) name.
-pub(crate) struct Archive {
+pub struct Archive {
     names: Vec<String>,
     inner: Inner,
 }
@@ -128,6 +128,11 @@ impl Archive {
     /// Whether an entry with this normalized name exists.
     pub fn contains(&self, name: &str) -> bool {
         self.names.iter().any(|entry| entry == name)
+    }
+
+    /// Every entry name in the archive, normalized to forward slashes.
+    pub fn entries(&self) -> Vec<String> {
+        self.names.clone()
     }
 
     /// Read an entry's decompressed bytes, or `None` if it is missing, is a
@@ -464,5 +469,13 @@ mod tests {
     #[test]
     fn normalizes_backslashes() {
         assert_eq!(normalize("OEBPS\\content.opf"), "OEBPS/content.opf");
+    }
+
+    #[test]
+    fn lists_entry_names() {
+        let archive = Archive::open(sample_zip()).unwrap();
+        let mut entries = archive.entries();
+        entries.sort();
+        assert_eq!(entries, vec!["OEBPS/content.opf", "mimetype"]);
     }
 }

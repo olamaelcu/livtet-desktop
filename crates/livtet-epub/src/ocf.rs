@@ -9,7 +9,7 @@ pub(crate) const CONTAINER_PATH: &str = "META-INF/container.xml";
 /// Resolve the archive path of the first `<rootfile>` that actually exists in
 /// the archive. Missing entries are skipped (a known Kobo quirk), but if no
 /// rootfile can be found the container is rejected rather than guessed at.
-pub(crate) fn find_opf_path(archive: &mut Archive) -> Result<String, EpubError> {
+pub fn find_opf_path(archive: &mut Archive) -> Result<String, EpubError> {
     let bytes = archive
         .read(CONTAINER_PATH)
         .ok_or_else(|| EpubError::Container(format!("missing {CONTAINER_PATH}")))?;
@@ -45,7 +45,7 @@ pub(crate) fn find_opf_path(archive: &mut Archive) -> Result<String, EpubError> 
 }
 
 /// Directory portion of an OPF path (empty when the OPF is at the archive root).
-pub(crate) fn base_dir(opf_path: &str) -> String {
+pub fn base_dir(opf_path: &str) -> String {
     match opf_path.rfind('/') {
         Some(index) => opf_path[..index].to_string(),
         None => String::new(),

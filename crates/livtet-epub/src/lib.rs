@@ -22,8 +22,8 @@ mod cover;
 mod encryption;
 mod error;
 mod metadata;
-mod ocf;
-mod xml;
+pub mod ocf;
+pub mod xml;
 mod zip;
 
 #[cfg(test)]
@@ -37,6 +37,7 @@ pub use livtet_importer_types::{
     SourceMetadata, Subject, Title,
 };
 pub use livtet_types::Isbn;
+pub use zip::Archive;
 
 /// Convenience alias for results from this crate.
 pub type Result<T> = std::result::Result<T, EpubError>;

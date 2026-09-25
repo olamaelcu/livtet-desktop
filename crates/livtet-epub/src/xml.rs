@@ -26,7 +26,7 @@ pub(crate) const MAX_DEPTH: usize = 512;
 /// One attribute of an [`Element`]. `name` keeps the raw qualified name while
 /// `local`/`prefix` split it (so `opf:role` and `role` can both be matched).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Attr {
+pub struct Attr {
     pub name: String,
     pub local: String,
     pub prefix: Option<String>,
@@ -35,7 +35,7 @@ pub(crate) struct Attr {
 
 /// An owned XML element with its children and its own direct text.
 #[derive(Debug, Clone)]
-pub(crate) struct Element {
+pub struct Element {
     pub local: String,
     pub attrs: Vec<Attr>,
     pub children: Vec<Element>,
@@ -112,7 +112,7 @@ impl Element {
 }
 
 /// Parse an XML document, tolerating real-world damage.
-pub(crate) fn parse(bytes: &[u8]) -> Result<Element, EpubError> {
+pub fn parse(bytes: &[u8]) -> Result<Element, EpubError> {
     let decoded = decode(bytes);
     let sanitized = sanitize(&decoded);
     parse_str(&sanitized)
