@@ -15,7 +15,7 @@
 //!   are only attached to requests on the catalog's own origin.
 
 use livtet_opds_client::{Client, OpdsAuth, default_catalogs};
-use livtet_opds_types::{Collection, Feed, Link, Publication};
+use livtet_opds_types::{Feed, Link, Publication};
 use livtet_types::DbId;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -28,7 +28,31 @@ use crate::error::OpdsError;
 use crate::types::AppState;
 
 const CATALOGS_KEY: &str = "catalogs";
-const ACQUISITION_REL: &str = "http://opds-spec.org/acquisition";
+
+/// True when a link relation denotes an acquisition, in either the OPDS 1.x
+/// URI form (`http://opds-spec.org/acquisition[/...]`), the short form the
+/// Atom parser normalizes to (`acquisition`, `open-access`, ...), or an OPDS
+/// 2.0 alias (`download`, `borrow`, `buy`, `preview`, `subscribe`).
+fn is_acquisition_rel(rel: &str) -> bool {
+    matches!(
+        rel,
+        "acquisition"
+            | "open-access"
+            | "borrow"
+            | "buy"
+            | "sample"
+            | "preview"
+            | "subscribe"
+            | "download"
+    ) || rel == "http://opds-spec.org/acquisition"
+        || rel.starts_with("http://opds-spec.org/acquisition/")
+}
+
+/// True when an acquisition relation is open-access (freely downloadable).
+fn is_open_access_rel(rel: &str) -> bool {
+    matches!(rel, "open-access" | "download")
+        || rel == "http://opds-spec.org/acquisition/open-access"
+}
 
 /// How a request to a catalog authenticates. Never carries the secret itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -67,6 +91,7 @@ pub struct OpdsPreset {
     pub url: String,
     pub description: String,
     pub version: String,
+    pub requires_auth: bool,
 }
 
 /// A sub-section of a feed the user can drill into.
@@ -195,16 +220,12 @@ fn format_date(value: Option<time::OffsetDateTime>) -> Option<String> {
 /// Pick the best acquisition link for an item. Prefers open-access EPUB, then
 /// any EPUB, then any open-access, then the first acquisition link.
 fn preferred_acquisition(links: &[Link]) -> Option<&Link> {
-    let is_open_access = |link: &Link| {
-        link.rel
-            .iter()
-            .any(|rel| rel == "http://opds-spec.org/acquisition/open-access")
-    };
+    let is_open_access = |link: &Link| link.rel.iter().any(|rel| is_open_access_rel(rel));
     let is_epub = |link: &Link| link.type_ == "application/epub+zip";
 
     let acquisitions: Vec<&Link> = links
         .iter()
-        .filter(|link| link.rel.iter().any(|rel| rel == ACQUISITION_REL))
+        .filter(|link| link.rel.iter().any(|rel| is_acquisition_rel(rel)))
         .collect();
     acquisitions
         .iter()
@@ -218,21 +239,6 @@ fn preferred_acquisition(links: &[Link]) -> Option<&Link> {
                 .find(|link| is_open_access(link))
         })
         .or_else(|| acquisitions.first().copied())
-}
-
-fn preferred_navigation_href(links: &[Link]) -> Option<String> {
-    let is_navigation = |link: &Link| {
-        link.rel.iter().any(|rel| {
-            rel == "subsection"
-                || rel.ends_with("/navigation")
-                || rel == "http://opds-spec.org/navigation"
-        })
-    };
-    links
-        .iter()
-        .find(|link| is_navigation(link))
-        .or_else(|| links.first())
-        .map(|link| link.href.clone())
 }
 
 fn cover_url(publication: &Publication) -> Option<String> {
@@ -265,18 +271,18 @@ fn map_publication(publication: &Publication) -> OpdsPublication {
     }
 }
 
-fn map_collection(collection: &Collection) -> OpdsNavigation {
-    OpdsNavigation {
-        title: collection.metadata.title.clone(),
-        href: preferred_navigation_href(&collection.links),
-    }
-}
-
 fn map_feed(feed: &Feed) -> OpdsFeed {
     OpdsFeed {
         title: feed.metadata.title.clone(),
         identifier: feed.metadata.identifier.clone(),
-        navigation: feed.navigation.iter().map(map_collection).collect(),
+        navigation: feed
+            .navigation
+            .iter()
+            .map(|link| OpdsNavigation {
+                title: link.title.clone().unwrap_or_else(|| link.href.clone()),
+                href: Some(link.href.clone()),
+            })
+            .collect(),
         publications: feed.publications.iter().map(map_publication).collect(),
         next_href: feed.next_page().map(|link| link.href.clone()),
         has_search: feed.search_template().is_some(),
@@ -411,6 +417,7 @@ pub fn opds_default_catalogs() -> Vec<OpdsPreset> {
             url: preset.url,
             description: preset.description,
             version: preset.version,
+            requires_auth: preset.requires_auth,
         })
         .collect()
 }
@@ -716,26 +723,32 @@ mod tests {
 
     #[test]
     fn preferred_acquisition_prefers_open_access_epub() {
-        let plain = link("application/epub+zip", &[ACQUISITION_REL]);
-        let open = link(
-            "application/epub+zip",
-            &[
-                ACQUISITION_REL,
-                "http://opds-spec.org/acquisition/open-access",
-            ],
-        );
+        let plain = link("application/epub+zip", &["acquisition"]);
+        let open = link("application/epub+zip", &["open-access"]);
         let links = vec![plain, open];
         let picked = preferred_acquisition(&links).expect("acquisition");
-        assert!(picked.rel.iter().any(|rel| rel.ends_with("open-access")));
+        assert!(picked.rel.iter().any(|rel| is_open_access_rel(rel)));
     }
 
     #[test]
     fn preferred_acquisition_falls_back_to_any_epub() {
-        let pdf = link("application/pdf", &[ACQUISITION_REL]);
-        let epub = link("application/epub+zip", &[ACQUISITION_REL]);
+        let pdf = link("application/pdf", &["acquisition"]);
+        let epub = link("application/epub+zip", &["acquisition"]);
         let links = vec![pdf, epub];
         let picked = preferred_acquisition(&links).expect("acquisition");
         assert_eq!(picked.type_, "application/epub+zip");
+    }
+
+    #[test]
+    fn preferred_acquisition_matches_ia_full_uri_rels() {
+        let pdf = link(
+            "application/pdf",
+            &["http://opds-spec.org/acquisition/open-access"],
+        );
+        let sample = link("text/html", &["http://opds-spec.org/acquisition/sample"]);
+        let links = vec![sample, pdf];
+        let picked = preferred_acquisition(&links).expect("acquisition");
+        assert_eq!(picked.type_, "application/pdf");
     }
 
     #[test]
@@ -745,6 +758,54 @@ mod tests {
             &["http://opds-spec.org/image"],
         )];
         assert!(preferred_acquisition(&links).is_none());
+    }
+
+    #[test]
+    fn acquisition_rels_accept_short_full_and_opds2_aliases() {
+        assert!(is_acquisition_rel("acquisition"));
+        assert!(is_acquisition_rel("open-access"));
+        assert!(is_acquisition_rel("borrow"));
+        assert!(is_acquisition_rel("http://opds-spec.org/acquisition"));
+        assert!(is_acquisition_rel(
+            "http://opds-spec.org/acquisition/open-access"
+        ));
+        assert!(is_acquisition_rel(
+            "http://opds-spec.org/acquisition/sample"
+        ));
+        assert!(is_acquisition_rel("download"));
+        assert!(is_acquisition_rel("preview"));
+        assert!(!is_acquisition_rel("self"));
+        assert!(!is_acquisition_rel("http://opds-spec.org/image"));
+        assert!(!is_acquisition_rel("collection"));
+
+        assert!(is_open_access_rel("open-access"));
+        assert!(is_open_access_rel("download"));
+        assert!(is_open_access_rel(
+            "http://opds-spec.org/acquisition/open-access"
+        ));
+        assert!(!is_open_access_rel("borrow"));
+        assert!(!is_open_access_rel(
+            "http://opds-spec.org/acquisition/borrow"
+        ));
+    }
+
+    #[test]
+    fn map_feed_maps_compact_navigation_links() {
+        let mut feed = Feed::new("Archive.org");
+        feed.navigation.push(Link::new(
+            "https://archive.org/services/opds/catalog?type=navigation&nav_key=page_ebooks",
+            "application/opds+json",
+            vec!["collection".to_string()],
+        ));
+        feed.navigation[0].title = Some("eBooks".to_string());
+
+        let mapped = map_feed(&feed);
+        assert_eq!(mapped.navigation.len(), 1);
+        assert_eq!(mapped.navigation[0].title, "eBooks");
+        assert_eq!(
+            mapped.navigation[0].href.as_deref(),
+            Some("https://archive.org/services/opds/catalog?type=navigation&nav_key=page_ebooks")
+        );
     }
 
     #[test]

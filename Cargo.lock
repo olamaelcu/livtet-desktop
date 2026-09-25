@@ -3828,7 +3828,7 @@ dependencies = [
 [[package]]
 name = "livtet-opds-atom"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#90735968ab727ced2a34d0049410bd23ff55eb94"
+source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#385b7b0a1b491ce523a485aa1f2402217b091119"
 dependencies = [
  "itertools 0.15.0",
  "livtet-opds-types",
@@ -3842,7 +3842,7 @@ dependencies = [
 [[package]]
 name = "livtet-opds-client"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#90735968ab727ced2a34d0049410bd23ff55eb94"
+source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#385b7b0a1b491ce523a485aa1f2402217b091119"
 dependencies = [
  "camino",
  "camino-tempfile",
@@ -3863,7 +3863,7 @@ dependencies = [
 [[package]]
 name = "livtet-opds-types"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#90735968ab727ced2a34d0049410bd23ff55eb94"
+source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#385b7b0a1b491ce523a485aa1f2402217b091119"
 dependencies = [
  "mutants",
  "serde",

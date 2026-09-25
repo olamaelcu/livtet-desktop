@@ -243,6 +243,11 @@ function onRemove(catalog: OpdsCatalog) {
           </div>
           {#if subscribedUrls.has(preset.url)}
             <wa-badge variant="success">Subscribed</wa-badge>
+          {:else if preset.requires_auth}
+            <div class="preset-auth">
+              <wa-badge variant="warning">Members only</wa-badge>
+              <span class="hint">Add it below with Basic auth (your email, blank password).</span>
+            </div>
           {:else}
             <ActionButton onclick={() => subscribe.mutate(preset)} disabled={subscribe.isPending}>
               Subscribe
@@ -308,6 +313,14 @@ function onRemove(catalog: OpdsCatalog) {
   .form-actions {
     display: flex;
     gap: var(--wa-space-s);
+  }
+
+  .preset-auth {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--wa-space-3xs);
+    text-align: right;
   }
 
   .hint,

@@ -88,7 +88,7 @@ const acquire = createMutation(() => ({
 
     {#if active.navigation.length > 0}
       <nav class="navigation">
-        {#each active.navigation as section (section.title)}
+        {#each active.navigation as section (section.href ?? section.title)}
           <ActionButton
             disabled={!section.href}
             onclick={() => {
