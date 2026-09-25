@@ -1,16 +1,11 @@
 //! Front-cover resolution from the OPF manifest, `<meta name="cover">`, and the
 //! guide, with a media-type guard and an encryption check.
 
+use livtet_importer_types::Cover;
+
 use crate::encryption::Encryption;
 use crate::xml::Element;
 use crate::zip::Archive;
-
-/// Front-cover image bytes and media type as declared in the manifest.
-#[derive(Debug, Clone)]
-pub struct Cover {
-    pub data: Vec<u8>,
-    pub mime: String,
-}
 
 /// Resolve the cover, if one can be found and safely read.
 ///

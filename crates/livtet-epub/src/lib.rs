@@ -14,7 +14,7 @@
 //!
 //! Contributors from `dc:creator`/`dc:contributor` are de-duplicated by
 //! `(name, role)`; a role-less contributor that repeats a creator is dropped.
-//! [`EpubMetadata::title_sort`] comes from the main title's `file-as`
+//! [`SourceMetadata::title_sort`] comes from the main title's `file-as`
 //! refinement or `calibre:title_sort`.
 
 mod cover;
@@ -30,13 +30,12 @@ mod test_support;
 
 use std::path::Path;
 
-pub use cover::Cover;
 pub use error::EpubError;
-pub use livtet_types::Isbn;
-pub use metadata::{
-    Contributor, Description, EpubMetadata, Identifier, Language, PublicationDate, Publisher, Role,
-    Subject, Title,
+pub use livtet_importer_types::{
+    Contributor, Cover, Description, Identifier, Language, PublicationDate, Publisher, Role,
+    SourceMetadata, Subject, Title,
 };
+pub use livtet_types::Isbn;
 
 /// Convenience alias for results from this crate.
 pub type Result<T> = std::result::Result<T, EpubError>;
@@ -45,8 +44,8 @@ pub type Result<T> = std::result::Result<T, EpubError>;
 ///
 /// Fails closed: an unreadable file or a missing title or creator is an error.
 /// A missing ISBN is not: when the metadata carries none, the content documents
-/// are scanned for one, so [`EpubMetadata::isbns`] may be empty.
-pub fn read_metadata(path: &Path) -> Result<EpubMetadata> {
+/// are scanned for one, so [`SourceMetadata::isbns`] may be empty.
+pub fn read_metadata(path: &Path) -> Result<SourceMetadata> {
     let bytes = std::fs::read(path)?;
     let mut archive = zip::Archive::open(bytes)?;
     metadata::extract(&mut archive)

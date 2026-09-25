@@ -9,6 +9,7 @@ publish = false
 
 [dependencies]
 flate2 = "1"
+livtet-importer-types.workspace = true
 livtet-types.workspace = true
 quick-xml = "0.42"
 thiserror = "2"

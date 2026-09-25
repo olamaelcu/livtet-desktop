@@ -5,7 +5,7 @@ mod test_support;
 
 use std::path::Path;
 
-use livtet_epub::{Contributor, Cover, EpubError, EpubMetadata, Role, read_metadata};
+use livtet_epub::{Contributor, Cover, EpubError, Role, SourceMetadata, read_metadata};
 use test_support::{EpubBuilder, package, package3};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake-png-bytes";
@@ -13,11 +13,11 @@ const JPEG: &[u8] = b"\xFF\xD8\xFF\xE0fake-jpeg-bytes";
 
 type ErrorCheck = fn(&EpubError) -> bool;
 
-fn meta_for(metadata_body: &str) -> EpubMetadata {
+fn meta_for(metadata_body: &str) -> SourceMetadata {
     try_body(metadata_body).expect("valid EPUB")
 }
 
-fn try_body(metadata_body: &str) -> livtet_epub::Result<EpubMetadata> {
+fn try_body(metadata_body: &str) -> livtet_epub::Result<SourceMetadata> {
     read_metadata(
         EpubBuilder::new(package3(metadata_body, "", ""))
             .tempfile()
@@ -44,7 +44,7 @@ const UUID_ONLY_METADATA: &str = r##"
     <dc:creator>Someone</dc:creator>
     "##;
 
-fn other_identifiers(metadata: &EpubMetadata) -> Vec<&str> {
+fn other_identifiers(metadata: &SourceMetadata) -> Vec<&str> {
     metadata
         .other_identifiers
         .iter()
@@ -52,7 +52,7 @@ fn other_identifiers(metadata: &EpubMetadata) -> Vec<&str> {
         .collect()
 }
 
-fn assert_uuid_only_identifier(metadata: &EpubMetadata) {
+fn assert_uuid_only_identifier(metadata: &SourceMetadata) {
     assert!(metadata.isbns.is_empty());
     assert_eq!(
         other_identifiers(metadata),
@@ -62,7 +62,7 @@ fn assert_uuid_only_identifier(metadata: &EpubMetadata) {
 
 /// Build an EPUB whose `chapter.xhtml` content document holds `chapter`, then
 /// extract its metadata.
-fn epub_with_chapter(metadata: &str, chapter: impl Into<Vec<u8>>) -> EpubMetadata {
+fn epub_with_chapter(metadata: &str, chapter: impl Into<Vec<u8>>) -> SourceMetadata {
     let epub = EpubBuilder::new(package3(metadata, "", "")).file("OEBPS/chapter.xhtml", chapter);
     read_metadata(epub.tempfile().path()).unwrap()
 }
@@ -600,7 +600,7 @@ fn encryption_for(algorithm: &str, uri: &str) -> String {
 }
 
 /// A minimal EPUB whose shared EPUB3 JPEG cover item carries `encryption`.
-fn metadata_with_encryption(encryption: impl Into<String>) -> EpubMetadata {
+fn metadata_with_encryption(encryption: impl Into<String>) -> SourceMetadata {
     let epub = EpubBuilder::new(package3(minimal_metadata(), EPUB3_JPEG_COVER_ITEM, ""))
         .file("OEBPS/cover.jpg", JPEG.to_vec())
         .encryption(encryption);
