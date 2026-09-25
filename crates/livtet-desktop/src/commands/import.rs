@@ -21,7 +21,7 @@ use livtet_core::data::orm::{
     ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, Set,
     TransactionTrait,
 };
-use livtet_importer::{EpubImporter, Importer, ImporterMeta};
+use livtet_importer::{EpubImporter, Importer, ImporterContributor, ImporterMeta};
 use livtet_types::{CommonLanguages, DbId, Isbn, KnownFormats, Urn, now_primitive};
 
 use super::importers::remote_importer_metadata;
@@ -329,6 +329,12 @@ fn validate_importer_meta(meta: &ImporterMeta) -> Result<Vec<String>, ImportErro
     Ok(canonical_isbns)
 }
 
+/// Whether `role` is one of the core MARC relator codes the native importer
+/// produces.
+fn is_core_contributor_role(role: &str) -> bool {
+    matches!(role, "aut" | "edt" | "trl" | "ill")
+}
+
 /// Normalizes a contributor role for storage, reporting whether it is one of
 /// the core MARC relator codes the native importer produces.
 fn normalize_contributor_role(role: Option<&str>) -> (String, bool) {
@@ -336,9 +342,40 @@ fn normalize_contributor_role(role: Option<&str>) -> (String, bool) {
         .map(str::trim)
         .filter(|role| !role.is_empty())
         .unwrap_or("aut")
-        .to_string();
-    let known = matches!(normalized.as_str(), "aut" | "edt" | "trl" | "ill");
+        .to_ascii_lowercase();
+    let known = is_core_contributor_role(&normalized);
     (normalized, known)
+}
+
+/// Collapse a list of strings to its unique non-empty entries, in first-seen
+/// order. Importers already dedupe their output, but this fence guarantees a
+/// repeated subject or ISBN can never violate a composite primary key on
+/// `edition_subjects` / `edition_identifiers` regardless of what it hands us.
+fn unique_preserving_order(values: &[String]) -> Vec<String> {
+    let mut unique: Vec<String> = Vec::with_capacity(values.len());
+    for value in values {
+        let value = value.trim();
+        if !value.is_empty() && !unique.iter().any(|seen| seen == value) {
+            unique.push(value.to_string());
+        }
+    }
+    unique
+}
+
+/// Collapse contributor records to the `(name, normalized_role)` pairs that
+/// become `edition_authors` rows, in input order and deduplicated. The importer
+/// already dedupes its output, but this fence guarantees a repeated binding can
+/// never violate the composite primary key regardless of what it hands us.
+fn contributor_bindings(contributors: &[ImporterContributor]) -> Vec<(String, String)> {
+    let mut bindings: Vec<(String, String)> = Vec::with_capacity(contributors.len());
+    for contributor in contributors {
+        let (role, _) = normalize_contributor_role(contributor.role.as_deref());
+        let binding = (contributor.name.clone(), role);
+        if !bindings.contains(&binding) {
+            bindings.push(binding);
+        }
+    }
+    bindings
 }
 
 fn format_id_for_extension(extension: &str) -> Option<DbId> {
@@ -395,7 +432,8 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
             (read.meta, Some(read.source_bytes))
         }
     };
-    let isbn_strings = validate_importer_meta(&meta)?;
+    // Fail closed before reading file bytes (persist_import revalidates to derive canonical ISBNs).
+    validate_importer_meta(&meta)?;
 
     // Content hash for dedup. Remote imports reuse the exact bytes served
     // through `fs_read`; native parsing still opens the file separately.
@@ -405,18 +443,64 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
             .await
             .map_err(|e| ImportError::new("io", format!("reading file: {e}")))?,
     };
-    let file_hash = hex::encode(sha2::Sha256::digest(&bytes));
 
-    let db = state.db.db_conn();
+    let outcome = persist_import(
+        &state.db,
+        &state.covers_dir,
+        &meta,
+        &bytes,
+        &file_path,
+        &extension,
+    )
+    .await?;
+
+    // Surface a fresh edition in search; add_edition currently rebuilds the
+    // whole index (see livtet-search write path comment). A duplicate import
+    // wrote nothing, so there is nothing new to index.
+    if !outcome.duplicate {
+        let edition_id = outcome
+            .edition_id
+            .parse::<DbId>()
+            .map_err(|error| ImportError::new("index", error))?;
+        let db = state.db.db_conn();
+        let guard = state.search_index.read().await;
+        if let Some(index) = guard.as_ref() {
+            index
+                .add_edition(&db, edition_id)
+                .await
+                .map_err(|e| ImportError::new("index", e))?;
+        }
+    }
+
+    Ok(outcome)
+}
+
+/// Persist the catalog rows for an already-parsed importer record and write the
+/// cover to disk. Hash dedup and every row insert share one transaction; a hash
+/// match returns the pre-existing edition without writing anything. Kept free of
+/// Tauri state so it can be unit-tested against a `TestDb`.
+#[tracing::instrument(skip_all, fields(path = %file_path.display()), ret, err)]
+async fn persist_import(
+    db: &livtet_core::data::SharedState,
+    covers_dir: &camino::Utf8Path,
+    meta: &ImporterMeta,
+    bytes: &[u8],
+    file_path: &std::path::Path,
+    extension: &str,
+) -> Result<ImportOutcome, ImportError> {
+    let isbn_strings = unique_preserving_order(&validate_importer_meta(meta)?);
+    let file_hash = hex::encode(sha2::Sha256::digest(bytes));
+
+    let conn = db.db_conn();
 
     // Dedup: identical bytes already imported?
     if let Some(existing) = digital_inventory::Entity::find()
         .filter(digital_inventory::Column::FileHash.eq(&file_hash))
-        .one(&db)
+        .one(&conn)
         .await?
     {
         let edition = editions::Entity::find_by_id(existing.edition_id)
-            .one(&db)
+            .one(&conn)
             .await?;
         let (work_id, title) = edition
             .map(|e| (e.work_id.to_string(), e.title.unwrap_or_default()))
@@ -425,13 +509,13 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
             work_id,
             edition_id: existing.edition_id.to_string(),
             title,
-            isbns: isbn_strings.clone(),
+            isbns: isbn_strings,
             duplicate: true,
         });
     }
 
     let title = meta.title.clone();
-    let txn = db.begin().await?;
+    let txn = conn.begin().await?;
 
     let work_id = DbId::new();
     let language_id = resolve_language(&txn, meta.language.as_deref()).await?;
@@ -441,7 +525,7 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
         id: Set(work_id),
         title: Set(title.clone()),
         description: Set(meta.description.clone()),
-        sort_title: Set(None),
+        sort_title: Set(meta.title_sort.clone()),
         series_type: Set(None),
         language_id: Set(language_id),
         preferred_edition_id: Set(None),
@@ -467,8 +551,7 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
     // where data_dir is {dirs data dir}/{BUNDLE_ID} and covers_dir already
     // resolves to its `data/covers` child (see `Paths::new`).
     let cover_path = cover.as_ref().map(|(mime, _)| {
-        state
-            .covers_dir
+        covers_dir
             .join(inventory_id.to_string())
             .join(format!("cover.{}", cover_extension(mime)))
             .to_string()
@@ -489,7 +572,7 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
             )
             .ok()
         })),
-        format_id: Set(format_id_for_extension(&extension)),
+        format_id: Set(format_id_for_extension(extension)),
         language_id: Set(language_id),
         notes: Set(None),
         description: Set(meta.description.clone()),
@@ -499,10 +582,11 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
     .insert(&txn)
     .await?;
 
-    for contributor in &meta.contributors {
-        let author_id = upsert_author(&txn, &contributor.name).await?;
-        let (role, known) = normalize_contributor_role(contributor.role.as_deref());
-        if !known {
+    // Deduped by `(name, normalized_role)` so a repeated importer binding can
+    // never violate the `edition_authors` composite primary key.
+    for (name, role) in contributor_bindings(&meta.contributors) {
+        let author_id = upsert_author(&txn, &name).await?;
+        if !is_core_contributor_role(&role) {
             tracing::debug!(role, "storing non-core contributor role");
         }
         edition_authors::ActiveModel {
@@ -524,8 +608,8 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
         .await?;
     }
 
-    for subject in &meta.subjects {
-        let subject_id = upsert_subject(&txn, subject).await?;
+    for subject in unique_preserving_order(&meta.subjects) {
+        let subject_id = upsert_subject(&txn, &subject).await?;
         edition_subjects::ActiveModel {
             edition_id: Set(edition_id),
             subject_id: Set(subject_id),
@@ -555,7 +639,7 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
         dominant_color: Set(None),
         file_hash: Set(Some(file_hash)),
         file_size_bytes: Set(Some(file_size_bytes)),
-        file_format: Set((!extension.is_empty()).then(|| extension.clone())),
+        file_format: Set((!extension.is_empty()).then(|| extension.to_string())),
         notes: Set(None),
         added_at: Set(now),
         updated_at: Set(None),
@@ -583,24 +667,12 @@ async fn import_one(path: &str, state: &AppState) -> Result<ImportOutcome, Impor
             tracing::warn!(%err, %path, "cover write failed; clearing cover_path");
             let mut model: digital_inventory::ActiveModel = digital_inventory::Entity::find()
                 .filter(digital_inventory::Column::EditionId.eq(edition_id))
-                .one(&db)
+                .one(&conn)
                 .await?
                 .ok_or_else(|| ImportError::new("database", "inventory row vanished post-commit"))?
                 .into();
             model.cover_path = Set(None);
-            model.update(&db).await?;
-        }
-    }
-
-    // Surface the new edition in search; add_edition currently rebuilds the
-    // whole index (see livtet-search write path comment).
-    {
-        let guard = state.search_index.read().await;
-        if let Some(index) = guard.as_ref() {
-            index
-                .add_edition(&db, edition_id)
-                .await
-                .map_err(|e| ImportError::new("index", e))?;
+            model.update(&conn).await?;
         }
     }
 
@@ -677,12 +749,18 @@ pub async fn import_files(paths: Vec<String>, app: AppHandle) -> ImportBatchResu
 
 #[cfg(test)]
 mod tests {
-    use livtet_importer::ImporterMeta;
+    use livtet_core::data::entities::{
+        edition_authors, edition_identifiers, edition_subjects, editions, works,
+    };
+    use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use livtet_core::data::{Kind, TestDb};
+    use livtet_importer::{ImporterContributor, ImporterMeta};
+    use livtet_types::DbId;
 
     use super::{
         FileImporterSource, ImportError, ImportFileResult, ImportOutcome, batch_result,
-        file_result, format_id_for_extension, importer_source_for_extension,
-        normalize_contributor_role, validate_importer_meta,
+        contributor_bindings, file_result, format_id_for_extension, importer_source_for_extension,
+        normalize_contributor_role, persist_import, validate_importer_meta,
     };
 
     #[test]
@@ -734,6 +812,7 @@ mod tests {
     fn valid_record() -> ImporterMeta {
         ImporterMeta {
             title: "Remote Title".to_string(),
+            title_sort: None,
             contributors: vec![livtet_importer::ImporterContributor {
                 name: "Remote Author".to_string(),
                 role: Some("aut".to_string()),
@@ -841,5 +920,282 @@ mod tests {
         let batch = batch_result(Vec::<ImportFileResult>::new());
         assert_eq!((batch.imported, batch.duplicated, batch.failed), (0, 0, 0));
         assert!(batch.files.is_empty());
+    }
+
+    fn contributor(name: &str, role: Option<&str>) -> ImporterContributor {
+        ImporterContributor {
+            name: name.to_string(),
+            role: role.map(str::to_string),
+            file_as: None,
+        }
+    }
+
+    /// The `(name, role)` bindings produced for the given `(name, role)` input.
+    fn bindings(pairs: &[(&str, Option<&str>)]) -> Vec<(String, String)> {
+        let contributors: Vec<ImporterContributor> = pairs
+            .iter()
+            .map(|(name, role)| contributor(name, *role))
+            .collect();
+        contributor_bindings(&contributors)
+    }
+
+    fn importable_record(title: &str, title_sort: Option<&str>) -> ImporterMeta {
+        ImporterMeta {
+            title: title.to_string(),
+            title_sort: title_sort.map(str::to_string),
+            contributors: vec![contributor("Susana M. Morris", Some("aut"))],
+            isbns: vec!["9781784780609".to_string(), "9780306406157".to_string()],
+            other_identifiers: Vec::new(),
+            publisher: None,
+            language: None,
+            published: None,
+            description: None,
+            subjects: Vec::new(),
+            cover: None,
+        }
+    }
+
+    fn temporary_covers_dir() -> (tempfile::TempDir, camino::Utf8PathBuf) {
+        let dir = tempfile::tempdir().expect("covers temp dir");
+        let path = camino::Utf8Path::from_path(dir.path())
+            .expect("utf8 temp path")
+            .to_path_buf();
+        (dir, path)
+    }
+
+    #[test]
+    fn contributor_bindings_dedupes_same_name_and_role() {
+        assert_eq!(
+            bindings(&[
+                ("Susana M. Morris", Some("aut")),
+                ("Susana M. Morris", Some("aut")),
+            ]),
+            vec![("Susana M. Morris".to_string(), "aut".to_string())]
+        );
+    }
+
+    #[test]
+    fn contributor_bindings_keeps_distinct_roles() {
+        assert_eq!(
+            bindings(&[
+                ("Susana M. Morris", Some("aut")),
+                ("Susana M. Morris", Some("ill")),
+            ]),
+            vec![
+                ("Susana M. Morris".to_string(), "aut".to_string()),
+                ("Susana M. Morris".to_string(), "ill".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn contributor_bindings_blank_role_defaults_to_aut() {
+        assert_eq!(
+            bindings(&[("Susana M. Morris", None), ("Susana M. Morris", Some("  ")),]),
+            vec![("Susana M. Morris".to_string(), "aut".to_string())]
+        );
+    }
+
+    #[test]
+    fn contributor_bindings_preserves_order() {
+        assert_eq!(
+            bindings(&[
+                ("First", Some("aut")),
+                ("Second", Some("edt")),
+                ("Third", Some("ill")),
+            ]),
+            vec![
+                ("First".to_string(), "aut".to_string()),
+                ("Second".to_string(), "edt".to_string()),
+                ("Third".to_string(), "ill".to_string()),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn persist_import_records_metadata_and_sort_title() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let state = test_db.state();
+        let (_covers, covers_dir) = temporary_covers_dir();
+        let meta = importable_record("Positive Obsession", Some("Morris, Susana M."));
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"epub bytes",
+            std::path::Path::new("/books/positive-obsession.epub"),
+            "epub",
+        )
+        .await
+        .expect("persist import");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+
+        let author_rows = edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition authors");
+        assert_eq!(author_rows.len(), 1);
+
+        let work_id = outcome.work_id.parse::<DbId>().expect("work id");
+        let work = works::Entity::find_by_id(work_id)
+            .one(&conn)
+            .await
+            .expect("work query")
+            .expect("work present");
+        assert_eq!(work.sort_title.as_deref(), Some("Morris, Susana M."));
+
+        let identifier_rows = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition identifiers");
+        assert_eq!(identifier_rows.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn persist_import_dedupes_duplicate_contributor_bindings() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let state = test_db.state();
+        let (_covers, covers_dir) = temporary_covers_dir();
+        let mut meta = importable_record("Positive Obsession", None);
+        meta.contributors = vec![
+            contributor("Susana M. Morris", Some("aut")),
+            contributor("Susana M. Morris", Some("aut")),
+        ];
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"duplicate binding bytes",
+            std::path::Path::new("/books/duplicate.epub"),
+            "epub",
+        )
+        .await
+        .expect("duplicate bindings must persist");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let author_rows = edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition authors");
+        assert_eq!(author_rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn persist_import_dedupes_duplicate_subjects() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let state = test_db.state();
+        let (_covers, covers_dir) = temporary_covers_dir();
+        let mut meta = importable_record("Positive Obsession", None);
+        meta.subjects = vec![
+            "Fiction".to_string(),
+            "Fiction".to_string(),
+            " Fiction ".to_string(),
+        ];
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"duplicate subject bytes",
+            std::path::Path::new("/books/duplicate-subjects.epub"),
+            "epub",
+        )
+        .await
+        .expect("duplicate subjects must persist");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let subject_rows = edition_subjects::Entity::find()
+            .filter(edition_subjects::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition subjects");
+        assert_eq!(subject_rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn persist_import_dedupes_duplicate_isbns() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let state = test_db.state();
+        let (_covers, covers_dir) = temporary_covers_dir();
+        let mut meta = importable_record("Positive Obsession", None);
+        meta.isbns = vec!["9781784780609".to_string(), "978-1-78478-060-9".to_string()];
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            b"duplicate isbn bytes",
+            std::path::Path::new("/books/duplicate-isbns.epub"),
+            "epub",
+        )
+        .await
+        .expect("duplicate isbns must persist");
+        assert!(!outcome.duplicate);
+        assert_eq!(outcome.isbns, vec!["9781784780609".to_string()]);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let identifier_rows = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition identifiers");
+        assert_eq!(identifier_rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn persist_import_dedupes_identical_file_hash() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let state = test_db.state();
+        let (_covers, covers_dir) = temporary_covers_dir();
+        let meta = importable_record("Positive Obsession", None);
+        let bytes = b"identical epub bytes";
+
+        let first = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            bytes,
+            std::path::Path::new("/books/first.epub"),
+            "epub",
+        )
+        .await
+        .expect("first import");
+        assert!(!first.duplicate);
+
+        let second = persist_import(
+            &state,
+            &covers_dir,
+            &meta,
+            bytes,
+            std::path::Path::new("/books/second.epub"),
+            "epub",
+        )
+        .await
+        .expect("second import");
+        assert!(second.duplicate);
+        assert_eq!(second.edition_id, first.edition_id);
+
+        let conn = state.db_conn();
+        let edition_rows = editions::Entity::find().all(&conn).await.expect("editions");
+        assert_eq!(edition_rows.len(), 1);
+
+        let author_rows = edition_authors::Entity::find()
+            .all(&conn)
+            .await
+            .expect("edition authors");
+        assert_eq!(author_rows.len(), 1);
     }
 }

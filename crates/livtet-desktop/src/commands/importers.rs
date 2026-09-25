@@ -45,6 +45,10 @@ fn check_remote_count(label: &str, len: usize) -> Result<(), ImportError> {
 
 fn check_remote_payload(record: &ImporterMeta) -> Result<(), ImportError> {
     check_remote_text("title", &record.title)?;
+    check_remote_text(
+        "title_sort",
+        record.title_sort.as_deref().unwrap_or_default(),
+    )?;
     check_remote_count("contributors", record.contributors.len())?;
     for contributor in &record.contributors {
         check_remote_text("contributor.name", &contributor.name)?;
@@ -413,6 +417,7 @@ return Importer
     fn remote_payload_rejects_an_unbounded_title() {
         let record = livtet_importer::ImporterMeta {
             title: "x".repeat(32_769),
+            title_sort: None,
             contributors: Vec::new(),
             isbns: Vec::new(),
             other_identifiers: Vec::new(),
@@ -429,6 +434,31 @@ return Importer
         assert_eq!(code, "importer");
         assert!(
             message.contains("title"),
+            "unexpected payload error: {message}"
+        );
+    }
+
+    #[test]
+    fn remote_payload_rejects_an_unbounded_title_sort() {
+        let record = livtet_importer::ImporterMeta {
+            title: "T".to_string(),
+            title_sort: Some("x".repeat(32_769)),
+            contributors: Vec::new(),
+            isbns: Vec::new(),
+            other_identifiers: Vec::new(),
+            publisher: None,
+            language: None,
+            published: None,
+            description: None,
+            subjects: Vec::new(),
+            cover: None,
+        };
+
+        let ImportError { code, message } =
+            check_remote_payload(&record).expect_err("remote text must be bounded");
+        assert_eq!(code, "importer");
+        assert!(
+            message.contains("title_sort"),
             "unexpected payload error: {message}"
         );
     }

@@ -19,6 +19,7 @@ impl Importer for EpubImporter {
 
         Ok(ImporterMeta {
             title: parsed.title.0,
+            title_sort: parsed.title_sort,
             contributors: parsed
                 .creators
                 .into_iter()

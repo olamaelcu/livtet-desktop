@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 fn complete_record() -> ImporterMeta {
     ImporterMeta {
         title: "Positive Obsession".to_string(),
+        title_sort: None,
         contributors: vec![ImporterContributor {
             name: "Susana M. Morris".to_string(),
             role: Some("aut".to_string()),
@@ -101,4 +102,53 @@ fn lua_empty_optional_objects_decode_as_missing() {
     assert_eq!(decoded.cover, None);
     assert_eq!(decoded.contributors[0].role, None);
     assert_eq!(decoded.contributors[0].file_as, None);
+}
+
+/// A minimal importer wire payload, optionally carrying `title_sort`.
+fn wire_with_title_sort(title_sort: Option<Value>) -> Value {
+    let mut wire = json!({
+        "title": "Remote Title",
+        "contributors": [],
+        "isbns": [],
+        "other_identifiers": [],
+        "publisher": null,
+        "language": null,
+        "published": null,
+        "description": null,
+        "subjects": [],
+        "cover": null
+    });
+    if let Some(title_sort) = title_sort {
+        wire["title_sort"] = title_sort;
+    }
+    wire
+}
+
+#[test]
+fn missing_title_sort_decodes_as_none() {
+    let decoded = ImporterMeta::from_wire_json(wire_with_title_sort(None))
+        .expect("metadata without title_sort decodes");
+    assert_eq!(decoded.title_sort, None);
+}
+
+#[test]
+fn lua_empty_title_sort_decodes_as_none() {
+    let decoded = ImporterMeta::from_wire_json(wire_with_title_sort(Some(json!({}))))
+        .expect("empty title_sort table decodes as none");
+    assert_eq!(decoded.title_sort, None);
+}
+
+#[test]
+fn title_sort_round_trips() {
+    let record = ImporterMeta {
+        title_sort: Some("Obsession, Positive".to_string()),
+        ..complete_record()
+    };
+    let encoded = serde_json::to_value(&record).expect("importer metadata is JSON");
+    assert_eq!(encoded["title_sort"], json!("Obsession, Positive"));
+
+    let decoded: ImporterMeta =
+        serde_json::from_value(encoded).expect("importer metadata round-trips");
+    assert_eq!(decoded.title_sort.as_deref(), Some("Obsession, Positive"));
+    assert_eq!(decoded, record);
 }

@@ -60,6 +60,8 @@ impl FromLua for ImporterCover {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImporterMeta {
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_sort: Option<String>,
     pub contributors: Vec<ImporterContributor>,
     pub isbns: Vec<String>,
     pub other_identifiers: Vec<String>,
@@ -115,7 +117,14 @@ impl ImporterMeta {
         if let Some(record) = value.as_object_mut() {
             normalize_optional_fields(
                 record,
-                &["publisher", "language", "published", "description", "cover"],
+                &[
+                    "title_sort",
+                    "publisher",
+                    "language",
+                    "published",
+                    "description",
+                    "cover",
+                ],
             );
             normalize_contributor_optionals(record);
             normalize_publication_optionals(record);

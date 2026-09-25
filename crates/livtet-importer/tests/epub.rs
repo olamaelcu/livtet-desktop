@@ -6,6 +6,10 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
 fn fixture_epub() -> tempfile::NamedTempFile {
+    fixture_epub_with_title_file_as(Some("Obsession, Positive"))
+}
+
+fn fixture_epub_with_title_file_as(file_as: Option<&str>) -> tempfile::NamedTempFile {
     let file = tempfile::Builder::new().suffix(".epub").tempfile().unwrap();
     let mut zip = ZipWriter::new(file.reopen().unwrap());
     let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
@@ -25,14 +29,17 @@ fn fixture_epub() -> tempfile::NamedTempFile {
     .unwrap();
     zip.start_file("OEBPS/cover.png", deflated).unwrap();
     zip.write_all(b"\x89PNG\r\n\x1a\nimporter-bytes").unwrap();
-    zip.start_file("OEBPS/content.opf", deflated).unwrap();
-    zip.write_all(
-        br##"<?xml version="1.0"?>
+    let title_file_as = file_as
+        .map(|value| format!(r##"<meta refines="#title" property="file-as">{value}</meta>"##))
+        .unwrap_or_default();
+    let opf = format!(
+        r##"<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="pub-id" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="pub-id">9781784780609</dc:identifier>
     <dc:identifier>publisher-123</dc:identifier>
-    <dc:title>Positive Obsession</dc:title>
+    <dc:title id="title">Positive Obsession</dc:title>
+    {title_file_as}
     <dc:creator id="aut">Susana M. Morris</dc:creator>
     <meta refines="#aut" property="role" scheme="marc:relators">aut</meta>
     <meta refines="#aut" property="file-as">Morris, Susana M.</meta>
@@ -47,9 +54,10 @@ fn fixture_epub() -> tempfile::NamedTempFile {
     <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
   </manifest>
   <spine><itemref idref="chapter"/></spine>
-</package>"##,
-    )
-    .unwrap();
+</package>"##
+    );
+    zip.start_file("OEBPS/content.opf", deflated).unwrap();
+    zip.write_all(opf.as_bytes()).unwrap();
     zip.start_file("OEBPS/chapter.xhtml", deflated).unwrap();
     zip.write_all(
         br##"<?xml version="1.0"?>
@@ -73,6 +81,7 @@ fn epub_importer_preserves_native_catalog_fields() {
 
     assert_eq!(importer.extensions().unwrap(), vec!["epub".to_string()]);
     assert_eq!(record.title, "Positive Obsession");
+    assert_eq!(record.title_sort.as_deref(), Some("Obsession, Positive"));
     assert_eq!(record.contributors.len(), 1);
     assert_eq!(record.contributors[0].name, "Susana M. Morris");
     assert_eq!(record.contributors[0].role.as_deref(), Some("aut"));
@@ -101,4 +110,15 @@ fn epub_importer_preserves_native_catalog_fields() {
         STANDARD.decode(&cover.data_base64).unwrap(),
         b"\x89PNG\r\n\x1a\nimporter-bytes"
     );
+}
+
+#[test]
+fn epub_importer_without_title_file_as_has_no_title_sort() {
+    let epub = fixture_epub_with_title_file_as(None);
+    let record = EpubImporter
+        .read_metadata(epub.path().to_string_lossy().into_owned())
+        .expect("fixture EPUB has complete importer metadata");
+
+    assert_eq!(record.title, "Positive Obsession");
+    assert_eq!(record.title_sort, None);
 }
