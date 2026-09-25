@@ -463,7 +463,7 @@ function selectSuggestion(title: string) {
     flex-direction: row;
     flex-wrap: wrap;
     gap: var(--wa-space-s);
-    justify-content: center;
+    justify-content: start;
   
     & > .empty {
       height: 100%;
