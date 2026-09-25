@@ -8,7 +8,7 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 
 - **Settings** — the `/settings` route hosting the sync panel: server status and start/stop, pairing, paired devices, conflicts, and the recent-request feed. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
 - **Library toolbar** — the action row above the library search box; today it hosts **Add book**. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
-- **add-book drawer** — the right-hand `wa-drawer` that picks or receives dropped EPUB/PDF files and shows per-file import progress.
+- **add-book drawer** — the right-hand `wa-drawer` that picks or receives dropped EPUB/AZW3/AZW/PDF files and shows per-file import progress.
 - **edition-detail drawer** — the right-hand `wa-drawer` opened by clicking a book in the library; shows that edition's cover, contributors, publishers, identifiers, and file. See [ADR 0015](adr/0015-add-get-edition-detail-ipc-and-edition-detail-drawer.md).
 - **Filter panel** — the popover that narrows the library by availability, format, language, author, tag, genre, subject, and publisher, and sets sort order. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
 - **Availability filter** — the filter panel's tri-state (Any / In filesystem / Not in filesystem) control, backed by `EditionFilters.has_file`. See [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
@@ -39,16 +39,22 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **request log** — the daemon's bounded ring buffer of recently served `/sync/*` requests, read via `requests.recent` and refreshed by `sync://request`.
 - **fs_read** — host-to-application capability callback that returns the selected import file's bytes, scoped to that exact path. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
 - **plugin host** *(stale — crate removed in the hard-reset; only Rust remnants remain)* — the `livtet-plugin-host` sidecar that ran Lua importers out of process. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
+- **livtet-mobi** — the in-crate parser extracting MOBI-family metadata and covers; no text decompression. See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).
+- **MobiImporter** — the native `livtet-importer` implementation backing `.azw3` and `.azw`. See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).
 - **books_dir** — the library-owned file store (`{app_dir}/data/books`), held on `Paths` and `AppState`; every import materializes one `{sha256}-{original_filename}` entry here. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 - **library file** — the symlink or copy inside `books_dir` that `digital_inventory.file_path` points at after import; deleting it never touches the source. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 - **missing file** — a library file whose link target no longer exists (`EditionFile.file_status == Missing`); shown with a warning and a re-link action in the edition detail drawer. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 
 ## Domain
 
+- **AZW3 / KF8** — the Kindle Format 8 ebook format: a MOBI container (`file_version` 8) holding KF8 markup; imported from `.azw3`. See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).
+- **MOBI** — the Mobipocket/Kindle container family (PalmDB records plus PalmDOC/MOBI headers and EXTH); `.azw` and `.azw3` are instances. See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).
+- **PalmDB (PDB)** — the record-database container underlying every MOBI/AZW/AZW3 file: a 78-byte header plus an offset table of records. See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).
+- **EXTH** — the extended header block in MOBI record 0 carrying bibliographic metadata (title, authors, publisher, ISBN, cover offset). See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).
 - **change_log** — append-only audit table the trigger set writes on every syncable-table mutation; the source of `SyncChange` rows. See [core ADR 2](../../core/docs/adr/0002-own-the-sync-client-schema-in-livtet-data-migrations.md).
 - **conflict** — a `conflicts` row recorded when a pushed change clashes with local state; resolved as `local`, `remote`, or `merged`. See [core ADR 2](../../core/docs/adr/0002-own-the-sync-client-schema-in-livtet-data-migrations.md).
 - **pairing** — the flow that mints a single-use token, is approved on the desktop, and yields a paired device and a session token.
-- **Importer** — a file-format plugin implementing the `livtet-importer` contract (`extensions`, `read_metadata`); native EPUB in-app or remote Lua in the plugin host. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
+- **Importer** — a file-format plugin implementing the `livtet-importer` contract (`extensions`, `read_metadata`); native EPUB and MOBI in-app or remote Lua in the plugin host. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
 - **ImporterMeta** — the serde wire record an importer returns (title, contributors, ISBNs, non-ISBN identifiers, cover). A title and at least one contributor are required; ISBNs are optional. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md) and [ADR 0020](adr/0020-isbn-optional-for-epub-imports-with-a-body-text-fallback.md).
 - **SyncEngine** — the `livtet-sync` domain engine that reads and writes `change_log` and `conflicts`. See [core ADR 1](../../core/docs/adr/0001-split-sync-into-domain-transport-daemon-crates.md).
 - **SyncSession** — the app-facing `livtet-sync-http` client composing a `SyncEngine` with a `SyncHttpClient` transport. See [core ADR 1](../../core/docs/adr/0001-split-sync-into-domain-transport-daemon-crates.md).
