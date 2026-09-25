@@ -51,7 +51,6 @@ let dismissedQuery = $state<string | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 let filters = $state<EditionFilters>({})
 let filtersOpen = $state(false)
-let filterSearches = $state<Record<string, string>>({})
 
 onDestroy(() => clearTimeout(debounceTimer))
 
@@ -280,15 +279,10 @@ function selectSuggestion(title: string) {
   placement="bottom-start"
   open={filtersOpen}
   onwa-after-show={() => (filtersOpen = true)}
-  onwa-after-hide={() => {
-    filtersOpen = false
-    filterSearches = {}
-  }}
+  onwa-after-hide={() => (filtersOpen = false)}
 >
   <FilterPanel
     {filters}
-    searches={filterSearches}
-    onsearch={(next) => (filterSearches = next)}
     onchange={(next) => (filters = next)}
     onclose={() => (filtersOpen = false)}
   />

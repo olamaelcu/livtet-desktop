@@ -4,7 +4,7 @@ import type { Attachment } from 'svelte/attachments'
 import type { WorkSortBy } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
 import { searchKeys } from '../query/keys'
-import { type EditionFilters, type FilterOption, loadFilterOptions } from '../search'
+import { type EditionFilters, loadFilterOptions } from '../search'
 import {
   FILTER_AXES,
   type FilterAxis,
@@ -17,37 +17,17 @@ import {
 
 interface Props {
   filters: EditionFilters
-  /** Per-axis search terms, owned by the host so it can clear them on close. */
-  searches: Record<string, string>
-  onsearch: (searches: Record<string, string>) => void
   onchange: (filters: EditionFilters) => void
   onclose: () => void
 }
 
-let { filters, searches, onsearch, onchange, onclose }: Props = $props()
+let { filters, onchange, onclose }: Props = $props()
 
 const options = createQuery(() => ({
   queryKey: searchKeys.filterOptions(),
   queryFn: loadFilterOptions,
   staleTime: 5 * 60 * 1000,
 }))
-
-/**
- * Narrow an axis by its search term, but always keep the currently selected
- * options in the DOM: `wa-select multiple` only tracks options present in the
- * DOM, so filtering a selected one out would desync the value and its tag.
- */
-function visibleOptions(
-  list: FilterOption[],
-  axis: FilterAxis,
-  selected: string[],
-): FilterOption[] {
-  const term = (searches[axis] ?? '').trim().toLowerCase()
-  if (!term) return list
-  return list.filter(
-    (option) => selected.includes(option.id) || option.label.toLowerCase().includes(term),
-  )
-}
 
 function selectValue(event: Event): string {
   const value = (event.currentTarget as WaSelectElement).value
@@ -117,14 +97,6 @@ const decorateTags: Attachment<HTMLElement> = (node) => {
       {@const selected = selectedIds(filters, axis.key)}
       <section class="axis">
         <h4>{axis.label}</h4>
-        <wa-input
-          size="s"
-          label="Filter {axis.label}"
-          placeholder="Filter {axis.label.toLowerCase()}…"
-          value={searches[axis.key] ?? ''}
-          oninput={(event) =>
-            onsearch({ ...searches, [axis.key]: (event.target as HTMLInputElement).value })}
-        ></wa-input>
         <wa-select
           multiple
           with-clear
@@ -136,7 +108,7 @@ const decorateTags: Attachment<HTMLElement> = (node) => {
           onchange={chooseAxisIds(axis.key)}
           {@attach decorateTags}
         >
-          {#each visibleOptions(list, axis.key, selected) as option (option.id)}
+          {#each list as option (option.id)}
             <wa-option value={option.id} data-label={option.label}>
               {#if option.flag_emoji}
                 <span slot="start" class="opt-flag">{option.flag_emoji}</span>
