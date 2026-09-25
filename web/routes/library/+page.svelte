@@ -458,7 +458,6 @@ function selectSuggestion(title: string) {
   .book-scroller {
     flex: 1 1;
     max-width: 100%;
-    align-items: start;
     padding: var(--wa-space-s) var(--wa-space-l);
   }
 
@@ -466,7 +465,6 @@ function selectSuggestion(title: string) {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--col-min, 8rem), 1fr));
     gap: var(--wa-space-s);
-    justify-content: start;
     width: 100%;
   
     & > .empty {

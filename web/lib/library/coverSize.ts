@@ -3,11 +3,11 @@ export const COVER_SIZES = ['tiny', 'small', 'medium', 'large', 'huge'] as const
 export type CoverSize = (typeof COVER_SIZES)[number]
 
 export const COVER_MIN_WIDTH: Record<CoverSize, string> = {
-  tiny: '4.5rem',
-  small: '6rem',
+  tiny: '5rem',
+  small: '6.5rem',
   medium: '8rem',
   large: '11rem',
-  huge: '14rem',
+  huge: '16rem',
 }
 
 export const DEFAULT_COVER_SIZE: CoverSize = 'medium'

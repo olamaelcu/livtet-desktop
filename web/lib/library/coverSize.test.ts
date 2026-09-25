@@ -31,11 +31,11 @@ function memoryStorage(): Storage {
 describe('COVER_MIN_WIDTH', () => {
   it('maps each size to its grid min column width', () => {
     expect(COVER_MIN_WIDTH).toEqual({
-      tiny: '4.5rem',
-      small: '6rem',
+      tiny: '5rem',
+      small: '6.5rem',
       medium: '8rem',
       large: '11rem',
-      huge: '14rem',
+      huge: '16rem',
     })
   })
 
