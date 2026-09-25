@@ -6,7 +6,7 @@ use livtet_epub::xml::{self, Element};
 use livtet_epub::{Archive, ocf};
 
 use crate::error::ReaderError;
-use crate::path::{resolve, strip_target};
+use crate::path::{decode_and_validate, resolve, strip_target};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ManifestItem {
@@ -97,9 +97,13 @@ pub(crate) fn parse(
         .cloned()
         .collect();
 
+    // Keyed by the decoded archive path so it matches the candidate
+    // `Reader::read` resolves from an (encoded) request href.
     let media_types = items
         .iter()
-        .map(|item| (item.href.clone(), item.media_type.clone()))
+        .filter_map(|item| {
+            decode_and_validate(&item.href).map(|path| (path, item.media_type.clone()))
+        })
         .collect();
 
     let title = first_text(metadata, "title").unwrap_or_else(|| file_name.to_string());

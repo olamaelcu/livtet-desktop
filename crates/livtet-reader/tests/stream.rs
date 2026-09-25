@@ -61,6 +61,7 @@ const ENCODED_OPF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
   <manifest>
     <item id="ch1" href="chapter%201.xhtml" media-type="application/xhtml+xml"/>
     <item id="cover" href="cover%2Bfull.jpg" media-type="image/jpeg"/>
+    <item id="data" href="weird%20file.bin" media-type="application/x-myformat"/>
   </manifest>
   <spine>
     <itemref idref="ch1"/>
@@ -74,6 +75,7 @@ fn encoded_fixture() -> tempfile::NamedTempFile {
             b"<html><body>Encoded</body></html>".to_vec(),
         )
         .file("OEBPS/cover+full.jpg", b"fake-jpeg".to_vec())
+        .file("OEBPS/weird file.bin", b"custom-bytes".to_vec())
         .file("etc/passwd", b"root:x:0:0".to_vec())
         .tempfile()
 }
@@ -193,4 +195,16 @@ fn rejects_percent_encoded_traversal_and_backslash() {
     assert!(reader.read("..%5c..%5cetc%5cpasswd").is_none());
     assert!(reader.read("OEBPS%5Cchapter 1.xhtml").is_none());
     assert!(!reader.contains("%2e%2e%2fetc/passwd"));
+}
+
+#[test]
+fn resolves_manifest_media_type_for_encoded_href() {
+    let reader = Reader::open(encoded_fixture().path()).unwrap();
+
+    let (mime, bytes) = reader.read("OEBPS/weird%20file.bin").unwrap();
+    assert_eq!(mime, "application/x-myformat");
+    assert_eq!(bytes, b"custom-bytes".to_vec());
+
+    let (mime, _) = reader.read("weird%20file.bin").unwrap();
+    assert_eq!(mime, "application/x-myformat");
 }
