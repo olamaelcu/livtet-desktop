@@ -9,7 +9,7 @@ for the direct `livtet-epub`/`import_epub` wiring. The decision to delegate
 parsing to the `epub` crate is superseded by
 [0018](0018-replace-the-epub-crate-with-an-in-crate-ocf-opf-parser.md). The
 ISBN-requirement portion is superseded by
-[0019](0019-isbn-optional-for-epub-imports-with-a-body-text-fallback.md).
+[0020](0020-isbn-optional-for-epub-imports-with-a-body-text-fallback.md).
 
 ## Context
 

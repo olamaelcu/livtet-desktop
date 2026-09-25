@@ -1,4 +1,4 @@
-# 19. ISBN optional for EPUB imports with a body-text fallback
+# 20. ISBN optional for EPUB imports with a body-text fallback
 
 Date: 2026-09-24
 
