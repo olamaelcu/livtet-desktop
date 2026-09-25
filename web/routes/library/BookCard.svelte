@@ -43,6 +43,7 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
   .card-wrap {
     position: relative;
     display: inline-flex;
+    padding: var(--wa-space-2xs);
   }
 
   .card {
@@ -92,8 +93,8 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
 
   .check-badge {
     position: absolute;
-    top: var(--wa-space-3xs);
-    left: var(--wa-space-3xs);
+    top: var(--wa-space-2xs);
+    left: var(--wa-space-2xs);
     z-index: 1;
     display: grid;
     place-items: center;
