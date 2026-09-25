@@ -18,6 +18,12 @@ import {
   removeEditionTags,
 } from '../../lib/library/bulk'
 import ConfirmDialog from '../../lib/library/ConfirmDialog.svelte'
+import {
+  COVER_SCALE,
+  type CoverSize,
+  loadCoverSize,
+  saveCoverSize,
+} from '../../lib/library/coverSize'
 import EditionDetailDrawer from '../../lib/library/EditionDetailDrawer.svelte'
 import FilterPanel from '../../lib/library/FilterPanel.svelte'
 import { activeChips, activeFilterCount, removeAxisId } from '../../lib/library/filterAxes'
@@ -51,6 +57,12 @@ let dismissedQuery = $state<string | null>(null)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 let filters = $state<EditionFilters>({})
 let filtersOpen = $state(false)
+let coverSize = $state<CoverSize>(loadCoverSize())
+
+function setCoverSize(size: CoverSize) {
+  coverSize = size
+  saveCoverSize(size)
+}
 
 onDestroy(() => clearTimeout(debounceTimer))
 
@@ -231,6 +243,8 @@ function selectSuggestion(title: string) {
   filtersButtonId={FILTERS_BUTTON_ID}
   selectionMode={selection.mode}
   ontoggleselect={() => (selection.mode = !selection.mode)}
+  {coverSize}
+  oncoversizechange={setCoverSize}
 />
 {#if selection.mode}
   <div class="selection-dock" in:fly={{ y: 24, duration: 180 }} out:fly={{ y: 24, duration: 150 }}>
@@ -326,6 +340,7 @@ function selectSuggestion(title: string) {
         cover_url={coverUrlFor(coversById.get(book.edition_id))}
         selectable={selection.mode}
         selected={selection.selected.has(book.edition_id)}
+        scale={COVER_SCALE[coverSize]}
         onclick={() =>
           selection.mode ? selection.toggle(book.edition_id) : openDetail(book.edition_id)}
       />

@@ -1,5 +1,12 @@
 <script lang="ts">
 import ActionButton from '../components/ActionButton.svelte'
+import {
+  COVER_SIZES,
+  type CoverSize,
+  coverSizeFromIndex,
+  coverSizeIndex,
+  coverSizeLabel,
+} from './coverSize'
 
 interface Props {
   onaddbook: () => void
@@ -11,6 +18,9 @@ interface Props {
   /** Whether the library is in selection mode; drives the Select toggle. */
   selectionMode: boolean
   ontoggleselect: () => void
+  /** Current cover size; drives the size slider. */
+  coverSize: CoverSize
+  oncoversizechange: (size: CoverSize) => void
 }
 
 let {
@@ -20,7 +30,21 @@ let {
   filtersButtonId,
   selectionMode,
   ontoggleselect,
+  coverSize,
+  oncoversizechange,
 }: Props = $props()
+
+function coverSizeFormatter(node: Element) {
+  const slider = node as HTMLElement & { valueFormatter?: (value: number) => string }
+  customElements.whenDefined('wa-slider').then(() => {
+    slider.valueFormatter = (value) => coverSizeLabel(coverSizeFromIndex(value))
+  })
+}
+
+function handleCoverSize(event: Event) {
+  const value = Number((event.currentTarget as HTMLElement & { value: number }).value)
+  oncoversizechange(coverSizeFromIndex(value))
+}
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Library actions">
@@ -47,6 +71,18 @@ let {
       Add book
     </ActionButton>
   </wa-button-group>
+  <wa-slider
+    class="cover-slider"
+    {@attach coverSizeFormatter}
+    label="Cover size: {coverSizeLabel(coverSize)}"
+    min="0"
+    max={COVER_SIZES.length - 1}
+    step="1"
+    value={coverSizeIndex(coverSize)}
+    with-markers
+    with-tooltip
+    oninput={handleCoverSize}
+  ></wa-slider>
 </div>
 
 <style>
@@ -55,5 +91,10 @@ let {
     align-items: center;
     gap: var(--wa-space-xs);
     padding: var(--wa-space-xs) var(--wa-space-m) 0;
+  }
+
+  .cover-slider {
+    width: 12rem;
+    margin-left: auto;
   }
 </style>

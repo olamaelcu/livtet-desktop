@@ -4,6 +4,7 @@ interface Props {
   cover_url?: string
   selectable?: boolean
   selected?: boolean
+  scale?: number
   onclick?: () => void
 }
 
@@ -12,6 +13,7 @@ let {
   cover_url = undefined,
   selectable = false,
   selected = false,
+  scale = 1,
   onclick,
 }: Props = $props()
 
@@ -26,7 +28,7 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     aria-pressed={selectable ? selected : undefined}
     {onclick}
   >
-    <figure class="cover {showCover ? '' : 'placeholder'}">
+    <figure class="cover {showCover ? '' : 'placeholder'}" style="--scale: {scale}">
       {#if showCover}
         <img src={cover_url} alt={title} onerror={() => (failedUrl = cover_url)} />
       {:else}
@@ -59,9 +61,10 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
 
   .cover {
     --size: 8.25rem;
-    min-width: calc(var(--size) * 0.75);
-    max-width: var(--size);
-    height: var(--size);
+    --scale: 1;
+    min-width: calc(var(--size) * 0.75 * var(--scale));
+    max-width: calc(var(--size) * var(--scale));
+    height: calc(var(--size) * var(--scale));
     flex-shrink: 0;
     overflow: hidden;
     border: 0.0625rem solid var(--wa-color-border-default);
