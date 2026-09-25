@@ -130,18 +130,17 @@ impl Reader {
 
     /// Resolve an OCF-relative href to its media type and bytes.
     ///
-    /// A traversal or absolute href is rejected up front; an href that is not
-    /// archive-root-relative is resolved against the OPF directory. `None` is
-    /// returned for anything missing, encrypted, or refused by the archive.
+    /// The href is percent-decoded first (archive names are decoded), then a
+    /// traversal, absolute, backslash, or NUL-bearing result is rejected; an
+    /// href that is not archive-root-relative is resolved against the OPF
+    /// directory. `None` is returned for anything missing, encrypted, or
+    /// refused by the archive.
     pub fn read(&self, href: &str) -> Option<(String, Vec<u8>)> {
-        let normalized = path::normalize_href(href);
-        if !path::is_safe_href(&normalized) {
-            return None;
-        }
-        let candidate = if self.exists_in_archive(&normalized) {
-            normalized
+        let decoded = path::decode_and_validate(href)?;
+        let candidate = if self.exists_in_archive(&decoded) {
+            decoded
         } else {
-            path::resolve(&self.base_dir, &normalized)
+            path::resolve(&self.base_dir, &decoded)
         };
         let media_type = self
             .package
@@ -155,14 +154,15 @@ impl Reader {
     }
 
     /// Whether the href exists in the archive, either as given or resolved
-    /// against the OPF directory.
+    /// against the OPF directory. The href is percent-decoded like [`read`].
+    ///
+    /// [`read`]: Reader::read
     pub fn contains(&self, href: &str) -> bool {
-        let normalized = path::normalize_href(href);
-        if !path::is_safe_href(&normalized) {
+        let Some(decoded) = path::decode_and_validate(href) else {
             return false;
-        }
-        self.exists_in_archive(&normalized)
-            || self.exists_in_archive(&path::resolve(&self.base_dir, &normalized))
+        };
+        self.exists_in_archive(&decoded)
+            || self.exists_in_archive(&path::resolve(&self.base_dir, &decoded))
     }
 
     fn exists_in_archive(&self, name: &str) -> bool {

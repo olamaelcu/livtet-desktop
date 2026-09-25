@@ -51,6 +51,33 @@ fn fixture() -> tempfile::NamedTempFile {
         .tempfile()
 }
 
+const ENCODED_OPF: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>Encoded Test</dc:title>
+    <dc:creator>Jane Doe</dc:creator>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ch1" href="chapter%201.xhtml" media-type="application/xhtml+xml"/>
+    <item id="cover" href="cover%2Bfull.jpg" media-type="image/jpeg"/>
+  </manifest>
+  <spine>
+    <itemref idref="ch1"/>
+  </spine>
+</package>"#;
+
+fn encoded_fixture() -> tempfile::NamedTempFile {
+    EpubBuilder::new(ENCODED_OPF)
+        .file(
+            "OEBPS/chapter 1.xhtml",
+            b"<html><body>Encoded</body></html>".to_vec(),
+        )
+        .file("OEBPS/cover+full.jpg", b"fake-jpeg".to_vec())
+        .file("etc/passwd", b"root:x:0:0".to_vec())
+        .tempfile()
+}
+
 #[test]
 fn manifest_has_self_link_reading_order_and_title() {
     let reader = Reader::open(fixture().path()).unwrap();
@@ -130,4 +157,40 @@ fn open_rejects_non_zip_files() {
     file.flush().unwrap();
 
     assert!(Reader::open(file.path()).is_err());
+}
+
+#[test]
+fn reads_percent_encoded_href() {
+    let reader = Reader::open(encoded_fixture().path()).unwrap();
+
+    let manifest = reader.manifest("reader://localhost/enc/");
+    assert_eq!(
+        manifest["readingOrder"][0]["href"],
+        "OEBPS/chapter%201.xhtml"
+    );
+    assert_eq!(manifest["resources"][0]["href"], "OEBPS/cover%2Bfull.jpg");
+
+    let (mime, bytes) = reader.read("OEBPS/chapter%201.xhtml").unwrap();
+    assert_eq!(mime, "application/xhtml+xml");
+    assert_eq!(bytes, b"<html><body>Encoded</body></html>".to_vec());
+
+    let (mime, bytes) = reader.read("chapter%201.xhtml").unwrap();
+    assert_eq!(mime, "application/xhtml+xml");
+    assert_eq!(bytes, b"<html><body>Encoded</body></html>".to_vec());
+
+    let (mime, bytes) = reader.read("OEBPS/cover%2Bfull.jpg").unwrap();
+    assert_eq!(mime, "image/jpeg");
+    assert_eq!(bytes, b"fake-jpeg".to_vec());
+}
+
+#[test]
+fn rejects_percent_encoded_traversal_and_backslash() {
+    let reader = Reader::open(encoded_fixture().path()).unwrap();
+
+    assert!(reader.read("%2e%2e%2fetc/passwd").is_none());
+    assert!(reader.read("..%2f..%2fetc%2fpasswd").is_none());
+    assert!(reader.read("%2e%2e%2f").is_none());
+    assert!(reader.read("..%5c..%5cetc%5cpasswd").is_none());
+    assert!(reader.read("OEBPS%5Cchapter 1.xhtml").is_none());
+    assert!(!reader.contains("%2e%2e%2fetc/passwd"));
 }

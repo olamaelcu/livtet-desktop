@@ -130,7 +130,9 @@ fn same_path(a: &str, b: &str) -> bool {
     a.replace('\\', "/") == b.replace('\\', "/")
 }
 
-pub(crate) fn percent_decode(input: &str) -> String {
+/// Percent-decode an OCF href, decoding well-formed `%XX` escapes and leaving
+/// anything else (including a lone `%`) untouched.
+pub fn percent_decode(input: &str) -> String {
     let bytes = input.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut index = 0;

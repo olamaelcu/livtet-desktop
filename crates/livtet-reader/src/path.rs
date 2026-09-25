@@ -1,14 +1,25 @@
 //! OCF path resolution and media-type fallbacks shared by the streamer.
 
+use livtet_epub::percent_decode;
+
 /// Normalize an href's separators to forward slashes.
 pub(crate) fn normalize_href(href: &str) -> String {
     href.replace('\\', "/")
 }
 
-/// Whether an href is relative and free of `..` segments, so it can never
-/// escape the archive root once resolved.
-pub(crate) fn is_safe_href(href: &str) -> bool {
-    !href.starts_with('/') && !href.split('/').any(|part| part == "..")
+/// Percent-decode an href, then reject anything unsafe.
+///
+/// Decoding runs before the checks so an encoded traversal (`%2e%2e%2f`) or
+/// backslash (`%5c`) cannot slip past them. An empty, absolute,
+/// backslash-bearing, NUL-bearing, or `..`-bearing result is refused.
+pub(crate) fn decode_and_validate(href: &str) -> Option<String> {
+    let decoded = percent_decode(href);
+    let safe = !decoded.is_empty()
+        && !decoded.starts_with('/')
+        && !decoded.contains('\\')
+        && !decoded.contains('\0')
+        && !decoded.split('/').any(|part| part == "..");
+    safe.then_some(decoded)
 }
 
 /// Resolve `href` against a base directory (`""` for the archive root),

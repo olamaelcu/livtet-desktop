@@ -31,6 +31,7 @@ mod test_support;
 
 use std::path::Path;
 
+pub use cover::percent_decode;
 pub use error::EpubError;
 pub use livtet_importer_types::{
     Contributor, Cover, Description, Identifier, Language, PublicationDate, Publisher, Role,
