@@ -16,6 +16,7 @@ livtet-sync-http = { git = "https://github.com/olamaelcu/livtet", branch = "main
 livtet-sync-server = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer-types = { path = "crates/livtet-importer-types" }
+livtet-mobi = { path = "crates/livtet-mobi" }
 livtet-importer = { path = "crates/livtet-importer" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["remote", "lua54", "vendored"] }
 

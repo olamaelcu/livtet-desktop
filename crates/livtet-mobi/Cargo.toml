@@ -1,0 +1,16 @@
+[package]
+name = "livtet-mobi"
+version = "0.1.0"
+edition.workspace = true
+authors = ["olamaelcu"]
+license = "MPL-2.0"
+description = "MOBI-family (MOBI/AZW/AZW3) metadata and cover extraction for Livtet imports"
+publish = false
+
+[dependencies]
+livtet-importer-types.workspace = true
+livtet-types.workspace = true
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

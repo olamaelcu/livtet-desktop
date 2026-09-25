@@ -3766,6 +3766,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "livtet-mobi"
+version = "0.1.0"
+dependencies = [
+ "livtet-importer-types",
+ "livtet-types",
+ "tempfile",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "livtet-search"
 version = "0.1.0"
 source = "git+https://github.com/olamaelcu/livtet?branch=main#aa24155c7a997d9b70efb267c9cdc02200ac7aa7"
