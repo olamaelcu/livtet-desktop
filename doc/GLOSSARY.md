@@ -28,6 +28,8 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **EditionFilters** — the desktop filter DTO accepted by `search_editions` / `search_editions_count`; carries the id axes, `has_file` availability, and sort. See [ADR 0016](adr/0016-filtered-library-search-ipc.md) and [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
 - **filter_options** — the command returning filterable values per axis. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
 - **delete_editions**, **export_editions_csv**, **add_edition_tags**, **remove_edition_tags**, **matching_edition_ids** — the bulk edition commands; errors are `BulkError`. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
+- **ImportMode** — the per-batch import storage mode (`link` | `copy`) accepted by `import_file` / `import_files`; `link` (default) symlinks the source into the library, `copy` duplicates its bytes. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
+- **relink_edition_file** — the Tauri command that repoints a library file at a newly picked source, updating the edition's file identity. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 
 ## Backend
 
@@ -37,6 +39,9 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 - **request log** — the daemon's bounded ring buffer of recently served `/sync/*` requests, read via `requests.recent` and refreshed by `sync://request`.
 - **fs_read** — host-to-application capability callback that returns the selected import file's bytes, scoped to that exact path. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
 - **plugin host** *(stale — crate removed in the hard-reset; only Rust remnants remain)* — the `livtet-plugin-host` sidecar that ran Lua importers out of process. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
+- **books_dir** — the library-owned file store (`{app_dir}/data/books`), held on `Paths` and `AppState`; every import materializes one `{sha256}-{original_filename}` entry here. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
+- **library file** — the symlink or copy inside `books_dir` that `digital_inventory.file_path` points at after import; deleting it never touches the source. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
+- **missing file** — a library file whose link target no longer exists (`EditionFile.file_status == Missing`); shown with a warning and a re-link action in the edition detail drawer. See [ADR 0022](adr/0022-library-owned-book-files-symlink-default-copy-opt-in.md).
 
 ## Domain
 
