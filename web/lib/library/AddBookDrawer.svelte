@@ -7,6 +7,7 @@ import ActionButton from '../components/ActionButton.svelte'
 import { searchKeys } from '../query/keys'
 import {
   type ImportBatchResult,
+  type ImportMode,
   type ImportRow,
   importFiles,
   listenToImportEvents,
@@ -27,6 +28,8 @@ const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'pdf'] }]
 let rows = $state<ImportRow[]>([])
 let summary = $state<ImportBatchResult | null>(null)
 let inflight = $state(0)
+let copy = $state(false)
+const mode = $derived<ImportMode>(copy ? 'copy' : 'link')
 
 const busy = $derived(inflight > 0)
 const failedCount = $derived(rows.filter((row) => row.status === 'failed').length)
@@ -55,7 +58,7 @@ function run(paths: readonly string[]): Promise<void> {
 
 async function runBatch(list: readonly string[]) {
   try {
-    const result = await importFiles(list)
+    const result = await importFiles(list, mode)
     rows = mergeBatchResult(rows, result)
     summary = result
     if (result.imported + result.duplicated > 0) {
@@ -142,6 +145,12 @@ $effect(() => {
       <wa-icon name="file-arrow-up"></wa-icon>
       <p>Drag EPUB or PDF files here</p>
       <ActionButton variant="brand" onclick={chooseFiles} disabled={busy}>Choose files…</ActionButton>
+      <wa-switch
+        checked={copy}
+        disabled={busy}
+        onwa-change={(event) => {
+          copy = (event.target as WaSwitchElement).checked
+        }}>Copy files into library</wa-switch>
     </div>
 
     {#if rows.length > 0}

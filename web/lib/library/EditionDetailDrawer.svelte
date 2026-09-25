@@ -1,8 +1,12 @@
 <script lang="ts">
-import { createQuery } from '@tanstack/svelte-query'
+import { createQuery, useQueryClient } from '@tanstack/svelte-query'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
+import { toast } from 'svelte-sonner'
+import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { fileName, formatFileSize } from './format'
+import { relinkEditionFile } from './import'
 
 interface Props {
   editionId: string | null
@@ -22,6 +26,26 @@ const book = $derived(detail.data ?? null)
 const coverUrl = $derived(coverUrlFor(book?.file?.cover_path))
 let failedCoverId = $state<string | null>(null)
 const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
+
+const queryClient = useQueryClient()
+const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'pdf'] }]
+let relinking = $state(false)
+
+async function relinkFile() {
+  if (!editionId || relinking) return
+  try {
+    const picked = await openDialog({ multiple: false, filters: FILE_FILTERS })
+    if (!picked || Array.isArray(picked)) return
+    relinking = true
+    await relinkEditionFile(editionId, picked)
+    await queryClient.invalidateQueries({ queryKey: catalogKeys.editionDetail(editionId) })
+    toast.success('File re-linked')
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Could not re-link the file')
+  } finally {
+    relinking = false
+  }
+}
 </script>
 
 <wa-drawer class="drawer" label="Edition detail" placement="end" open={open} onwa-after-hide={onclose}>
@@ -110,6 +134,10 @@ const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
               </div>
             {/if}
           </dl>
+          {#if file.file_status === 'missing'}
+            <p class="error">The linked file is missing — the original was moved or deleted.</p>
+            <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
+          {/if}
         </section>
       {/if}
 

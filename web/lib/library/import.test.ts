@@ -16,6 +16,7 @@ import {
   listenToImportEvents,
   mergeBatchResult,
   reduceImportEvents,
+  relinkEditionFile,
 } from './import'
 
 const imported = {
@@ -38,10 +39,16 @@ describe('importFiles', () => {
     expect(invoke).not.toHaveBeenCalled()
   })
 
-  it('invokes import_files with the filtered paths', async () => {
+  it('invokes import_files with the filtered paths, defaulting to link mode', async () => {
     invoke.mockResolvedValueOnce({ files: [], imported: 0, duplicated: 0, failed: 0 })
     await importFiles(['a.epub', ''])
-    expect(invoke).toHaveBeenCalledWith('import_files', { paths: ['a.epub'] })
+    expect(invoke).toHaveBeenCalledWith('import_files', { paths: ['a.epub'], mode: 'link' })
+  })
+
+  it('passes an explicit copy mode through', async () => {
+    invoke.mockResolvedValueOnce({ files: [], imported: 0, duplicated: 0, failed: 0 })
+    await importFiles(['a.epub'], 'copy')
+    expect(invoke).toHaveBeenCalledWith('import_files', { paths: ['a.epub'], mode: 'copy' })
   })
 
   it('treats an all-empty path list as a no-op', async () => {
@@ -61,6 +68,28 @@ describe('importFile', () => {
   it('throws the error envelope', async () => {
     invoke.mockRejectedValueOnce({ code: 'parse', message: 'bad' })
     await expect(importFile('a.epub')).rejects.toEqual({ code: 'parse', message: 'bad' })
+  })
+})
+
+describe('relinkEditionFile', () => {
+  beforeEach(() => invoke.mockReset())
+
+  it('unwraps the refreshed file', async () => {
+    const file = { file_path: '/data/books/h-a.epub', file_status: 'ok' }
+    invoke.mockResolvedValueOnce(file)
+    await expect(relinkEditionFile('e', '/books/a.epub')).resolves.toEqual(file)
+    expect(invoke).toHaveBeenCalledWith('relink_edition_file', {
+      editionId: 'e',
+      path: '/books/a.epub',
+    })
+  })
+
+  it('throws the error envelope', async () => {
+    invoke.mockRejectedValueOnce({ code: 'io', message: 'gone' })
+    await expect(relinkEditionFile('e', '/books/a.epub')).rejects.toEqual({
+      code: 'io',
+      message: 'gone',
+    })
   })
 })
 

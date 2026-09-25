@@ -92,6 +92,12 @@ declare global {
         selected?: boolean
         disabled?: boolean
       }
+      'wa-switch': import('svelte/elements').HTMLAttributes<HTMLElement> & {
+        checked?: boolean
+        disabled?: boolean
+        size?: 's' | 'm' | 'l' | 'small' | 'medium' | 'large'
+        'onwa-change'?: (event: Event) => void
+      }
       'wa-avatar': Omit<import('svelte/elements').HTMLAttributes<HTMLElement>, 'label'> & {
         image?: string
         initials?: string
@@ -105,6 +111,10 @@ declare global {
   interface WaSelectElement extends HTMLElement {
     value: string | string[]
     getTag?: (option: WaOptionElement, index: number) => string | HTMLElement
+  }
+
+  interface WaSwitchElement extends HTMLElement {
+    checked: boolean
   }
 
   interface WaOptionElement extends HTMLElement {

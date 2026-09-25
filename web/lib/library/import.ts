@@ -1,13 +1,22 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   commands,
+  type EditionFile,
   type ImportBatchResult,
   type ImportError,
   type ImportFileResult,
+  type ImportMode,
   type ImportOutcome,
 } from '../bindings'
 
-export type { ImportBatchResult, ImportError, ImportFileResult, ImportOutcome }
+export type {
+  EditionFile,
+  ImportBatchResult,
+  ImportError,
+  ImportFileResult,
+  ImportMode,
+  ImportOutcome,
+}
 
 const BATCH_EVENT = 'import://batch'
 const FILE_EVENT = 'import://file'
@@ -52,8 +61,8 @@ export function importErrorMessage(error: ImportError): string {
 }
 
 /** Import one file, throwing the backend error on failure. */
-export async function importFile(path: string): Promise<ImportOutcome> {
-  const result = await commands.importFile(path)
+export async function importFile(path: string, mode: ImportMode = 'link'): Promise<ImportOutcome> {
+  const result = await commands.importFile(path, mode)
   if (result.status === 'error') throw result.error
   return result.data
 }
@@ -64,10 +73,18 @@ export async function importFile(path: string): Promise<ImportOutcome> {
  */
 export async function importFiles(
   paths: readonly string[] | null | undefined,
+  mode: ImportMode = 'link',
 ): Promise<ImportBatchResult> {
   const list = (paths ?? []).filter((path) => path.length > 0)
   if (list.length === 0) return { files: [], imported: 0, duplicated: 0, failed: 0 }
-  return commands.importFiles(list)
+  return commands.importFiles(list, mode)
+}
+
+/** Re-link a missing library file at a newly picked source. */
+export async function relinkEditionFile(editionId: string, path: string): Promise<EditionFile> {
+  const result = await commands.relinkEditionFile(editionId, path)
+  if (result.status === 'error') throw result.error
+  return result.data
 }
 
 function statusFromFile(file: ImportFileResult): Pick<ImportRow, 'status' | 'message'> {
