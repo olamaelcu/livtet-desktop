@@ -94,7 +94,7 @@ impl PublicationDate {
 }
 
 /// Complete bibliographic record extracted from an EPUB, guaranteed to carry
-/// at least a title and one valid ISBN.
+/// at least a title and one creator.
 #[derive(Debug)]
 pub struct EpubMetadata {
     pub title: Title,
@@ -102,7 +102,8 @@ pub struct EpubMetadata {
     /// `calibre:title_sort`.
     pub title_sort: Option<String>,
     pub creators: Vec<Contributor>,
-    /// Validated ISBN-13s found anywhere in the metadata; never empty.
+    /// Validated ISBN-13s found in the metadata or recovered from the content
+    /// documents; may be empty when no ISBN can be found.
     pub isbns: Vec<Isbn>,
     /// Identifier strings that are not valid ISBNs.
     pub other_identifiers: Vec<Identifier>,
@@ -136,7 +137,12 @@ pub(crate) fn extract(archive: &mut Archive) -> Result<EpubMetadata, EpubError> 
     let title = extract_title(metadata, epub3)?;
     let title_sort = extract_title_sort(metadata);
     let creators = extract_contributors(metadata)?;
-    let (isbns, other_identifiers) = extract_identifiers(metadata)?;
+    let (mut isbns, other_identifiers) = extract_identifiers(metadata)?;
+    if isbns.is_empty()
+        && let Some(isbn) = body_isbn(archive, &package, &opf_dir)
+    {
+        isbns.push(isbn);
+    }
     let encryption = Encryption::load(archive);
     let cover = cover::extract(archive, &package, &opf_dir, &encryption);
 
@@ -383,9 +389,6 @@ fn extract_identifiers(metadata: &Element) -> Result<(Vec<Isbn>, Vec<Identifier>
         }
     }
 
-    if isbns.is_empty() {
-        return Err(EpubError::MissingIsbn);
-    }
     Ok((isbns, other_identifiers))
 }
 
@@ -419,6 +422,138 @@ fn parse_isbn_candidate(value: &str) -> Option<Isbn> {
         }
     }
     None
+}
+
+/// Upper bounds for the body-text ISBN fallback: never scan more than this
+/// many documents, skip any single document larger than this, and stop once
+/// this much total content has been read.
+const BODY_SCAN_MAX_DOCUMENTS: usize = 10;
+const BODY_SCAN_MAX_DOCUMENT_BYTES: usize = 2 * 1024 * 1024;
+const BODY_SCAN_MAX_TOTAL_BYTES: usize = 16 * 1024 * 1024;
+
+/// One content document from the OPF manifest, with its resolved archive path.
+struct ContentDocument {
+    id: Option<String>,
+    href: String,
+    path: String,
+}
+
+/// Recover an ISBN that appears only in the running text of a content document
+/// (typically the copyright page), used when the OPF metadata carries none.
+///
+/// Candidates are read in spine order first, then any document whose href looks
+/// like a copyright or title page, then the remaining content documents. The
+/// scan is bounded by [`BODY_SCAN_MAX_DOCUMENTS`],
+/// [`BODY_SCAN_MAX_DOCUMENT_BYTES`], and [`BODY_SCAN_MAX_TOTAL_BYTES`] so a
+/// hostile archive cannot force an unbounded read.
+fn body_isbn(archive: &mut Archive, package: &Element, opf_dir: &str) -> Option<Isbn> {
+    let documents = content_documents(package, opf_dir);
+    if documents.is_empty() {
+        return None;
+    }
+
+    let mut ordered: Vec<String> = Vec::new();
+    if let Some(spine) = package.find("spine") {
+        for itemref in spine.find_all("itemref") {
+            let Some(idref) = itemref.attr("idref") else {
+                continue;
+            };
+            if let Some(document) = documents
+                .iter()
+                .find(|document| document.id.as_deref() == Some(idref))
+            {
+                push_unique(&mut ordered, &document.path);
+            }
+        }
+    }
+    for document in &documents {
+        let href = document.href.to_ascii_lowercase();
+        if href.contains("copyright") || href.contains("titlepage") {
+            push_unique(&mut ordered, &document.path);
+        }
+    }
+    for document in &documents {
+        push_unique(&mut ordered, &document.path);
+    }
+
+    let mut total: usize = 0;
+    for path in ordered.iter().take(BODY_SCAN_MAX_DOCUMENTS) {
+        if total >= BODY_SCAN_MAX_TOTAL_BYTES {
+            break;
+        }
+        let Some(bytes) = archive.read(path) else {
+            continue;
+        };
+        if bytes.len() > BODY_SCAN_MAX_DOCUMENT_BYTES {
+            continue;
+        }
+        total += bytes.len();
+        if let Some(isbn) = scan_for_isbn(&String::from_utf8_lossy(&bytes)) {
+            return Some(isbn);
+        }
+    }
+    None
+}
+
+/// Content documents declared in the OPF `<manifest>` (XHTML/HTML), in manifest
+/// order, with `href`s resolved against the OPF directory.
+fn content_documents(package: &Element, opf_dir: &str) -> Vec<ContentDocument> {
+    let Some(manifest) = package.find("manifest") else {
+        return Vec::new();
+    };
+    manifest
+        .find_all("item")
+        .into_iter()
+        .filter(|item| is_content_item(item))
+        .filter_map(|item| {
+            let href = item.attr("href")?;
+            Some(ContentDocument {
+                id: item.attr("id").map(str::to_string),
+                href: href.to_string(),
+                path: cover::resolve_path(opf_dir, href),
+            })
+        })
+        .collect()
+}
+
+fn is_content_item(item: &Element) -> bool {
+    item.attr("media-type").is_some_and(|media_type| {
+        let lower = media_type.trim().to_ascii_lowercase();
+        lower == "application/xhtml+xml" || lower == "text/html"
+    })
+}
+
+fn push_unique(paths: &mut Vec<String>, path: &str) {
+    if !paths.iter().any(|existing| existing == path) {
+        paths.push(path.to_string());
+    }
+}
+
+/// Find the first valid ISBN in a content document. Runs of ISBN-shaped
+/// characters (`[0-9Xx]`, `-`, whitespace) are checksum-validated by
+/// [`Isbn::parse`], which already strips hyphens, whitespace, and `ISBN:`
+/// prefixes and is the false-positive guard.
+fn scan_for_isbn(text: &str) -> Option<Isbn> {
+    let mut run = String::new();
+    for character in text.chars() {
+        if is_isbn_run_char(character) {
+            run.push(character);
+        } else {
+            if let Ok(isbn) = Isbn::parse(&run) {
+                return Some(isbn);
+            }
+            run.clear();
+        }
+    }
+    Isbn::parse(&run).ok()
+}
+
+fn is_isbn_run_char(character: char) -> bool {
+    character.is_ascii_digit()
+        || character == 'X'
+        || character == 'x'
+        || character == '-'
+        || character.is_whitespace()
 }
 
 fn first_value(metadata: &Element, local: &str) -> Option<String> {

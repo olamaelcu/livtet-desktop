@@ -5,7 +5,9 @@ Date: 2026-09-24
 ## Status
 
 Accepted; supersedes the `epub`-delegation decision in
-[0009](0009-epub-import-pipeline.md).
+[0009](0009-epub-import-pipeline.md). The inherited ISBN-requirement is
+superseded by
+[0020](0020-isbn-optional-for-epub-imports-with-a-body-text-fallback.md).
 
 ## Context
 
