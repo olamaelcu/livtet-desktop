@@ -324,6 +324,7 @@ pub fn run() {
         commands::bulk::matching_edition_ids,
         commands::import::import_file,
         commands::import::import_files,
+        commands::import::relink_edition_file,
         commands::plugins::list_plugins,
         commands::sync::sync_health,
         commands::sync::sync_status,

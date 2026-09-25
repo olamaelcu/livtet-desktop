@@ -20,12 +20,13 @@ use livtet_core::data::entities::{
     edition_subjects, editions, identifiers, languages, publishers, subjects, works,
 };
 use livtet_core::data::orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, Set,
-    TransactionTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
+    QueryFilter, Set, TransactionTrait,
 };
 use livtet_importer::{EpubImporter, Importer, ImporterContributor, ImporterMeta};
 use livtet_types::{CommonLanguages, DbId, Isbn, KnownFormats, Urn, now_primitive};
 
+use super::catalog::{EditionFile, FileStatus};
 use super::importers::remote_importer_metadata;
 use crate::types::AppState;
 
@@ -954,6 +955,104 @@ pub async fn import_files(
     batch
 }
 
+/// Whether `path` names a symlink (never follows it).
+fn is_symlink_path(path: &str) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
+/// Whether `path` lives under `dir`, lexically and without following links.
+/// `ParentDir` components are rejected, so `books/../…` cannot pass.
+fn is_inside_dir(path: &str, dir: &camino::Utf8Path) -> bool {
+    let candidate = camino::Utf8Path::new(path);
+    candidate.starts_with(dir)
+        && !candidate
+            .components()
+            .any(|component| matches!(component, camino::Utf8Component::ParentDir))
+}
+
+/// Repoint the library file of `edition_id` at `source`, accepting the file
+/// and updating the edition's file identity. The entry's existing storage kind
+/// is preserved (symlink stays symlink); without a prior file, link. Only a
+/// previous file inside `books_dir` is removed — legacy source paths are
+/// never deleted. Kept free of Tauri state so it can be unit-tested.
+#[tracing::instrument(skip(conn), fields(edition_id = %edition_id, path = %source.display()), ret, err)]
+async fn relink_edition(
+    conn: &DatabaseConnection,
+    books_dir: &camino::Utf8Path,
+    edition_id: DbId,
+    source: &std::path::Path,
+) -> Result<EditionFile, ImportError> {
+    let inventory = digital_inventory::Entity::find()
+        .filter(digital_inventory::Column::EditionId.eq(edition_id))
+        .one(conn)
+        .await?
+        .ok_or_else(|| ImportError::new("database", "no file recorded for this edition"))?;
+
+    let bytes = fs_err::tokio::read(source)
+        .await
+        .map_err(|e| ImportError::new("io", format!("reading file: {e}")))?;
+    let extension = source
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let file_hash = hex::encode(sha2::Sha256::digest(&bytes));
+
+    let mode = match inventory.file_path.as_deref() {
+        Some(previous) if !is_symlink_path(previous) => ImportMode::Copy,
+        _ => ImportMode::Link,
+    };
+
+    let library_path = books_dir.join(library_store_name(&file_hash, source, &extension));
+    materialize_library_file(&library_path, source, &bytes, mode)?;
+
+    if let Some(previous) = inventory.file_path.as_deref()
+        && previous != library_path.as_str()
+        && is_inside_dir(previous, books_dir)
+    {
+        let _ = std::fs::remove_file(previous);
+    }
+
+    let mut model: digital_inventory::ActiveModel = inventory.into();
+    model.file_path = Set(Some(library_path.to_string()));
+    model.file_hash = Set(Some(file_hash));
+    model.file_size_bytes = Set(Some(bytes.len() as i64));
+    model.file_format = Set((!extension.is_empty()).then(|| extension.clone()));
+    model.updated_at = Set(Some(now_primitive()));
+    let updated = model.update(conn).await?;
+
+    Ok(EditionFile {
+        file_status: Some(FileStatus::Ok),
+        file_path: updated.file_path,
+        file_format: updated.file_format,
+        file_size_bytes: updated.file_size_bytes.map(|size| size as f64),
+        cover_path: updated.cover_path,
+        blurhash: updated.blurhash,
+        dominant_color: updated.dominant_color,
+    })
+}
+
+#[tauri::command]
+#[specta::specta]
+pub async fn relink_edition_file(
+    edition_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<EditionFile, ImportError> {
+    let id = edition_id
+        .parse::<DbId>()
+        .map_err(|error| ImportError::new("database", error))?;
+    relink_edition(
+        &state.db.db_conn(),
+        &state.books_dir,
+        id,
+        std::path::Path::new(&path),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use livtet_core::data::entities::{
@@ -968,9 +1067,12 @@ mod tests {
     use super::{
         FileImporterSource, ImportError, ImportFileResult, ImportMode, ImportOutcome, batch_result,
         contributor_bindings, file_result, format_id_for_extension, identifier_kind,
-        importer_source_for_extension, library_store_name, materialize_library_file,
-        normalize_contributor_role, persist_import, validate_importer_meta,
+        importer_source_for_extension, is_inside_dir, library_store_name, materialize_library_file,
+        normalize_contributor_role, persist_import, relink_edition, validate_importer_meta,
     };
+    use crate::commands::catalog::FileStatus;
+    use livtet_core::data::orm::{ActiveModelTrait, Set};
+    use sha2::Digest;
 
     #[test]
     fn epub_extension_uses_the_native_importer() {
@@ -1734,5 +1836,166 @@ mod tests {
             .expect("read books dir")
             .count();
         assert_eq!(entries, 1);
+    }
+
+    #[test]
+    fn library_ownership_rejects_parent_traversal() {
+        let books = camino::Utf8Path::new("/data/books");
+        assert!(is_inside_dir("/data/books/hash-name.epub", books));
+        assert!(!is_inside_dir("/data/books/../evil.epub", books));
+        assert!(!is_inside_dir("/home/user/book.epub", books));
+    }
+
+    async fn previously_stored_path(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        edition_id: DbId,
+    ) -> String {
+        digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(conn)
+            .await
+            .expect("inventory query")
+            .expect("inventory present")
+            .file_path
+            .expect("file path")
+    }
+
+    #[tokio::test]
+    async fn relink_updates_identity_and_preserves_symlink_kind() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let meta = importable_record("Relinked", None);
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &books_dir,
+            ImportMode::Link,
+            &meta,
+            b"original bytes",
+            std::path::Path::new("/books/original.epub"),
+            "epub",
+        )
+        .await
+        .expect("persist import");
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+        let previous = previously_stored_path(&conn, edition_id).await;
+
+        let outside = tempfile::tempdir().expect("outside dir");
+        let new_source = outside.path().join("replacement.epub");
+        std::fs::write(&new_source, b"replacement bytes").expect("write replacement");
+
+        let file = relink_edition(&conn, &books_dir, edition_id, &new_source)
+            .await
+            .expect("relink");
+        assert_eq!(file.file_status, Some(FileStatus::Ok));
+        let stored = file.file_path.clone().expect("file path");
+        assert!(stored.starts_with(books_dir.as_str()), "{stored}");
+        assert!(stored.ends_with("replacement.epub"), "{stored}");
+        assert_eq!(
+            std::fs::read_link(&stored).expect("link target"),
+            new_source
+        );
+
+        // Identity follows the new file.
+        let row = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(&conn)
+            .await
+            .expect("inventory query")
+            .expect("inventory present");
+        assert_eq!(
+            row.file_hash.as_deref(),
+            Some(hex::encode(sha2::Sha256::digest(b"replacement bytes")).as_str())
+        );
+        assert_eq!(row.file_size_bytes, Some(17));
+
+        // The previous library link is gone.
+        assert!(std::fs::symlink_metadata(&previous).is_err(), "{previous}");
+    }
+
+    #[tokio::test]
+    async fn relink_preserves_copy_kind() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let meta = importable_record("Copied", None);
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &books_dir,
+            ImportMode::Copy,
+            &meta,
+            b"copied bytes",
+            std::path::Path::new("/books/copied.epub"),
+            "epub",
+        )
+        .await
+        .expect("persist import");
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+
+        let outside = tempfile::tempdir().expect("outside dir");
+        let new_source = outside.path().join("replacement.epub");
+        std::fs::write(&new_source, b"fresh copy bytes").expect("write replacement");
+
+        let file = relink_edition(&conn, &books_dir, edition_id, &new_source)
+            .await
+            .expect("relink");
+        let stored = file.file_path.expect("file path");
+        assert_eq!(
+            std::fs::read(&stored).expect("read copy"),
+            b"fresh copy bytes"
+        );
+        assert!(
+            !std::fs::symlink_metadata(&stored)
+                .expect("metadata")
+                .file_type()
+                .is_symlink()
+        );
+    }
+
+    #[tokio::test]
+    async fn relink_never_deletes_a_legacy_source_path() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let meta = importable_record("Legacy", None);
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            &books_dir,
+            ImportMode::Link,
+            &meta,
+            b"legacy bytes",
+            std::path::Path::new("/books/legacy.epub"),
+            "epub",
+        )
+        .await
+        .expect("persist import");
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+
+        // Simulate a pre-feature row pointing at a real user file.
+        let outside = tempfile::tempdir().expect("outside dir");
+        let original = outside.path().join("precious.epub");
+        std::fs::write(&original, b"precious").expect("write original");
+        let row = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(&conn)
+            .await
+            .expect("inventory query")
+            .expect("inventory present");
+        let mut model: digital_inventory::ActiveModel = row.into();
+        model.file_path = Set(Some(original.to_string_lossy().into_owned()));
+        model.update(&conn).await.expect("backdate row");
+
+        let new_source = outside.path().join("new.epub");
+        std::fs::write(&new_source, b"new bytes").expect("write new");
+        let file = relink_edition(&conn, &books_dir, edition_id, &new_source)
+            .await
+            .expect("relink");
+        assert!(original.exists(), "legacy source must survive relink");
+        assert!(
+            file.file_path
+                .as_deref()
+                .expect("file path")
+                .starts_with(books_dir.as_str())
+        );
     }
 }

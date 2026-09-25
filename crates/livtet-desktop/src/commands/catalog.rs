@@ -40,6 +40,15 @@ pub struct IdentifierRef {
     pub value: String,
 }
 
+/// Whether the library file behind an edition is reachable. `Missing` means
+/// the stored path (or its link target) no longer exists on disk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FileStatus {
+    Ok,
+    Missing,
+}
+
 /// The digital file backing an edition, when one is on disk.
 #[derive(Debug, Clone, PartialEq, Serialize, Type)]
 pub struct EditionFile {
@@ -51,6 +60,8 @@ pub struct EditionFile {
     pub cover_path: Option<String>,
     pub blurhash: Option<String>,
     pub dominant_color: Option<String>,
+    /// Reachability of the stored path. `None` when the edition has no file.
+    pub file_status: Option<FileStatus>,
 }
 
 /// Full read-only detail for one edition.
@@ -285,6 +296,18 @@ async fn identifiers_for_edition(
         .collect())
 }
 
+/// Reachability of a stored library path. `None` when the edition has no
+/// file; `exists()` follows symlinks, so a dangling link reads `Missing`.
+fn file_status_for(file_path: Option<&str>) -> Option<FileStatus> {
+    file_path.map(|path| {
+        if std::path::Path::new(path).exists() {
+            FileStatus::Ok
+        } else {
+            FileStatus::Missing
+        }
+    })
+}
+
 async fn file_for_edition(
     db: &DatabaseConnection,
     edition_id: DbId,
@@ -295,6 +318,7 @@ async fn file_for_edition(
         .await
         .map_err(CatalogError::database)?
         .map(|inventory| EditionFile {
+            file_status: file_status_for(inventory.file_path.as_deref()),
             file_path: inventory.file_path,
             file_format: inventory.file_format,
             file_size_bytes: inventory.file_size_bytes.map(|bytes| bytes as f64),
@@ -572,5 +596,62 @@ mod tests {
                 .expect("query ok")
                 .is_empty()
         );
+    }
+
+    async fn set_inventory_file_path(
+        db: &DatabaseConnection,
+        edition_id: DbId,
+        path: Option<String>,
+    ) {
+        let inventory = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(db)
+            .await
+            .expect("query ok")
+            .expect("inventory row");
+        let mut model: digital_inventory::ActiveModel = inventory.into();
+        model.file_path = Set(path);
+        model.update(db).await.expect("update file_path");
+    }
+
+    async fn detail_file(db: &DatabaseConnection, edition_id: DbId) -> EditionFile {
+        fetch_edition_detail(db, edition_id)
+            .await
+            .expect("query ok")
+            .expect("edition present")
+            .file
+            .expect("file present")
+    }
+
+    #[tokio::test]
+    async fn file_status_reflects_target_presence() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let seed = seed_edition(&db).await;
+
+        // The seeded path exists nowhere on disk.
+        assert_eq!(
+            detail_file(&db, seed.edition_id).await.file_status,
+            Some(FileStatus::Missing)
+        );
+
+        // A real file behind the path reads reachable.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let real = dir.path().join("the-book.epub");
+        std::fs::write(&real, b"book bytes").expect("write temp book");
+        set_inventory_file_path(
+            &db,
+            seed.edition_id,
+            Some(real.to_string_lossy().into_owned()),
+        )
+        .await;
+        assert_eq!(
+            detail_file(&db, seed.edition_id).await.file_status,
+            Some(FileStatus::Ok)
+        );
+
+        // No stored path means no status at all.
+        set_inventory_file_path(&db, seed.edition_id, None).await;
+        assert_eq!(detail_file(&db, seed.edition_id).await.file_status, None);
     }
 }
