@@ -4,10 +4,10 @@ import { Locator, Manifest, Publication } from '@readium/shared'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { onDestroy, onMount } from 'svelte'
 import { page } from '$app/state'
-import ActionButton from '../../../lib/components/ActionButton.svelte'
-import { ReaderFetcher } from '../../../lib/reader/fetcher'
-import { createLoadSession } from '../../../lib/reader/loadSession'
-import { loadReaderPublication } from '../../../lib/reader/read'
+import ActionButton from '$lib/components/ActionButton.svelte'
+import { ReaderFetcher } from '$lib/reader/fetcher'
+import { createLoadSession } from '$lib/reader/loadSession'
+import { loadReaderPublication } from '$lib/reader/read'
 
 const editionId = $derived(page.params.editionId ?? '')
 

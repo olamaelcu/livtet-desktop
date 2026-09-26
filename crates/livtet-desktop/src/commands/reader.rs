@@ -78,6 +78,14 @@ pub(crate) fn check_reader_file(file_path: Option<&str>) -> Result<PathBuf, Read
     Ok(fs_path)
 }
 
+/// SPA path for an edition's EPUB reader window, without a leading slash.
+///
+/// The desktop reader window targets this nested route (e.g.
+/// `reader/pub/{edition id}`); SvelteKit serves it in SPA fallback mode.
+pub(crate) fn reader_pub_window_path(edition_id: &DbId) -> String {
+    format!("reader/pub/{edition_id}")
+}
+
 /// Base URL for an edition's publication resources. It always ends in `/`.
 ///
 /// Desktop WebViews resolve the `reader` custom scheme as
@@ -196,7 +204,7 @@ pub async fn open_reader(
     state: State<'_, AppState>,
 ) -> Result<(), ReaderError> {
     let resolved = resolve_reader(&state, &edition_id).await?;
-    let label = format!("{READER_WINDOW_PREFIX}{edition_id}");
+    let label = format!("{READER_WINDOW_PREFIX}{}", resolved.id);
     if let Some(window) = app.get_webview_window(&label) {
         window.set_focus().map_err(ReaderError::publication)?;
         return Ok(());
@@ -208,7 +216,7 @@ pub async fn open_reader(
     tauri::WebviewWindowBuilder::new(
         &app,
         &label,
-        tauri::WebviewUrl::App(format!("reader/{edition_id}").into()),
+        tauri::WebviewUrl::App(reader_pub_window_path(&resolved.id).into()),
     )
     .title(title)
     .inner_size(1000.0, 720.0)
@@ -383,6 +391,12 @@ mod tests {
             matches!(err, ReaderError::Publication { .. }),
             "binary resource must be a Publication error, got {err:?}"
         );
+    }
+
+    #[test]
+    fn reader_pub_window_path_targets_the_nested_spa_route() {
+        let id = DbId::new();
+        assert_eq!(reader_pub_window_path(&id), format!("reader/pub/{id}"));
     }
 
     #[test]
