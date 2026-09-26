@@ -30,4 +30,6 @@ pub struct AppState {
     pub opds_store: Arc<tauri_plugin_store::Store<tauri::Wry>>,
     /// OS-keyring-backed storage for OPDS catalog credentials.
     pub secrets: Arc<dyn crate::secrets::SecretStore>,
+    /// Loopback HTTP server serving audiobook bytes to `<audio>`.
+    pub audio: crate::commands::audio_server::AudioServer,
 }

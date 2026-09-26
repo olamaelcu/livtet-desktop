@@ -1,3 +1,4 @@
+pub mod audio_server;
 pub mod bulk;
 pub mod catalog;
 pub mod import;

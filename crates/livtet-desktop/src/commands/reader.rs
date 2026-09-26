@@ -1,10 +1,10 @@
-//! Reader window commands and the `reader://` audio scheme backend.
+//! Reader window commands and the audiobook descriptor backend.
 //!
-//! Audiobooks play in a dedicated `/reader/[editionId]` window backed by
-//! `reader://localhost/editions/{edition_id}/audio`, served with byte ranges
-//! so the `<audio>` element can seek a whole-file download. The scheme handler
-//! itself lives in `crate::run`; everything testable (URI parsing, range
-//! math, edition resolution) lives here.
+//! Audiobooks play in a dedicated `/reader/[editionId]` window backed by the
+//! loopback audio server (see [`super::audio_server`]): WebKitGTK routes
+//! `<audio>` through GStreamer, which cannot fetch custom schemes, so bytes
+//! are served over HTTP on 127.0.0.1 with ranges. Everything testable (range
+//! math, edition resolution, publication descriptors) lives here.
 
 use serde::Serialize;
 use specta::Type;
@@ -58,16 +58,6 @@ pub enum ReaderPublication {
         chapters: Vec<ReaderChapter>,
         audio_url: String,
     },
-}
-
-/// Parse `reader://localhost/editions/{edition_id}/audio`.
-pub(crate) fn parse_reader_audio_uri(uri: &str) -> Option<DbId> {
-    let rest = uri.strip_prefix("reader://localhost/editions/")?;
-    let (id, tail) = rest.split_once('/')?;
-    if tail != "audio" {
-        return None;
-    }
-    id.parse::<DbId>().ok()
 }
 
 /// Inclusive `[start, end]` byte range for a `Range` header value.
@@ -143,6 +133,7 @@ pub(crate) async fn resolve_reader_audio(
 pub(crate) async fn describe_publication(
     db: &livtet_core::data::orm::DatabaseConnection,
     edition_id: DbId,
+    audio: &super::audio_server::AudioServer,
 ) -> Result<Option<ReaderPublication>, ReaderError> {
     let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
         return Ok(None);
@@ -189,7 +180,7 @@ pub(crate) async fn describe_publication(
         title: edition.title,
         duration_seconds,
         chapters,
-        audio_url: format!("reader://localhost/editions/{edition_id}/audio"),
+        audio_url: format!("{}/audio/{edition_id}?t={}", audio.base_url, audio.token),
     }))
 }
 
@@ -204,88 +195,55 @@ pub async fn reader_publication(
     let id = edition_id
         .parse::<DbId>()
         .map_err(|_| ReaderError::new("invalid-id", format!("invalid edition id: {edition_id}")))?;
-    describe_publication(&state.db.db_conn(), id).await
+    describe_publication(&state.db.db_conn(), id, &state.audio).await
 }
 
-/// Serve one `reader://` request: resolve the edition, fence the path inside
-/// the library, and answer whole-file (200) or ranged (206) audio bytes.
+/// Whether `file_path` names an entry of the library store.
 ///
-/// Only the requested byte window is ever read, so seeking a large audiobook
-/// never loads the whole file.
-pub(crate) async fn serve_reader_request(
-    app: &AppHandle,
-    request: http::Request<Vec<u8>>,
-) -> http::Response<std::borrow::Cow<'static, [u8]>> {
-    let error_response = |status: http::StatusCode| {
-        http::Response::builder()
-            .status(status)
-            .body(std::borrow::Cow::Borrowed(&[][..]))
-            .expect("reader error response uses valid headers")
-    };
-    let Some(edition_id) = parse_reader_audio_uri(request.uri().to_string().as_str()) else {
-        return error_response(http::StatusCode::BAD_REQUEST);
-    };
-    let state = app.state::<AppState>();
-    let db = state.db.db_conn();
-    let path = match resolve_reader_audio(&db, edition_id).await {
-        Ok(path) => path,
-        Err(error) if error.code == "not-found" => {
-            return error_response(http::StatusCode::NOT_FOUND);
+/// Lexical check only: the path must be absolute and, after resolving `.`
+/// and `..` without touching the filesystem, stay under `books_dir`.
+/// Symlinks are deliberately NOT resolved — link-mode imports are symlinks
+/// inside `books_dir` pointing elsewhere, and that is the design.
+/// Relative paths never name a library entry.
+pub(crate) fn reader_path_in_library(
+    books_dir: &camino::Utf8Path,
+    file_path: &camino::Utf8Path,
+) -> bool {
+    use std::path::Component;
+    let mut normalized = std::path::PathBuf::new();
+    for component in file_path.as_std_path().components() {
+        match component {
+            Component::Prefix(prefix) => normalized.push(prefix.as_os_str()),
+            Component::RootDir => normalized.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return false;
+                }
+            }
+            Component::Normal(part) => normalized.push(part),
         }
-        Err(_) => return error_response(http::StatusCode::BAD_REQUEST),
-    };
-    // Fence: the served file must resolve inside the library store.
-    let (canonical_file, canonical_books) = match tokio::join!(
-        tokio::fs::canonicalize(&path),
-        tokio::fs::canonicalize(&state.books_dir)
-    ) {
-        (Ok(file), Ok(books)) => (file, books),
-        _ => return error_response(http::StatusCode::NOT_FOUND),
-    };
-    if !canonical_file.starts_with(&canonical_books) {
-        return error_response(http::StatusCode::FORBIDDEN);
     }
-    let file = match tokio::fs::File::open(&canonical_file).await {
-        Ok(file) => file,
-        Err(_) => return error_response(http::StatusCode::NOT_FOUND),
-    };
-    let total_len = match file.metadata().await {
-        Ok(metadata) => metadata.len(),
-        Err(_) => return error_response(http::StatusCode::NOT_FOUND),
-    };
-    let range = request
-        .headers()
-        .get(http::header::RANGE)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|header| parse_range_header(total_len, header));
-    let (status, start, end) = match range {
-        Some((start, end)) => (http::StatusCode::PARTIAL_CONTENT, start, end),
-        None if total_len == 0 => (http::StatusCode::OK, 0, 0),
-        None => (http::StatusCode::OK, 0, total_len.saturating_sub(1)),
-    };
-    let body = match read_byte_range(file, start, end).await {
-        Ok(body) => body,
-        Err(_) => return error_response(http::StatusCode::NOT_FOUND),
-    };
-    let content_length = body.len();
-    let mut response = http::Response::builder()
-        .status(status)
-        .header(http::header::CONTENT_TYPE, "audio/mp4")
-        .header(http::header::ACCEPT_RANGES, "bytes")
-        .header(http::header::CONTENT_LENGTH, content_length);
-    if status == http::StatusCode::PARTIAL_CONTENT {
-        response = response.header(
-            http::header::CONTENT_RANGE,
-            format!("bytes {start}-{end}/{total_len}"),
-        );
+    if !normalized.is_absolute() {
+        return false;
     }
-    response
-        .body(std::borrow::Cow::Owned(body))
-        .expect("reader response uses valid headers")
+    let mut base = std::path::PathBuf::new();
+    for component in books_dir.as_std_path().components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !base.pop() {
+                    return false;
+                }
+            }
+            _ => base.push(component.as_os_str()),
+        }
+    }
+    normalized.starts_with(&base)
 }
 
 /// Read the inclusive `[start, end]` byte window of an open file.
-async fn read_byte_range(
+pub(crate) async fn read_byte_range(
     mut file: tokio::fs::File,
     start: u64,
     end: u64,
@@ -317,7 +275,7 @@ pub async fn open_reader(
         .parse::<DbId>()
         .map_err(|_| ReaderError::new("invalid-id", format!("invalid edition id: {edition_id}")))?;
     // Fail closed before touching windows: only describable editions open.
-    let title = describe_publication(&state.db.db_conn(), id)
+    let title = describe_publication(&state.db.db_conn(), id, &state.audio)
         .await?
         .ok_or_else(|| ReaderError::new("not-found", "edition not found"))?;
     let title = match &title {
@@ -347,24 +305,41 @@ mod tests {
     use livtet_core::data::{Kind, TestDb};
 
     #[test]
-    fn parses_reader_audio_uris() {
-        let id = DbId::new();
-        assert_eq!(
-            parse_reader_audio_uri(&format!("reader://localhost/editions/{id}/audio")),
-            Some(id)
-        );
-        assert_eq!(
-            parse_reader_audio_uri("reader://localhost/editions/not-an-id/audio"),
-            None
-        );
-        assert_eq!(
-            parse_reader_audio_uri(&format!("reader://localhost/editions/{id}/cover")),
-            None
-        );
-        assert_eq!(
-            parse_reader_audio_uri("https://example.com/editions/x/audio"),
-            None
-        );
+    fn library_fence_accepts_linked_and_copied_entries() {
+        use camino::Utf8Path;
+        let books = Utf8Path::new("/data/books");
+        // A symlink inside books_dir pointing elsewhere is the link-mode
+        // design: the check is lexical and never resolves the target.
+        assert!(reader_path_in_library(
+            books,
+            Utf8Path::new("/data/books/ab12-imaan.m4b")
+        ));
+        assert!(reader_path_in_library(
+            books,
+            Utf8Path::new("/data/books/./ab12-imaan.m4b")
+        ));
+    }
+
+    #[test]
+    fn library_fence_rejects_escapes() {
+        use camino::Utf8Path;
+        let books = Utf8Path::new("/data/books");
+        assert!(!reader_path_in_library(books, Utf8Path::new("/etc/passwd")));
+        assert!(!reader_path_in_library(
+            books,
+            Utf8Path::new("/data/books/../covers/x.jpg")
+        ));
+        assert!(!reader_path_in_library(
+            books,
+            Utf8Path::new("/data/books/a/../../etc/passwd")
+        ));
+        // Sibling prefix, not containment.
+        assert!(!reader_path_in_library(
+            books,
+            Utf8Path::new("/data/books2/a.m4b")
+        ));
+        // Relative paths never name a library entry.
+        assert!(!reader_path_in_library(books, Utf8Path::new("books/a.m4b")));
     }
 
     #[test]
@@ -520,7 +495,11 @@ mod tests {
         )
         .await;
 
-        let publication = describe_publication(&db, fixture.edition_id)
+        let audio = super::super::audio_server::AudioServer {
+            base_url: "http://127.0.0.1:9".to_string(),
+            token: "t".to_string(),
+        };
+        let publication = describe_publication(&db, fixture.edition_id, &audio)
             .await
             .expect("query ok")
             .expect("publication present");
@@ -535,7 +514,7 @@ mod tests {
                     audio_start: 0,
                     audio_end: 300,
                 }],
-                audio_url: format!("reader://localhost/editions/{}/audio", fixture.edition_id),
+                audio_url: format!("http://127.0.0.1:9/audio/{}?t=t", fixture.edition_id),
             }
         );
     }
@@ -545,7 +524,11 @@ mod tests {
         let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
         let db = test_db.state().db_conn();
 
-        let publication = describe_publication(&db, DbId::new())
+        let audio = super::super::audio_server::AudioServer {
+            base_url: "http://127.0.0.1:9".to_string(),
+            token: "t".to_string(),
+        };
+        let publication = describe_publication(&db, DbId::new(), &audio)
             .await
             .expect("query ok");
         assert!(publication.is_none());

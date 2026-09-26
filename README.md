@@ -12,10 +12,13 @@ The shell is Rust, talking to the webview through Tauri IPC.
 
 ## Stack
 
-- Tauri 2 with `tauri-plugin-opener`, `tauri-plugin-decorum` (overlay titlebar), and `tauri-plugin-mcp-bridge` in dev
+- Tauri 2 with `tauri-plugin-opener`, `tauri-plugin-decorum` (overlay
+  titlebar), and `tauri-plugin-mcp-bridge` in dev
 - SvelteKit 2 + Svelte 5, bundled by Vite 8, source under `web/`
 - WebAwesome 3.x components, loaded via the auto-loader
-- Livtet brand tokens via `@olamaelcu/livtet-branding` (git dependency); fonts bundled from Fontsource: Work Sans (body), Lora Variable (heading), JetBrains Mono (code)
+- Livtet brand tokens via `@olamaelcu/livtet-branding` (git dependency); fonts
+  bundled from Fontsource: Work Sans (body), Lora Variable (heading), JetBrains
+  Mono (code)
 - Rust 1.85+, edition 2021, single workspace member in `tauri/`
 
 ## Quick start
@@ -25,13 +28,15 @@ pnpm install
 pnpm tauri:dev
 ```
 
-See [GETTING_STARTED.md](./GETTING_STARTED.md) for prerequisites, the full dev loop, and how to produce a release build.
+See [GETTING_STARTED.md](./GETTING_STARTED.md) for prerequisites, the full dev
+loop, and how to produce a release build.
 
 ## Contributing
 
-Bug reports, fixes, and feature work all flow through pull requests. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for commit conventions, code style, and the review process.
+Bug reports, fixes, and feature work all flow through pull requests. Read
+[CONTRIBUTING.md](./CONTRIBUTING.md) for commit conventions, code style, and
+the review process.
 
 ## License
 
 MPL-2.0. See [LICENSE](./LICENSE). Copyright (c) 2026 Jacky Alcine <yo@jacky.wtf>.
-

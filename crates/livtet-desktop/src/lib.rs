@@ -303,11 +303,20 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .build()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
 
+    // Loopback audio server for `<audio>` playback: WebKitGTK routes media
+    // through GStreamer, which cannot fetch the app's custom schemes.
+    let audio = commands::audio_server::spawn(db.db_conn(), paths.books_dir.clone())
+        .await
+        .map_err(|e| {
+            Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
+        })?;
+
     let state = AppState {
         search_index: ArcMut::new(RwLock::new(None)),
         db,
         covers_dir: paths.covers_dir.clone(),
         books_dir: paths.books_dir.clone(),
+        audio,
         plugin_host_path,
         plugin_host_config,
         plugins_dir,
@@ -333,7 +342,6 @@ pub fn run() {
         commands::catalog::get_edition_covers,
         commands::search::search_editions,
         commands::search::search_typeahead,
-        commands::search::search_editions_count,
         commands::search::filter_options,
         commands::bulk::delete_editions,
         commands::bulk::export_editions_csv,
@@ -374,12 +382,6 @@ pub fn run() {
     ]);
 
     let builder = tauri::Builder::default()
-        .register_asynchronous_uri_scheme_protocol("reader", |context, request, responder| {
-            let app = context.app_handle().clone();
-            tauri::async_runtime::spawn(async move {
-                responder.respond(commands::reader::serve_reader_request(&app, request).await);
-            });
-        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
