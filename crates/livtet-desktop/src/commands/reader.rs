@@ -1,7 +1,7 @@
 //! Reader window commands: the audiobook descriptor backend and the EPUB
 //! streamer/navigator backend behind one dispatching entry point.
 //!
-//! Audiobooks play in a dedicated `/reader/[editionId]` window backed by the
+//! Audiobooks play in a dedicated `/reader/audio/[editionId]` window backed by the
 //! loopback audio server (see [`super::audio_server`]): WebKitGTK routes
 //! `<audio>` through GStreamer, which cannot fetch custom schemes, so bytes
 //! are served over HTTP on 127.0.0.1 with ranges. Everything testable (range
@@ -358,6 +358,14 @@ pub(crate) fn reader_pub_window_path(edition_id: &DbId) -> String {
     format!("reader/pub/{edition_id}")
 }
 
+/// SPA path for an edition's audiobook reader window, without a leading slash.
+///
+/// The desktop reader window targets this nested route (e.g.
+/// `reader/audio/{edition id}`); SvelteKit serves it in SPA fallback mode.
+pub(crate) fn reader_audio_window_path(edition_id: &DbId) -> String {
+    format!("reader/audio/{edition_id}")
+}
+
 /// Base URL for an edition's publication resources. It always ends in `/`.
 ///
 /// Desktop WebViews resolve the `reader` custom scheme as
@@ -504,11 +512,15 @@ async fn open_audiobook_reader(
             .map_err(|error| ReaderError::new("window", error))?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(format!("reader/{id}").into()))
-        .title(title)
-        .inner_size(480.0, 800.0)
-        .build()
-        .map_err(|error| ReaderError::new("window", error))?;
+    WebviewWindowBuilder::new(
+        app,
+        &label,
+        WebviewUrl::App(reader_audio_window_path(&id).into()),
+    )
+    .title(title)
+    .inner_size(480.0, 800.0)
+    .build()
+    .map_err(|error| ReaderError::new("window", error))?;
     Ok(())
 }
 
@@ -564,7 +576,7 @@ async fn open_epub_reader(
 
 /// Open (or focus) the dedicated reader window for an edition.
 ///
-/// Audiobook editions target the `reader/{id}` player window; all other
+/// Audiobook editions target the `reader/audio/{id}` player window; all other
 /// editions go through the fail-closed EPUB resolver and target
 /// `reader/pub/{id}`.
 #[tauri::command]
@@ -1052,6 +1064,18 @@ mod tests {
         assert!(
             path.ends_with(canonical.as_str()),
             "window path must end with the canonical edition id, got {path}"
+        );
+    }
+
+    #[test]
+    fn reader_audio_window_path_targets_the_nested_spa_route() {
+        let id = DbId::new();
+        let path = reader_audio_window_path(&id);
+        let canonical = id.to_string();
+        assert_eq!(path, format!("reader/audio/{canonical}"));
+        assert!(
+            !path.starts_with('/'),
+            "window path must be relative, got {path}"
         );
     }
 

@@ -2,15 +2,15 @@
 import { createQuery } from '@tanstack/svelte-query'
 import { toast } from 'svelte-sonner'
 import { page } from '$app/state'
-import ActionButton from '../../../lib/components/ActionButton.svelte'
-import { readerKeys } from '../../../lib/query/keys'
+import ActionButton from '$lib/components/ActionButton.svelte'
+import { readerKeys } from '$lib/query/keys'
 import {
   chapterAt,
   formatTimestamp,
   loadListeningProgress,
   loadReaderPublication,
   saveListeningProgress,
-} from '../../../lib/reader'
+} from '$lib/reader'
 
 const SAVE_EVERY_SECONDS = 15
 const SKIP_SECONDS = 30
