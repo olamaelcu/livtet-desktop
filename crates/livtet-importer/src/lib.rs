@@ -4,9 +4,11 @@
 //! which extensions they handle and on the bibliographic record they return.
 //! Remote callers use [`ImporterMeta`] as the JSON boundary.
 
+mod audio;
 mod epub;
 mod mobi;
 
+pub use audio::AudiobookImporter;
 pub use epub::EpubImporter;
 pub use mobi::MobiImporter;
 
@@ -73,6 +75,11 @@ pub struct ImporterMeta {
     pub description: Option<String>,
     pub subjects: Vec<String>,
     pub cover: Option<ImporterCover>,
+    /// Optional per-edition format metadata (e.g. audiobook duration and
+    /// chapters), carried opaquely and validated against the edition format's
+    /// `FormatMetadataSchema` at import time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_metadata: Option<Json>,
 }
 
 fn normalize_optional_object(value: &mut Json) {
@@ -126,6 +133,7 @@ impl ImporterMeta {
                     "published",
                     "description",
                     "cover",
+                    "format_metadata",
                 ],
             );
             normalize_contributor_optionals(record);
@@ -168,6 +176,7 @@ pub(crate) fn role_string(role: &livtet_epub::Role) -> String {
         livtet_epub::Role::Editor => "edt",
         livtet_epub::Role::Translator => "trl",
         livtet_epub::Role::Illustrator => "ill",
+        livtet_epub::Role::Narrator => "nrt",
         livtet_epub::Role::Other(raw) => raw,
     }
     .to_string()

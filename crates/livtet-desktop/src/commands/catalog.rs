@@ -422,6 +422,7 @@ mod tests {
             language_id: Set(Some(language_id)),
             notes: Set(Some("A note".to_string())),
             description: Set(Some("An edition".to_string())),
+            format_metadata: Set(None),
             created_at: Set(now),
             updated_at: Set(None),
         }

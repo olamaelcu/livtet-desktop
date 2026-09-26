@@ -1,0 +1,16 @@
+[package]
+name = "livtet-audio"
+version = "0.1.0"
+edition.workspace = true
+authors = ["olamaelcu"]
+license = "MPL-2.0"
+description = "iTunes MP4 (M4B/M4A) audiobook metadata and cover extraction for Livtet imports"
+publish = false
+
+[dependencies]
+livtet-importer-types.workspace = true
+livtet-types.workspace = true
+mp4ameta.workspace = true
+serde_json = "1"
+thiserror = "2"
+

@@ -23,7 +23,7 @@ interface Props {
 let { open, onclose }: Props = $props()
 
 const queryClient = useQueryClient()
-const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf'] }]
+const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf', 'm4b', 'm4a'] }]
 
 let rows = $state<ImportRow[]>([])
 let summary = $state<ImportBatchResult | null>(null)

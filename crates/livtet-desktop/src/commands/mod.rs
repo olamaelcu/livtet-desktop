@@ -3,6 +3,8 @@ pub mod catalog;
 pub mod import;
 pub mod importers;
 pub mod opds;
+pub mod playback;
 pub mod plugins;
+pub mod reader;
 pub mod search;
 pub mod sync;

@@ -55,6 +55,7 @@ impl Importer for EpubImporter {
                 mime: cover.mime,
                 data_base64: STANDARD.encode(cover.data),
             }),
+            format_metadata: parsed.format_metadata,
         })
     }
 }

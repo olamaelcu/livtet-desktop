@@ -65,6 +65,7 @@ pub(crate) fn extract(bytes: &[u8]) -> Result<SourceMetadata> {
         description: extract_description(&header, codepage),
         subjects: extract_subjects(&header, codepage),
         cover: cover::resolve(pdb.records(), &header)?,
+        format_metadata: None,
     })
 }
 

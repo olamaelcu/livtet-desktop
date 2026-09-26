@@ -5,16 +5,17 @@ use stanchion::mlua;
 
 use crate::{Importer, ImporterContributor, ImporterCover, ImporterMeta, ImporterPublicationDate};
 
-/// Native MOBI-family importer behind the shared contract.
-pub struct MobiImporter;
+/// Native audiobook importer behind the shared contract.
+pub struct AudiobookImporter;
 
-impl Importer for MobiImporter {
+impl Importer for AudiobookImporter {
     fn extensions(&self) -> mlua::Result<Vec<String>> {
-        Ok(vec!["azw3".to_string(), "azw".to_string()])
+        Ok(vec!["m4b".to_string(), "m4a".to_string()])
     }
 
     fn read_metadata(&self, path: String) -> mlua::Result<ImporterMeta> {
-        let parsed = livtet_mobi::read_metadata(Path::new(&path)).map_err(mlua::Error::external)?;
+        let parsed =
+            livtet_audio::read_metadata(Path::new(&path)).map_err(mlua::Error::external)?;
 
         Ok(ImporterMeta {
             title: parsed.title.0,

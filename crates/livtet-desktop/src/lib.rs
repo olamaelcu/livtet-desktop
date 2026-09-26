@@ -367,9 +367,19 @@ pub fn run() {
         commands::sync::sync_conflicts_resolve,
         commands::sync::sync_server_start,
         commands::sync::sync_server_stop,
+        commands::reader::open_reader,
+        commands::reader::reader_publication,
+        commands::playback::get_listening_progress,
+        commands::playback::save_listening_progress,
     ]);
 
     let builder = tauri::Builder::default()
+        .register_asynchronous_uri_scheme_protocol("reader", |context, request, responder| {
+            let app = context.app_handle().clone();
+            tauri::async_runtime::spawn(async move {
+                responder.respond(commands::reader::serve_reader_request(&app, request).await);
+            });
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

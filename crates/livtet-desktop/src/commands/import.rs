@@ -17,14 +17,18 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use livtet_core::data::entities::{
     authors, digital_inventory, edition_authors, edition_identifiers, edition_publishers,
-    edition_subjects, editions, identifiers, languages, publishers, subjects, works,
+    edition_subjects, editions, formats, identifiers, languages, publishers, subjects, works,
 };
 use livtet_core::data::orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter, Set, TransactionTrait,
 };
-use livtet_importer::{EpubImporter, Importer, ImporterContributor, ImporterMeta, MobiImporter};
-use livtet_types::{CommonLanguages, DbId, Isbn, KnownFormats, Urn, now_primitive};
+use livtet_importer::{
+    AudiobookImporter, EpubImporter, Importer, ImporterContributor, ImporterMeta, MobiImporter,
+};
+use livtet_types::{
+    CommonLanguages, DbId, FormatMetadataSchema, Isbn, KnownFormats, Urn, now_primitive,
+};
 
 use super::catalog::{EditionFile, FileStatus};
 use super::importers::remote_importer_metadata;
@@ -405,6 +409,7 @@ fn cover_extension(mime: &str) -> &str {
 enum FileImporterSource {
     NativeEpub,
     NativeMobi,
+    NativeAudio,
     Remote,
 }
 
@@ -513,7 +518,7 @@ fn push_unique_row(rows: &mut Vec<(String, &'static str)>, value: String, kind: 
 /// Whether `role` is one of the core MARC relator codes the native importer
 /// produces.
 fn is_core_contributor_role(role: &str) -> bool {
-    matches!(role, "aut" | "edt" | "trl" | "ill")
+    matches!(role, "aut" | "edt" | "trl" | "ill" | "nrt")
 }
 
 /// Normalizes a contributor role for storage, reporting whether it is one of
@@ -568,6 +573,8 @@ fn format_id_for_extension(extension: &str) -> Option<DbId> {
         Some(KnownFormats::Mobi.into())
     } else if extension.eq_ignore_ascii_case("pdf") {
         Some(KnownFormats::Pdf.into())
+    } else if extension.eq_ignore_ascii_case("m4b") || extension.eq_ignore_ascii_case("m4a") {
+        Some(KnownFormats::Audiobook.into())
     } else {
         None
     }
@@ -578,9 +585,49 @@ fn importer_source_for_extension(extension: &str) -> FileImporterSource {
         FileImporterSource::NativeEpub
     } else if extension.eq_ignore_ascii_case("azw3") || extension.eq_ignore_ascii_case("azw") {
         FileImporterSource::NativeMobi
+    } else if extension.eq_ignore_ascii_case("m4b") || extension.eq_ignore_ascii_case("m4a") {
+        FileImporterSource::NativeAudio
     } else {
         FileImporterSource::Remote
     }
+}
+
+/// Validate per-edition format metadata against the edition format's schema.
+///
+/// `None` passes through, except for the audiobook format, which must carry
+/// `duration_seconds` and `chapters`. A value for an extension with no known
+/// catalog format, a missing format row, or a schema violation fails closed.
+async fn resolve_format_metadata(
+    conn: &DatabaseConnection,
+    extension: &str,
+    format_metadata: Option<serde_json::Value>,
+) -> Result<Option<serde_json::Value>, ImportError> {
+    let format_id = format_id_for_extension(extension);
+    let Some(value) = format_metadata else {
+        if format_id == Some(KnownFormats::Audiobook.into()) {
+            return Err(ImportError::new(
+                "importer",
+                "audiobook imports must carry duration and chapters",
+            ));
+        }
+        return Ok(None);
+    };
+    let Some(format_id) = format_id else {
+        return Err(ImportError::new(
+            "importer",
+            "format metadata requires a known catalog format",
+        ));
+    };
+    let format = formats::Entity::find_by_id(format_id)
+        .one(conn)
+        .await?
+        .ok_or_else(|| ImportError::new("importer", "catalog format is missing"))?;
+    let schema: FormatMetadataSchema = serde_json::from_value(format.metadata_schema.clone())
+        .map_err(|error| ImportError::new("importer", format!("invalid format schema: {error}")))?;
+    schema.validate(&value).map_err(|error| {
+        ImportError::new("importer", format!("invalid format metadata: {error}"))
+    })?;
+    Ok(Some(value))
 }
 
 #[tauri::command]
@@ -616,6 +663,12 @@ pub(crate) async fn import_one(
         ),
         FileImporterSource::NativeMobi => (
             MobiImporter
+                .read_metadata(path.to_string())
+                .map_err(|error| ImportError::new("parse", error))?,
+            None,
+        ),
+        FileImporterSource::NativeAudio => (
+            AudiobookImporter
                 .read_metadata(path.to_string())
                 .map_err(|error| ImportError::new("parse", error))?,
             None,
@@ -696,6 +749,9 @@ async fn persist_import(
     let file_hash = hex::encode(sha2::Sha256::digest(bytes));
 
     let conn = db.db_conn();
+    // Fail closed on format metadata before any bytes are read or rows written.
+    let format_metadata =
+        resolve_format_metadata(&conn, extension, meta.format_metadata.clone()).await?;
 
     // Dedup: identical bytes already imported?
     if let Some(existing) = digital_inventory::Entity::find()
@@ -789,6 +845,7 @@ async fn persist_import(
             language_id: Set(language_id),
             notes: Set(None),
             description: Set(meta.description.clone()),
+            format_metadata: Set(format_metadata.clone()),
             created_at: Set(now),
             updated_at: Set(None),
         }
@@ -1115,6 +1172,18 @@ mod tests {
     }
 
     #[test]
+    fn m4b_and_m4a_extensions_use_the_native_audio_importer() {
+        assert!(matches!(
+            importer_source_for_extension("m4b"),
+            FileImporterSource::NativeAudio
+        ));
+        assert!(matches!(
+            importer_source_for_extension("M4A"),
+            FileImporterSource::NativeAudio
+        ));
+    }
+
+    #[test]
     fn unknown_extensions_use_remote_importers() {
         assert!(matches!(
             importer_source_for_extension("pdf"),
@@ -1137,6 +1206,10 @@ mod tests {
             normalize_contributor_role(Some("ctb")),
             ("ctb".to_string(), false)
         );
+        assert_eq!(
+            normalize_contributor_role(Some("NRT")),
+            ("nrt".to_string(), true)
+        );
     }
 
     #[test]
@@ -1156,6 +1229,14 @@ mod tests {
         assert_eq!(
             format_id_for_extension("PDF"),
             Some(livtet_types::KnownFormats::Pdf.into())
+        );
+        assert_eq!(
+            format_id_for_extension("m4b"),
+            Some(livtet_types::KnownFormats::Audiobook.into())
+        );
+        assert_eq!(
+            format_id_for_extension("M4A"),
+            Some(livtet_types::KnownFormats::Audiobook.into())
         );
         assert_eq!(format_id_for_extension("txt"), None);
     }
@@ -1177,6 +1258,7 @@ mod tests {
             description: None,
             subjects: Vec::new(),
             cover: None,
+            format_metadata: None,
         }
     }
 
@@ -1330,6 +1412,7 @@ mod tests {
             description: None,
             subjects: Vec::new(),
             cover: None,
+            format_metadata: None,
         }
     }
 
@@ -1461,6 +1544,63 @@ mod tests {
             .await
             .expect("edition identifiers");
         assert_eq!(identifier_rows.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn persist_import_stores_validated_audiobook_format_metadata() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Memoir", None);
+        meta.format_metadata = Some(serde_json::json!({
+            "duration_seconds": 7200,
+            "chapters": [{"name": "Intro", "audio_start": 0, "audio_end": 300}],
+        }));
+
+        let outcome = persist_import(
+            &state,
+            &covers_dir,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
+            &meta,
+            b"audiobook bytes",
+            std::path::Path::new("/books/memoir.m4b"),
+            "m4b",
+        )
+        .await
+        .expect("audiobook format metadata persists");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let edition = editions::Entity::find_by_id(edition_id)
+            .one(&conn)
+            .await
+            .expect("edition query")
+            .expect("edition present");
+        assert_eq!(edition.format_metadata, meta.format_metadata);
+    }
+
+    #[tokio::test]
+    async fn persist_import_rejects_invalid_audiobook_format_metadata() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Memoir", None);
+        meta.format_metadata = Some(serde_json::json!({}));
+
+        persist_import(
+            &state,
+            &covers_dir,
+            LibraryTarget {
+                dir: &books_dir,
+                mode: ImportMode::Link,
+            },
+            &meta,
+            b"invalid audiobook bytes",
+            std::path::Path::new("/books/invalid.m4b"),
+            "m4b",
+        )
+        .await
+        .expect_err("invalid audiobook format metadata fails closed");
     }
 
     #[tokio::test]

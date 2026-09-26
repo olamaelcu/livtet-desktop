@@ -9,11 +9,11 @@ use camino::Utf8PathBuf;
 use tauri_specta::{Builder, collect_commands};
 
 fn main() {
-    let bindings_path = Utf8PathBuf::new()
-        .join(env!("CARGO_MANIFEST_DIR"))
-        .join("../../web/lib/bindings.ts")
-        .canonicalize_utf8()
-        .expect("Could not determine the path on disk to the bindings.ts location.");
+    let bindings_path =
+        Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../web/lib/bindings.ts");
+    // `bindings.ts` is gitignored and may not exist in a fresh worktree yet;
+    // fall back to the uncanonicalized path and let the export create it.
+    let bindings_path = bindings_path.canonicalize_utf8().unwrap_or(bindings_path);
 
     let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
         livtet_desktop_lib::commands::catalog::get_edition_detail,
@@ -54,6 +54,10 @@ fn main() {
         livtet_desktop_lib::commands::sync::sync_conflicts_resolve,
         livtet_desktop_lib::commands::sync::sync_server_start,
         livtet_desktop_lib::commands::sync::sync_server_stop,
+        livtet_desktop_lib::commands::reader::open_reader,
+        livtet_desktop_lib::commands::reader::reader_publication,
+        livtet_desktop_lib::commands::playback::get_listening_progress,
+        livtet_desktop_lib::commands::playback::save_listening_progress,
     ]);
 
     specta_builder

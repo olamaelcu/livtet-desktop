@@ -16,6 +16,8 @@ livtet-sync-http = { git = "https://github.com/olamaelcu/livtet", branch = "main
 livtet-sync-server = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer-types = { path = "crates/livtet-importer-types" }
+livtet-audio = { path = "crates/livtet-audio" }
+mp4ameta = "0.13"
 livtet-mobi = { path = "crates/livtet-mobi" }
 livtet-importer = { path = "crates/livtet-importer" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["remote", "lua54", "vendored"] }
@@ -23,6 +25,19 @@ livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch 
 livtet-opds-types = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 url = "2"
+
+# Local development only: verify against the sibling core checkout carrying
+# `editions.format_metadata` (core branch feat/audiobook-format-metadata)
+# until that work is released and `cargo update` moves the git pins.
+# Never merge this section: desktop CI checks out this repo alone.
+[patch."https://github.com/olamaelcu/livtet"]
+livtet-core = { path = "../../../core/livtet-core" }
+livtet-types = { path = "../../../core/livtet-types" }
+livtet-search = { path = "../../../core/livtet-search" }
+livtet-data = { path = "../../../core/livtet-data" }
+livtet-sync = { path = "../../../core/livtet-sync" }
+livtet-sync-http = { path = "../../../core/livtet-sync-http" }
+livtet-sync-server = { path = "../../../core/livtet-sync-server" }
 
 [profile.release]
 codegen-units = 1

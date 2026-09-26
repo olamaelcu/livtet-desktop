@@ -5,6 +5,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
 import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
+import { openReader } from '../reader'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { fileName, formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
@@ -29,8 +30,25 @@ let failedCoverId = $state<string | null>(null)
 const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
 
 const queryClient = useQueryClient()
-const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf'] }]
+const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf', 'm4b', 'm4a'] }]
 let relinking = $state(false)
+let listening = $state(false)
+
+const isAudiobook = $derived(book?.format?.toLowerCase() === 'audiobook')
+const canListen = $derived(isAudiobook && book?.file != null && book.file.file_status !== 'missing')
+
+async function listenBook() {
+  if (!editionId || listening) return
+  try {
+    listening = true
+    await openReader(editionId)
+    onclose()
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Could not open the reader')
+  } finally {
+    listening = false
+  }
+}
 
 async function relinkFile() {
   if (!editionId || relinking) return
@@ -90,6 +108,15 @@ async function revealFile(path: string) {
           {/if}
         </div>
       </header>
+
+      {#if canListen}
+        <div class="listen">
+          <ActionButton onclick={listenBook} disabled={listening}>
+            <wa-icon name="play"></wa-icon>
+            Listen
+          </ActionButton>
+        </div>
+      {/if}
 
       <dl class="facts">
         {#if book.format}

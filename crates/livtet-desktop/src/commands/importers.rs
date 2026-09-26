@@ -427,6 +427,7 @@ return Importer
             description: None,
             subjects: Vec::new(),
             cover: None,
+            format_metadata: None,
         };
 
         let ImportError { code, message } =
@@ -452,6 +453,7 @@ return Importer
             description: None,
             subjects: Vec::new(),
             cover: None,
+            format_metadata: None,
         };
 
         let ImportError { code, message } =

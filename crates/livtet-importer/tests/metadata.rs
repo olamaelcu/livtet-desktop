@@ -25,6 +25,10 @@ fn complete_record() -> ImporterMeta {
             mime: "image/png".to_string(),
             data_base64: "iVBORw0KGgo=".to_string(),
         }),
+        format_metadata: Some(json!({
+            "duration_seconds": 7200,
+            "chapters": [{"name": "Intro", "audio_start": 0, "audio_end": 300}],
+        })),
     }
 }
 
@@ -52,7 +56,11 @@ fn importer_metadata_preserves_contract_fields() {
             "published": {"year": 2025, "month": 8, "day": 19},
             "description": "A biography of Octavia E. Butler.",
             "subjects": ["Biography"],
-            "cover": {"mime": "image/png", "data_base64": "iVBORw0KGgo="}
+            "cover": {"mime": "image/png", "data_base64": "iVBORw0KGgo="},
+            "format_metadata": {
+                "duration_seconds": 7200,
+                "chapters": [{"name": "Intro", "audio_start": 0, "audio_end": 300}]
+            }
         })
     );
     assert!(matches!(encoded, Value::Object(_)));
@@ -76,6 +84,22 @@ fn lua_empty_lists_decode_as_empty() {
     let decoded =
         ImporterMeta::from_wire_json(wire).expect("empty Lua tables decode as empty lists");
     assert!(decoded.other_identifiers.is_empty());
+}
+
+#[test]
+fn lua_empty_format_metadata_decodes_as_none() {
+    let wire = json!({
+        "title": "Remote Title",
+        "contributors": [],
+        "isbns": [],
+        "other_identifiers": [],
+        "subjects": [],
+        "format_metadata": {}
+    });
+
+    let decoded =
+        ImporterMeta::from_wire_json(wire).expect("empty format metadata decodes as none");
+    assert!(decoded.format_metadata.is_none());
 }
 
 #[test]

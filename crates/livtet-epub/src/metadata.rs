@@ -59,6 +59,7 @@ pub(crate) fn extract(archive: &mut Archive) -> Result<SourceMetadata, EpubError
         description: first_value(metadata, "description").map(Description),
         subjects: extract_subjects(metadata),
         cover,
+        format_metadata: None,
     })
 }
 

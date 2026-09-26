@@ -26,6 +26,7 @@ pub enum Role {
     Editor,
     Translator,
     Illustrator,
+    Narrator,
     Other(String),
 }
 
@@ -38,6 +39,7 @@ impl Role {
             "edt" | "editor" => Self::Editor,
             "trl" | "translator" => Self::Translator,
             "ill" | "illustrator" => Self::Illustrator,
+            "nrt" | "narrator" => Self::Narrator,
             other => Self::Other(other.to_string()),
         }
     }
@@ -116,4 +118,39 @@ pub struct SourceMetadata {
     pub description: Option<Description>,
     pub subjects: Vec<Subject>,
     pub cover: Option<Cover>,
+    /// Optional per-edition format metadata (e.g. audiobook duration and
+    /// chapters), carried opaquely and validated against the edition format's
+    /// `FormatMetadataSchema` at import time.
+    pub format_metadata: Option<serde_json::Value>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Role, SourceMetadata, Title};
+
+    #[test]
+    fn narrator_role_from_code() {
+        assert_eq!(Role::from_code("nrt"), Role::Narrator);
+        assert_eq!(Role::from_code("narrator"), Role::Narrator);
+        assert_eq!(Role::from_code("NRT"), Role::Narrator);
+    }
+
+    #[test]
+    fn source_metadata_carries_optional_format_metadata() {
+        let meta = SourceMetadata {
+            title: Title("T".to_string()),
+            title_sort: None,
+            creators: Vec::new(),
+            isbns: Vec::new(),
+            other_identifiers: Vec::new(),
+            publisher: None,
+            language: None,
+            published: None,
+            description: None,
+            subjects: Vec::new(),
+            cover: None,
+            format_metadata: None,
+        };
+        assert!(meta.format_metadata.is_none());
+    }
 }
