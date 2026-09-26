@@ -1,4 +1,4 @@
-# 23. In-app OPDS catalog browsing and acquisition
+# 26. In-app OPDS catalog browsing and acquisition
 
 Date: 2026-09-25
 

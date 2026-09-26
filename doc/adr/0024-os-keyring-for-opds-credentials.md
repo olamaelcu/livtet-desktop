@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-[ADR 0023](0023-in-app-opds-catalog-browsing-and-acquisition.md) stores catalog
+[ADR 0026](0026-in-app-opds-catalog-browsing-and-acquisition.md) stores catalog
 subscriptions in a Rust-owned `tauri-plugin-store` file
 (`opds-catalogs.json`) and, at the time, persisted Basic/Bearer credentials
 inline in that file as plaintext, leaving "an OS-keyring-backed store" as a

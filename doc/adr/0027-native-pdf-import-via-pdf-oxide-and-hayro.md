@@ -1,4 +1,4 @@
-# 24. Native PDF import via pdf_oxide and hayro
+# 27. Native PDF import via pdf_oxide and hayro
 
 Date: 2026-09-25
 

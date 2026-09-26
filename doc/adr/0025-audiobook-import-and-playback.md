@@ -8,7 +8,7 @@ Accepted
 
 ## Context
 
-The desktop imports EPUB and MOBI-family files natively but has no audiobook importer. iTunes MP4 (`.m4b`/`.m4a`) carries title, artist, narrator, date, genre, cover, duration, and chapters. The catalog already defines `KnownFormats::Audiobook`, `FormatMetadataSchema::Audiobook`, timestamp progress, and the narrator role, but no importer, per-edition storage, or playback path exists. ADR 0024's reader is accepted but unbuilt, so audio playback is the first reader integration.
+The desktop imports EPUB and MOBI-family files natively but has no audiobook importer. iTunes MP4 (`.m4b`/`.m4a`) carries title, artist, narrator, date, genre, cover, duration, and chapters. The catalog already defines `KnownFormats::Audiobook`, `FormatMetadataSchema::Audiobook`, timestamp progress, and the narrator role, but no importer, per-edition storage, or playback path exists. ADR 0028's reader is accepted but unbuilt, so audio playback is the first reader integration.
 
 ## Decision
 
@@ -23,7 +23,7 @@ The desktop imports EPUB and MOBI-family files natively but has no audiobook imp
 ### Becomes easier
 
 - Audiobooks import natively with duration and chapters; playback and progress use the existing `Audiobook` schema and timestamp unit.
-- The audio slice implements ADR 0024's window and streaming contract ahead of the EPUB navigator.
+- The audio slice implements ADR 0028's window and streaming contract ahead of the EPUB navigator.
 
 ### Becomes harder or carries risk
 
