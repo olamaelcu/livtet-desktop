@@ -3773,6 +3773,7 @@ dependencies = [
 [[package]]
 name = "livtet-core"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-trait",
  "camino",
@@ -3801,6 +3802,7 @@ dependencies = [
 [[package]]
 name = "livtet-covers"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-trait",
  "blake3",
@@ -3819,6 +3821,7 @@ dependencies = [
 [[package]]
 name = "livtet-data"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-trait",
  "camino-tempfile",
@@ -3984,6 +3987,7 @@ dependencies = [
 [[package]]
 name = "livtet-search"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-trait",
  "camino",
@@ -4006,6 +4010,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-trait",
  "hex",
@@ -4032,6 +4037,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync-http"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -4053,6 +4059,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync-server"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "camino",
  "livtet-data",
@@ -4073,6 +4080,7 @@ dependencies = [
 [[package]]
 name = "livtet-temporal-quotes"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "blake3",
  "time",
@@ -4081,6 +4089,7 @@ dependencies = [
 [[package]]
 name = "livtet-types"
 version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#eaf52fa5294fd082f7725e6db06a0b13071597ea"
 dependencies = [
  "async-trait",
  "camino",

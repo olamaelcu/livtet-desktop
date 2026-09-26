@@ -26,19 +26,6 @@ livtet-opds-types = { git = "https://github.com/olamaelcu/livtet-opds", branch =
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
 url = "2"
 
-# Local development only: verify against the sibling core checkout carrying
-# `editions.format_metadata` (core branch feat/audiobook-format-metadata)
-# until that work is released and `cargo update` moves the git pins.
-# Never merge this section: desktop CI checks out this repo alone.
-[patch."https://github.com/olamaelcu/livtet"]
-livtet-core = { path = "../../../core/livtet-core" }
-livtet-types = { path = "../../../core/livtet-types" }
-livtet-search = { path = "../../../core/livtet-search" }
-livtet-data = { path = "../../../core/livtet-data" }
-livtet-sync = { path = "../../../core/livtet-sync" }
-livtet-sync-http = { path = "../../../core/livtet-sync-http" }
-livtet-sync-server = { path = "../../../core/livtet-sync-server" }
-
 [profile.release]
 codegen-units = 1
 lto = true
