@@ -40,7 +40,7 @@ impl CatalogError {
 }
 
 #[derive(Debug, Clone, Error, Serialize, Type)]
-pub enum ReaderError {
+pub enum EpubError {
     #[error("Unknown edition: {id}")]
     UnknownEdition { id: String },
 
@@ -57,7 +57,7 @@ pub enum ReaderError {
     Publication { message: String },
 }
 
-impl ReaderError {
+impl EpubError {
     pub fn unknown_edition(id: impl Into<String>) -> Self {
         Self::UnknownEdition { id: id.into() }
     }
@@ -75,7 +75,7 @@ impl ReaderError {
     }
 }
 
-impl From<livtet_reader::ReaderError> for ReaderError {
+impl From<livtet_reader::ReaderError> for EpubError {
     fn from(err: livtet_reader::ReaderError) -> Self {
         Self::publication(err)
     }

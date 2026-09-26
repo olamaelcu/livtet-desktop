@@ -375,6 +375,8 @@ pub fn run() {
         commands::reader::open_reader,
         commands::reader::reader_publication,
         commands::reader::reader_resource,
+        commands::playback::get_listening_progress,
+        commands::playback::save_listening_progress,
         commands::sync::sync_health,
         commands::sync::sync_status,
         commands::sync::sync_requests_recent,
@@ -388,10 +390,6 @@ pub fn run() {
         commands::sync::sync_conflicts_resolve,
         commands::sync::sync_server_start,
         commands::sync::sync_server_stop,
-        commands::reader::open_reader,
-        commands::reader::reader_publication,
-        commands::playback::get_listening_progress,
-        commands::playback::save_listening_progress,
     ]);
 
     let builder = tauri::Builder::default()

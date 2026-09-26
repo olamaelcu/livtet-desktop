@@ -43,6 +43,8 @@ fn main() {
         livtet_desktop_lib::commands::reader::open_reader,
         livtet_desktop_lib::commands::reader::reader_publication,
         livtet_desktop_lib::commands::reader::reader_resource,
+        livtet_desktop_lib::commands::playback::get_listening_progress,
+        livtet_desktop_lib::commands::playback::save_listening_progress,
         livtet_desktop_lib::commands::sync::sync_health,
         livtet_desktop_lib::commands::sync::sync_status,
         livtet_desktop_lib::commands::sync::sync_requests_recent,
@@ -56,10 +58,6 @@ fn main() {
         livtet_desktop_lib::commands::sync::sync_conflicts_resolve,
         livtet_desktop_lib::commands::sync::sync_server_start,
         livtet_desktop_lib::commands::sync::sync_server_stop,
-        livtet_desktop_lib::commands::reader::open_reader,
-        livtet_desktop_lib::commands::reader::reader_publication,
-        livtet_desktop_lib::commands::playback::get_listening_progress,
-        livtet_desktop_lib::commands::playback::save_listening_progress,
     ]);
 
     specta_builder
