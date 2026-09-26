@@ -6,9 +6,12 @@ import { onDestroy, onMount } from 'svelte'
 import { page } from '$app/state'
 import ActionButton from '../../../lib/components/ActionButton.svelte'
 import { ReaderFetcher } from '../../../lib/reader/fetcher'
+import { createLoadSession } from '../../../lib/reader/loadSession'
 import { loadReaderPublication } from '../../../lib/reader/read'
 
 const editionId = $derived(page.params.editionId ?? '')
+
+const session = createLoadSession()
 
 let container = $state<HTMLElement | undefined>(undefined)
 let navigator = $state<EpubNavigator | undefined>(undefined)
@@ -21,11 +24,17 @@ function messageOf(error: unknown): string {
 }
 
 async function load() {
+  const generation = session.begin()
+  await navigator?.destroy().catch(() => {})
+  navigator = undefined
+  if (!session.isCurrent(generation)) return
   phase = 'loading'
   failure = ''
+  let instance: EpubNavigator | undefined
   try {
     if (!editionId) throw new Error('No edition id was provided to the reader.')
     const { manifest, positions } = await loadReaderPublication(editionId)
+    if (!session.isCurrent(generation)) return
     const deserialized = Manifest.deserialize(manifest)
     if (!deserialized) {
       throw new Error(
@@ -42,7 +51,7 @@ async function load() {
       .filter((locator) => locator !== undefined)
     const host = container
     if (!host) throw new Error('The reader container is not available.')
-    navigator = new EpubNavigator(
+    instance = new EpubNavigator(
       host,
       publication,
       {
@@ -63,10 +72,16 @@ async function load() {
       },
       locators,
     )
-    await navigator.load()
+    await instance.load()
+    if (!session.isCurrent(generation)) {
+      await instance.destroy().catch(() => {})
+      return
+    }
+    navigator = instance
     phase = 'ready'
   } catch (error) {
-    await navigator?.destroy().catch(() => {})
+    if (instance) await instance.destroy().catch(() => {})
+    if (!session.isCurrent(generation)) return
     navigator = undefined
     phase = 'error'
     failure = messageOf(error)
@@ -90,7 +105,10 @@ onMount(() => {
 })
 
 onDestroy(() => {
-  void navigator?.destroy().catch(() => {})
+  session.invalidate()
+  const instance = navigator
+  navigator = undefined
+  void instance?.destroy().catch(() => {})
 })
 </script>
 

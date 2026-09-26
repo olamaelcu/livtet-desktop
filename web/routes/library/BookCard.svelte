@@ -1,4 +1,9 @@
 <script lang="ts">
+import {
+  type ClickDisambiguation,
+  createClickDisambiguation,
+} from '../../lib/library/clickDisambiguation'
+
 interface Props {
   title: string
   cover_url?: string
@@ -22,6 +27,17 @@ let {
 
 let failedUrl = $state<string | undefined>(undefined)
 const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
+
+let press = $state<ClickDisambiguation | undefined>(undefined)
+
+$effect(() => {
+  const next = createClickDisambiguation({
+    onSingle: () => onclick?.(),
+    onDouble: ondblclick,
+  })
+  press = next
+  return () => next.dispose()
+})
 </script>
 
 <div class="card-wrap">
@@ -29,8 +45,8 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     class="card {selectable && selected ? 'is-selected' : ''}"
     type="button"
     aria-pressed={selectable ? selected : undefined}
-    {onclick}
-    {ondblclick}
+    onclick={(event) => press?.handleClick(event)}
+    ondblclick={() => press?.handleDoubleClick()}
   >
     <figure class="cover {showCover ? '' : 'placeholder'}">
       {#if showCover}

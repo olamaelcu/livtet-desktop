@@ -36,4 +36,13 @@ describe('ReaderFetcher', () => {
   it('reports no known links up front', () => {
     expect(new ReaderFetcher('edition-1').links()).toEqual([])
   })
+
+  it('keeps bitmap links off the text-only IPC path', async () => {
+    const image = new Link({ href: 'OEBPS/cover.jpg', type: 'image/jpeg' })
+    const resource = new ReaderFetcher('edition-1').get(image)
+    expect(await resource.link()).toBe(image)
+    expect(await resource.read()).toBeUndefined()
+    expect(await resource.length()).toBeUndefined()
+    expect(readReaderResource).not.toHaveBeenCalled()
+  })
 })

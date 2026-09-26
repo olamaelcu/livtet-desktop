@@ -2,6 +2,29 @@ import type { Fetcher } from '@readium/shared'
 import { type Link, type NumberRange, Resource } from '@readium/shared'
 import { readReaderResource } from './read'
 
+// Binary subresources resolve through the `reader://` custom protocol from the
+// base URL Readium injects into each frame, so they must never reach the
+// text-only IPC path (`reader_resource` rejects non-UTF-8 bytes).
+class UnavailableResource extends Resource {
+  constructor(private readonly target: Link) {
+    super()
+  }
+
+  async link(): Promise<Link> {
+    return this.target
+  }
+
+  async length(): Promise<number | undefined> {
+    return undefined
+  }
+
+  async read(): Promise<Uint8Array | undefined> {
+    return undefined
+  }
+
+  close(): void {}
+}
+
 class ReaderResource extends Resource {
   private readonly data: Promise<Uint8Array>
 
@@ -43,6 +66,7 @@ export class ReaderFetcher implements Fetcher {
   }
 
   get(link: Link): Resource {
+    if (!link.mediaType.isHTML) return new UnavailableResource(link)
     return new ReaderResource(link, this.editionId)
   }
 
