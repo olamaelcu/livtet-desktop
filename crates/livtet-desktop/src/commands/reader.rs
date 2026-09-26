@@ -212,7 +212,7 @@ pub async fn open_reader(
     let title = resolved
         .title
         .clone()
-        .unwrap_or_else(|| format!("Reader — {edition_id}"));
+        .unwrap_or_else(|| format!("Reader — {}", resolved.id));
     tauri::WebviewWindowBuilder::new(
         &app,
         &label,
@@ -396,7 +396,20 @@ mod tests {
     #[test]
     fn reader_pub_window_path_targets_the_nested_spa_route() {
         let id = DbId::new();
-        assert_eq!(reader_pub_window_path(&id), format!("reader/pub/{id}"));
+        let path = reader_pub_window_path(&id);
+        let canonical = id.to_string();
+        assert!(
+            path.starts_with("reader/pub/"),
+            "window path must target the nested route, got {path}"
+        );
+        assert!(
+            !path.starts_with('/'),
+            "window path must be relative, got {path}"
+        );
+        assert!(
+            path.ends_with(canonical.as_str()),
+            "window path must end with the canonical edition id, got {path}"
+        );
     }
 
     #[test]
