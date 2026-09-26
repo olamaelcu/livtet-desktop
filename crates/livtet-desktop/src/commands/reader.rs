@@ -914,7 +914,7 @@ mod tests {
 
         let err = ReaderError::from(EpubError::publication("boom"));
         assert_eq!(err.code, "publication");
-        assert_eq!(err.message, "boom");
+        assert_eq!(err.message, "Publication error: boom");
     }
 
     #[test]
