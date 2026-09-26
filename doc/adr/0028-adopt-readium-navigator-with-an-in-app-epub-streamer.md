@@ -10,7 +10,7 @@ Accepted.
 
 Livtet imports and catalogs EPUB files but cannot display them. Reading is a
 first-class desktop feature: a book must open in its own window at
-`/reader/{editionId}` without leaving the library.
+`/reader/pub/{editionId}` without leaving the library.
 
 Readium (readium.org) is the reference stack for EPUB rendering, but it is
 split into a **Streamer** (turn a packaged publication into a Readium Web
@@ -88,9 +88,9 @@ Positions List link is emitted and `positionsFromManifest()` is never called.
 ### 3. Reader window
 
 A Rust command creates a dedicated OS window labelled `reader-{editionId}` at
-`WebviewUrl::App("reader/{editionId}")` and focuses the existing window when one
+`WebviewUrl::App("reader/pub/{editionId}")` and focuses the existing window when one
 is already open. Tauri's asset resolver falls back to `index.html`, so the SPA
-route `/reader/[editionId]` resolves on a cold load. The route parameter is the
+route `/reader/pub/[editionId]` resolves on a cold load. The route parameter is the
 edition `DbId` (a ULID), not a UUID. The publication base URL is
 `reader://localhost/{editionId}/` on macOS/Linux and
 `http://reader.localhost/{editionId}/` on Windows/Android; the
@@ -147,7 +147,7 @@ disabled Read action.
   run, secure, and supervise.
 - The streamer reuses the existing hardened zip/OCF/OPF parser rather than
   introducing another EPUB dependency.
-- The routing requirement is satisfied directly: `/reader/{editionId}` is a
+- The routing requirement is satisfied directly: `/reader/pub/{editionId}` is a
   real SPA route in a real second window, shareable and reloadable.
 
 ### Becomes harder or carries risk
@@ -161,6 +161,18 @@ disabled Read action.
   library observes reading state in v1.
 - `reader_resource` is text-only in v1; a future navigator that reads binary
   resources through the fetcher would need a bytes variant.
+
+### Amendment — media-specific reader routes
+
+The generic `/reader/[editionId]` route is now namespaced by media kind:
+
+- EPUB/Readium: `/reader/pub/[editionId]`
+- Audiobook: `/reader/audio/[editionId]`
+
+The shared `open_reader` command dispatches to the appropriate nested route.
+The EPUB payload contract, custom `reader://` resource path, cache lifecycle,
+and fail-closed validation above are unchanged. Audiobook playback remains on
+its loopback server and preserves its existing descriptor contract.
 
 ### What future work can build on this
 
