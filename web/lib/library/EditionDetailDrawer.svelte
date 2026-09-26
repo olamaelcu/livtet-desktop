@@ -274,6 +274,10 @@ async function revealFile(path: string) {
     display: flex;
     align-items: center;
     gap: var(--wa-space-xs);
+
+    > span {
+      flex: 1 1;
+    }
   }
 
   .facts {

@@ -24,14 +24,14 @@ test.describe('App shell', () => {
 
   test('opens the command palette with Mod+K', async ({ tauriPage }) => {
     await tauriPage.goto('/library');
-    await expect(tauriPage.locator('.book-entry')).toHaveCount(2);
+    await expect(tauriPage.locator('#library-search')).toBeVisible();
     await tauriPage.keyboard.press('Control+k');
     await expect(tauriPage.getByPlaceholder('Type a command…')).toBeVisible();
   });
 
   test('runs the command chosen in the palette', async ({ tauriPage }) => {
     await tauriPage.goto('/library');
-    await expect(tauriPage.locator('.book-entry')).toHaveCount(2);
+    await expect(tauriPage.locator('#library-search')).toBeVisible();
     await tauriPage.keyboard.press('Control+k');
     await expect(tauriPage.getByPlaceholder('Type a command…')).toBeVisible();
     await tauriPage.getByText('Go to Settings', { exact: true }).click();

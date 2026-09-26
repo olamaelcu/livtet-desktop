@@ -118,33 +118,6 @@ pub async fn search_editions(
     })
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn search_editions_count(
-    query: Option<String>,
-    filters: Option<EditionFilters>,
-    state: State<'_, AppState>,
-) -> Result<i32, SearchIndexError> {
-    let guard = state.search_index.read().await;
-    let index = guard
-        .as_ref()
-        .ok_or(SearchIndexError::unavailable("search_editions_count"))?;
-    let db = state.db.db_conn();
-
-    let q = query.as_deref().unwrap_or("");
-    let (built, _opts) = build_filtered(index, &db, q, filters.unwrap_or_default()).await?;
-
-    let count = index
-        .count_with_query(
-            built
-                .build_query(index.index())
-                .map_err(SearchIndexError::other)?,
-        )
-        .await
-        .map_err(SearchIndexError::other)?;
-    Ok(count as i32)
-}
-
 /// One selectable value in a filter axis: a stable id plus its display label.
 ///
 /// At most one of `flag_emoji` / `logo_url` is set, and only for the axis that

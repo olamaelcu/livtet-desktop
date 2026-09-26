@@ -12,8 +12,9 @@
 //! ASIN, publisher ids) are preserved in `other_identifiers` so an edition
 //! without an ISBN still has identity.
 //!
-//! Contributors from `dc:creator`/`dc:contributor` are de-duplicated by
-//! `(name, role)`; a role-less contributor that repeats a creator is dropped.
+//! Contributors from `dc:creator`/`dc:contributor` are split on `;` and a
+//! standalone `and`, then de-duplicated by `(name, role)`; a role-less
+//! contributor that repeats a creator is dropped.
 //! [`SourceMetadata::title_sort`] comes from the main title's `file-as`
 //! refinement or `calibre:title_sort`.
 

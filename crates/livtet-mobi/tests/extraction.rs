@@ -171,6 +171,42 @@ fn repeated_exth_100_authors_accumulate_in_order() {
 }
 
 #[test]
+fn and_joined_author_splits_with_per_name_file_as() {
+    let meta = read(
+        &MobiBuilder::new()
+            .exth(503, "T")
+            .exth(100, "Doe, John and Smith, Jane"),
+    );
+    assert_eq!(meta.creators.len(), 2);
+    assert_eq!(meta.creators[0].name, "John Doe");
+    assert_eq!(meta.creators[0].file_as.as_deref(), Some("Doe, John"));
+    assert_eq!(meta.creators[1].name, "Jane Smith");
+    assert_eq!(meta.creators[1].file_as.as_deref(), Some("Smith, Jane"));
+}
+
+#[test]
+fn semicolon_joined_author_splits() {
+    let meta = read(
+        &MobiBuilder::new()
+            .exth(503, "T")
+            .exth(100, "Plato; Aristotle"),
+    );
+    let names: Vec<&str> = meta.creators.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, vec!["Plato", "Aristotle"]);
+}
+
+#[test]
+fn and_inside_author_word_does_not_split() {
+    let meta = read(
+        &MobiBuilder::new()
+            .exth(503, "T")
+            .exth(100, "Alexander Anderson"),
+    );
+    assert_eq!(meta.creators.len(), 1);
+    assert_eq!(meta.creators[0].name, "Alexander Anderson");
+}
+
+#[test]
 fn exth_108_contributor_is_entity_decoded_ctb() {
     let meta = read(&minimal().exth(108, "Edited by John &amp; Jane"));
     assert_eq!(meta.creators.len(), 2);

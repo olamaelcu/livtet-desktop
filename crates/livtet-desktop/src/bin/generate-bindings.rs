@@ -20,7 +20,6 @@ fn main() {
         livtet_desktop_lib::commands::catalog::get_edition_covers,
         livtet_desktop_lib::commands::search::search_editions,
         livtet_desktop_lib::commands::search::search_typeahead,
-        livtet_desktop_lib::commands::search::search_editions_count,
         livtet_desktop_lib::commands::search::filter_options,
         livtet_desktop_lib::commands::bulk::delete_editions,
         livtet_desktop_lib::commands::bulk::export_editions_csv,

@@ -10,7 +10,7 @@ use std::collections::HashSet;
 
 use livtet_importer_types::{
     Contributor, Description, Identifier, Isbn, Language, PublicationDate, Publisher, Role,
-    SourceMetadata, Subject, Title,
+    SourceMetadata, Subject, Title, split_contributor_name,
 };
 
 use crate::Result;
@@ -108,23 +108,27 @@ fn extract_creators(header: &Header, codepage: u32) -> Result<Vec<Contributor>> 
                 if raw.is_empty() {
                     continue;
                 }
-                let (name, file_as) = split_last_first(&raw);
-                creators.push(Contributor {
-                    name,
-                    role: Role::Author,
-                    file_as,
-                });
+                for part in split_contributor_name(&raw) {
+                    let (name, file_as) = split_last_first(&part);
+                    creators.push(Contributor {
+                        name,
+                        role: Role::Author,
+                        file_as,
+                    });
+                }
             }
             EXTH_CONTRIBUTOR => {
                 let name = decode_entities(&decode(data, codepage)).trim().to_string();
                 if name.is_empty() {
                     continue;
                 }
-                creators.push(Contributor {
-                    name,
-                    role: Role::Other("ctb".to_string()),
-                    file_as: None,
-                });
+                for part in split_contributor_name(&name) {
+                    creators.push(Contributor {
+                        name: part,
+                        role: Role::Other("ctb".to_string()),
+                        file_as: None,
+                    });
+                }
             }
             _ => {}
         }

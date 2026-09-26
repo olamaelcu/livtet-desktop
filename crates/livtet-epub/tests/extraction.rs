@@ -218,6 +218,89 @@ fn distinct_roles_for_same_name_are_both_kept() {
 }
 
 #[test]
+fn creator_joined_by_and_splits_into_authors() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">9780063211841</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator>John Smith and Jane Doe</dc:creator>
+    "##,
+    );
+    let names: Vec<&str> = m.creators.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, vec!["John Smith", "Jane Doe"]);
+    assert_roles(&m.creators, &[Role::Author, Role::Author]);
+    assert!(m.creators.iter().all(|c| c.file_as.is_none()));
+}
+
+#[test]
+fn creator_joined_by_semicolon_splits_into_authors() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">9780063211841</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator>Smith, John; Doe, Jane</dc:creator>
+    "##,
+    );
+    let names: Vec<&str> = m.creators.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, vec!["Smith, John", "Doe, Jane"]);
+}
+
+#[test]
+fn split_creator_drops_element_file_as() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">9780063211841</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator id="c">John Smith and Jane Doe</dc:creator>
+    <meta refines="#c" property="file-as">Smith, John and Doe, Jane</meta>
+    "##,
+    );
+    assert_eq!(m.creators.len(), 2);
+    assert!(m.creators.iter().all(|c| c.file_as.is_none()));
+}
+
+#[test]
+fn split_creator_keeps_refined_role() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">9780063211841</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator id="c">Ann Lee and Bo Lee</dc:creator>
+    <meta refines="#c" property="role" scheme="marc:relators">ill</meta>
+    "##,
+    );
+    assert_roles(&m.creators, &[Role::Illustrator, Role::Illustrator]);
+}
+
+#[test]
+fn role_less_contributor_repeating_a_split_creator_part_is_dropped() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">9780063211841</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator>John Smith and Jane Doe</dc:creator>
+    <dc:contributor>Jane Doe</dc:contributor>
+    "##,
+    );
+    let names: Vec<&str> = m.creators.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, vec!["John Smith", "Jane Doe"]);
+    assert_eq!(m.creators[1].role, Role::Author);
+}
+
+#[test]
+fn and_inside_a_word_does_not_split_a_creator() {
+    let m = meta_for(
+        r##"
+    <dc:identifier id="bookid">9780063211841</dc:identifier>
+    <dc:title>Some Book</dc:title>
+    <dc:creator>Alexander Anderson</dc:creator>
+    "##,
+    );
+    assert_eq!(m.creators.len(), 1);
+    assert_eq!(m.creators[0].name, "Alexander Anderson");
+}
+
+#[test]
 fn appends_subtitle_to_main_title() {
     let m = meta_for(
         r##"

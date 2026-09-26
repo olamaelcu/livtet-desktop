@@ -113,6 +113,8 @@ const filterOptions = createQuery(() => ({
 const chips = $derived(activeChips(filters, filterOptions.data))
 const activeCount = $derived(activeFilterCount(filters))
 
+const totalCount = $derived(editions.data?.pages[0]?.total ?? null)
+
 const suggestions = $derived(typeahead.data ?? [])
 const showSuggestions = $derived(
   query.trim().length > 0 && suggestions.length > 0 && dismissedQuery !== query,
@@ -216,6 +218,24 @@ async function runSelectAll() {
 
 function loadMore() {
   if (editions.hasNextPage && !editions.isFetchingNextPage) editions.fetchNextPage()
+}
+
+/**
+ * Auto-loads the next page while the sentinel is visible. `wa-scroller`
+ * scrolls an inner container that never emits a bubbling `scrollend`, so
+ * scroll listeners on the host cannot drive pagination — intersection does.
+ */
+function sentinel(node: HTMLElement) {
+  const observer = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) loadMore()
+    },
+    { rootMargin: '200px' },
+  )
+  observer.observe(node)
+  return {
+    destroy: () => observer.disconnect(),
+  }
 }
 
 function handleSearchInput(event: Event) {
@@ -331,8 +351,17 @@ function selectSuggestion(title: string) {
     {/if}
   </div>
 </div>
+{#if !editions.isPending && !editions.isError && totalCount !== null}
+  <div class="result-count" role="status" aria-live="polite">
+    {#if editions.hasNextPage}
+      {books.length} of {totalCount} {totalCount === 1 ? 'result' : 'results'}
+    {:else}
+      {totalCount} {totalCount === 1 ? 'result' : 'results'}
+    {/if}
+  </div>
+{/if}
 
-<wa-scroller orientation="vertical" class="book-scroller" onscrollend={loadMore}>
+<wa-scroller orientation="vertical" class="book-scroller">
   <div
     class="book-list"
     class:selection-docked={selection.mode}
@@ -354,6 +383,22 @@ function selectSuggestion(title: string) {
       {/if}
     {/each}
   </div>
+  {#if editions.hasNextPage}
+    <div class="load-more" use:sentinel>
+      <button
+        type="button"
+        class="load-more-button"
+        onclick={loadMore}
+        disabled={editions.isFetchingNextPage}
+      >
+        {#if editions.isFetchingNextPage}
+          Loading…
+        {:else}
+          Load more ({books.length} of {totalCount})
+        {/if}
+      </button>
+    </div>
+  {/if}
 </wa-scroller>
 
 {#if editions.isPending}
@@ -365,9 +410,6 @@ function selectSuggestion(title: string) {
   </div>
 {/if}
 
-{#if editions.hasNextPage}
-  <div class="load-more-trigger" onclick={loadMore} role="button" tabindex="0" onkeydown={(e)=> e.key==='Enter' && loadMore()}></div>
-{/if}
 </main>
 
 <ConfirmDialog
@@ -410,6 +452,12 @@ function selectSuggestion(title: string) {
     font-size: 1rem;
     border-radius: var(--wa-radius-m);
     border: 1px solid var(--wa-color-border);
+  }
+
+  .result-count {
+    padding: 0 var(--wa-space-m);
+    font-size: var(--wa-font-size-xs);
+    color: var(--wa-color-text-secondary);
   }
 
   .suggestions-dropdown {
@@ -464,7 +512,7 @@ function selectSuggestion(title: string) {
   .book-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--col-min, 8rem), 1fr));
-    gap: var(--wa-space-s);
+    gap: var(--wa-space-xs);
     width: 100%;
   
     & > .empty {
@@ -548,8 +596,22 @@ function selectSuggestion(title: string) {
     cursor: pointer;
   }
 
-  .load-more-trigger {
-    height: 1px;
-    width: 100%;
+  .load-more {
+    display: flex;
+    justify-content: center;
+    padding: var(--wa-space-m);
+  }
+
+  .load-more-button {
+    padding: var(--wa-space-xs) var(--wa-space-m);
+    border: 1px solid var(--wa-color-border-default);
+    border-radius: var(--wa-radius-m);
+    background: var(--wa-color-surface-default);
+    color: var(--wa-color-text-default);
+    cursor: pointer;
+  }
+
+  .load-more-button:disabled {
+    cursor: wait;
   }
 </style>

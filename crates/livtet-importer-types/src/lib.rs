@@ -154,3 +154,79 @@ mod tests {
         assert!(meta.format_metadata.is_none());
     }
 }
+
+/// Split a raw contributor string into individual names on `;` and on the
+/// standalone word `and` (ASCII case-insensitive).
+///
+/// Each part is whitespace-collapsed and trimmed, and empty parts are dropped;
+/// a string with no separator yields a single element. The word `and` only
+/// splits when it is a whole token, so `Alexander Anderson` stays intact, and
+/// `&` is never a separator.
+pub fn split_contributor_name(raw: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for segment in raw.split(';') {
+        let mut current: Vec<&str> = Vec::new();
+        for word in segment.split_whitespace() {
+            if word.eq_ignore_ascii_case("and") {
+                push_name(&mut names, &current);
+                current.clear();
+            } else {
+                current.push(word);
+            }
+        }
+        push_name(&mut names, &current);
+    }
+    names
+}
+
+fn push_name(out: &mut Vec<String>, words: &[&str]) {
+    let name = words.join(" ");
+    if !name.is_empty() {
+        out.push(name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_contributor_name;
+
+    #[test]
+    fn splits_on_standalone_and() {
+        assert_eq!(
+            split_contributor_name("John Smith and Jane Doe"),
+            vec!["John Smith", "Jane Doe"]
+        );
+    }
+
+    #[test]
+    fn splits_on_semicolon() {
+        assert_eq!(
+            split_contributor_name("Smith, John; Doe, Jane"),
+            vec!["Smith, John", "Doe, Jane"]
+        );
+    }
+
+    #[test]
+    fn and_is_case_insensitive() {
+        assert_eq!(split_contributor_name("A AND B"), vec!["A", "B"]);
+    }
+
+    #[test]
+    fn and_inside_a_word_is_not_a_separator() {
+        assert_eq!(
+            split_contributor_name("Alexander Anderson"),
+            vec!["Alexander Anderson"]
+        );
+    }
+
+    #[test]
+    fn ampersand_is_not_a_separator() {
+        assert_eq!(split_contributor_name("Mutts & Co."), vec!["Mutts & Co."]);
+    }
+
+    #[test]
+    fn collapses_repeated_and_empty_separators() {
+        assert_eq!(split_contributor_name("A and B and C"), vec!["A", "B", "C"]);
+        assert_eq!(split_contributor_name("  and A ;; and "), vec!["A"]);
+    }
+}

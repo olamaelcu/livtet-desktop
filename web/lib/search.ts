@@ -54,10 +54,6 @@ export async function searchTypeahead(query: string, limit = 10): Promise<Search
   return invoke<SearchResult[]>('search_typeahead', { query, limit })
 }
 
-export async function countEditions(query?: string, filters?: EditionFilters): Promise<number> {
-  return invoke<number>('search_editions_count', { query: query ?? null, filters: filters ?? null })
-}
-
 export async function loadFilterOptions(): Promise<FilterOptions> {
   return invoke<FilterOptions>('filter_options')
 }

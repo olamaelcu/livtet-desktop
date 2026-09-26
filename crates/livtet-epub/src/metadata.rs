@@ -6,7 +6,7 @@ use livtet_types::Isbn;
 
 use livtet_importer_types::{
     Contributor, Description, Identifier, Language, PublicationDate, Publisher, Role,
-    SourceMetadata, Subject, Title,
+    SourceMetadata, Subject, Title, split_contributor_name,
 };
 
 use crate::cover;
@@ -192,14 +192,20 @@ fn extract_contributors(metadata: &Element) -> Result<Vec<Contributor>, EpubErro
         let display_seq = refinement(metadata, element, "display-seq")
             .and_then(|value| value.trim().parse::<i64>().ok())
             .unwrap_or(0);
-        raw.push(RawContributor {
-            name,
-            role,
-            explicit_role,
-            file_as,
-            display_seq,
-            kind,
-        });
+        let parts = split_contributor_name(&name);
+        // A single, unchanged part keeps the element's `file-as`; once a name is
+        // split, that refinement cannot map onto the parts and is dropped.
+        let whole = parts.len() == 1 && parts.first().map(String::as_str) == Some(name.as_str());
+        for part in parts {
+            raw.push(RawContributor {
+                name: part,
+                role: role.clone(),
+                explicit_role,
+                file_as: if whole { file_as.clone() } else { None },
+                display_seq,
+                kind,
+            });
+        }
     }
 
     // A role-less contributor that merely re-lists a creator is redundant and
