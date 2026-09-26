@@ -21,7 +21,7 @@ function isEpubPublication(payload: ReaderPublicationIpc): payload is EpubPublic
   return payload !== null && payload.kind === 'Epub'
 }
 
-export async function openReader(editionId: string): Promise<void> {
+export async function openEpubReader(editionId: string): Promise<void> {
   await invoke('open_reader', { edition_id: editionId })
 }
 
@@ -35,7 +35,9 @@ function parseJsonField(raw: string, field: string, editionId: string): unknown 
   }
 }
 
-export async function loadReaderPublication(editionId: string): Promise<ReaderPublicationPayload> {
+export async function loadEpubReaderPublication(
+  editionId: string,
+): Promise<ReaderPublicationPayload> {
   const payload = await invoke<ReaderPublicationIpc>('reader_publication', {
     edition_id: editionId,
   })

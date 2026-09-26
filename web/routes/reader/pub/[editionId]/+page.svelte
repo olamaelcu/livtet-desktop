@@ -7,7 +7,7 @@ import { page } from '$app/state'
 import ActionButton from '$lib/components/ActionButton.svelte'
 import { ReaderFetcher } from '$lib/reader/fetcher'
 import { createLoadSession } from '$lib/reader/loadSession'
-import { loadReaderPublication } from '$lib/reader/read'
+import { loadEpubReaderPublication } from '$lib/reader/read'
 
 const editionId = $derived(page.params.editionId ?? '')
 
@@ -33,7 +33,7 @@ async function load() {
   let instance: EpubNavigator | undefined
   try {
     if (!editionId) throw new Error('No edition id was provided to the reader.')
-    const { manifest, positions } = await loadReaderPublication(editionId)
+    const { manifest, positions } = await loadEpubReaderPublication(editionId)
     if (!session.isCurrent(generation)) return
     const deserialized = Manifest.deserialize(manifest)
     if (!deserialized) {

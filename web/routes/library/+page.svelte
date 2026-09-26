@@ -32,7 +32,7 @@ import SelectionActionBar, { TAG_BUTTON_ID } from '../../lib/library/SelectionAc
 import { Selection } from '../../lib/library/selection.svelte'
 import TagPicker from '../../lib/library/TagPicker.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
-import { openReader } from '../../lib/reader/read'
+import { openEpubReader } from '../../lib/reader/read'
 import {
   coverUrlFor,
   type Edition,
@@ -133,7 +133,7 @@ function openDetail(editionId: string) {
 async function openBook(editionId: string, hasFile: boolean) {
   if (selection.mode || !hasFile) return
   try {
-    await openReader(editionId)
+    await openEpubReader(editionId)
   } catch (error) {
     toast.error(messageOf(error))
   }

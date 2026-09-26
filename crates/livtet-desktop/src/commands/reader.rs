@@ -55,6 +55,21 @@ impl From<livtet_core::data::orm::DbErr> for ReaderError {
     }
 }
 
+/// Map EPUB failures into the shared `{ code, message }` shape.
+///
+/// The audio backend owns the canonical codes (`database`, `not-found`,
+/// `unsupported`, `invalid`, `invalid-id`, `window`); EPUB conditions map
+/// onto a parallel vocabulary so audio clients never mistake one for the
+/// other. Messages mirror the `EpubError` display strings, and the
+/// serialization stays the shared `ReaderError` struct.
+///
+/// | EPUB condition                           | code                |
+/// |------------------------------------------|---------------------|
+/// | edition id unparseable or edition absent | `unknown-edition`   |
+/// | edition has no catalog file path         | `no-file`           |
+/// | path recorded but missing from disk      | `missing-file`      |
+/// | file present but not an `.epub`          | `unsupported-format`|
+/// | anything else (lock, open, read, window) | `publication`       |
 impl From<EpubError> for ReaderError {
     fn from(error: EpubError) -> Self {
         let code = match &error {
@@ -472,8 +487,13 @@ async fn open_audiobook_reader(
         ReaderPublication::Audiobook { title, .. } => {
             title.clone().unwrap_or_else(|| "Reader".to_string())
         }
+        // Unreachable through the audiobook describe path, but fail closed
+        // rather than panic if the backend ever misroutes here.
         ReaderPublication::Epub { .. } => {
-            unreachable!("audiobook editions never describe as EPUB")
+            return Err(ReaderError::new(
+                "unsupported",
+                "audiobook editions never describe as EPUB",
+            ));
         }
     };
 
@@ -525,7 +545,19 @@ async fn open_epub_reader(
     .inner_size(1000.0, 720.0)
     .min_inner_size(480.0, 480.0)
     .build()
-    .map_err(EpubError::publication)
+    .map_err(|error| {
+        // No window will serve this publication: evict the entry this open
+        // cached so a later open retries from disk instead of reusing an
+        // orphan. A concurrent replacement (if any) is left alone.
+        if let Ok(mut readers) = state.readers.lock()
+            && readers
+                .get(&resolved.id)
+                .is_some_and(|cached| Arc::ptr_eq(cached, &resolved.reader))
+        {
+            readers.remove(&resolved.id);
+        }
+        EpubError::publication(error)
+    })
     .map_err(ReaderError::from)?;
     Ok(())
 }

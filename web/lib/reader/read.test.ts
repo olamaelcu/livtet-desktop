@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 
-import { canOpenInReader, loadReaderPublication, openReader, readReaderResource } from './read'
+import {
+  canOpenInReader,
+  loadEpubReaderPublication,
+  openEpubReader,
+  readReaderResource,
+} from './read'
 
 const manifestJson = JSON.stringify({
   metadata: { title: 'Test Book' },
@@ -29,22 +34,22 @@ function publicationPayload(overrides: { manifest?: string; positions?: string }
   }
 }
 
-describe('openReader', () => {
+describe('openEpubReader', () => {
   beforeEach(() => invoke.mockReset())
 
   it('invokes open_reader with the snake_case edition id', async () => {
     invoke.mockResolvedValueOnce(undefined)
-    await openReader('edition-1')
+    await openEpubReader('edition-1')
     expect(invoke).toHaveBeenCalledWith('open_reader', { edition_id: 'edition-1' })
   })
 })
 
-describe('loadReaderPublication', () => {
+describe('loadEpubReaderPublication', () => {
   beforeEach(() => invoke.mockReset())
 
   it('maps the IPC payload to camelCase with parsed JSON', async () => {
     invoke.mockResolvedValueOnce(publicationPayload())
-    const result = await loadReaderPublication('edition-1')
+    const result = await loadEpubReaderPublication('edition-1')
     expect(invoke).toHaveBeenCalledWith('reader_publication', { edition_id: 'edition-1' })
     expect(result.baseUrl).toBe('reader://localhost/edition-1/')
     expect(result.manifest).toEqual(JSON.parse(manifestJson))
@@ -53,29 +58,29 @@ describe('loadReaderPublication', () => {
 
   it('rejects an unparseable manifest', async () => {
     invoke.mockResolvedValueOnce(publicationPayload({ manifest: 'not-json{' }))
-    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/manifest/)
+    await expect(loadEpubReaderPublication('edition-1')).rejects.toThrow(/manifest/)
   })
 
   it('rejects a manifest without a reading order', async () => {
     for (const manifest of ['null', '{}', '{"readingOrder": []}', '{"readingOrder": "x"}']) {
       invoke.mockResolvedValueOnce(publicationPayload({ manifest }))
-      await expect(loadReaderPublication('edition-1')).rejects.toThrow(/reading order/)
+      await expect(loadEpubReaderPublication('edition-1')).rejects.toThrow(/reading order/)
     }
   })
 
   it('rejects unparseable positions', async () => {
     invoke.mockResolvedValueOnce(publicationPayload({ positions: 'not-json{' }))
-    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/positions/)
+    await expect(loadEpubReaderPublication('edition-1')).rejects.toThrow(/positions/)
   })
 
   it('rejects non-array positions', async () => {
     invoke.mockResolvedValueOnce(publicationPayload({ positions: '{"positions": []}' }))
-    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/positions/)
+    await expect(loadEpubReaderPublication('edition-1')).rejects.toThrow(/positions/)
   })
 
   it('rejects a missing publication', async () => {
     invoke.mockResolvedValueOnce(null)
-    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/No publication found/)
+    await expect(loadEpubReaderPublication('edition-1')).rejects.toThrow(/No publication found/)
   })
 
   it('rejects the Audiobook variant', async () => {
@@ -87,7 +92,7 @@ describe('loadReaderPublication', () => {
       chapters: [],
       audio_url: 'http://127.0.0.1:9/audio/edition-1?t=t',
     })
-    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/not an EPUB/)
+    await expect(loadEpubReaderPublication('edition-1')).rejects.toThrow(/not an EPUB/)
   })
 })
 
