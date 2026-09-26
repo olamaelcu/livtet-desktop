@@ -68,10 +68,20 @@ async function relinkFile() {
 }
 
 async function readBook() {
-  if (!editionId) return
+  const file = book?.file ?? null
+  console.debug('[reader] Read action clicked', {
+    editionId,
+    readable: canOpenInReader(file),
+    fileStatus: file?.file_status ?? null,
+  })
+  if (!editionId) {
+    console.warn('[reader] Read action ignored without an edition id')
+    return
+  }
   try {
     await openEpubReader(editionId)
   } catch (error) {
+    console.error('[reader] Read action failed', { editionId, error })
     toast.error(error instanceof Error ? error.message : 'Could not open the reader')
   }
 }

@@ -187,7 +187,7 @@ fn push_name(out: &mut Vec<String>, words: &[&str]) {
 }
 
 #[cfg(test)]
-mod tests {
+mod split_contributor_name_tests {
     use super::split_contributor_name;
 
     #[test]

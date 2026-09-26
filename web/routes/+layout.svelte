@@ -25,6 +25,16 @@ const showDevtools = import.meta.env.DEV
 
 let paletteOpen = $state(false)
 
+const navItems = [
+  { href: '/library', label: 'Library' },
+  { href: '/catalog', label: 'Catalogs' },
+  { href: '/settings', label: 'Settings' },
+] as const
+
+function isActive(href: string) {
+  return page.url.pathname === href || page.url.pathname.startsWith(`${href}/`)
+}
+
 async function focusSearch() {
   if (!document.getElementById('library-search')) {
     await goto(resolve('/library'))
@@ -90,31 +100,43 @@ onMount(() => {
 </script>
 
 <QueryClientProvider client={queryClient}>
-  <wa-page>
+  <wa-page mobile-breakpoint="960">
     <header slot="header">
-      <span>{pageTitle}</span>
+      <wa-button appearance="plain" data-toggle-nav aria-label="Toggle navigation">
+        <wa-icon name="bars"></wa-icon>
+      </wa-button>
+      <span class="page-title">{pageTitle}</span>
       <wa-button-group>
         <wa-button href="/" variant="brand">
           <wa-icon name="home"></wa-icon>
           Livtet
         </wa-button>
         <wa-button href="/">
-          <wa-icon name="home"></wa-icon>
+          <wa-icon name="circle-question"></wa-icon>
           Help
         </wa-button>
       </wa-button-group>
     </header>
-    <aside slot="navigation">
+    <nav slot="navigation" aria-label="Primary">
       <wa-button-group orientation="vertical" label="Navigation">
-        <wa-button href="/library">Library</wa-button>
-        <wa-button href="/catalog">Catalogs</wa-button>
-        <wa-button href="/settings">Settings</wa-button>
+        {#each navItems as item (item.href)}
+          <wa-button
+            href={item.href}
+            variant={isActive(item.href) ? 'brand' : 'neutral'}
+            appearance={isActive(item.href) ? 'filled' : 'plain'}
+          >
+            {item.label}
+          </wa-button>
+        {/each}
       </wa-button-group>
-    </aside>
+    </nav>
     {@render children?.()}
+    <footer slot="footer">
+      <small>Livtet</small>
+    </footer>
   </wa-page>
 
-  <Toaster theme="system" />
+  <Toaster theme="system" position="bottom-left" />
 
   {#if paletteOpen}
     <CommandPalette onrun={runCommand} onclose={() => (paletteOpen = false)} />
@@ -126,12 +148,25 @@ onMount(() => {
 </QueryClientProvider>
 
 <style>
-  aside {
+  nav {
     padding-top: var(--wa-space-xs);
   }
   header {
-    > span {
-      flex: 1 1;
+    display: flex;
+    align-items: center;
+    gap: var(--wa-space-s);
+
+    > .page-title {
+      flex: 1 1 auto;
     }
+  }
+  footer {
+    padding: var(--wa-space-s) var(--wa-space-m);
+    text-align: center;
+    color: var(--wa-color-neutral-on-quiet);
+  }
+  /* The nav toggle only makes sense while the menu is a drawer. */
+  :global(wa-page[view='desktop']) [data-toggle-nav] {
+    display: none;
   }
 </style>

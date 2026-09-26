@@ -146,6 +146,8 @@ onDestroy(() => {
     flex-direction: column;
     width: 100%;
     height: 100%;
+    padding: 0;
+    margin: 0;
   }
 
   .bar {
@@ -188,7 +190,22 @@ onDestroy(() => {
   }
 
   .viewport {
+    position: relative;
     flex: 1;
+    min-width: 0;
     min-height: 0;
+    display: flex;
+    width: 100%!important;
+
+    :global(iframe.readium-navigator-iframe) {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      margin: 0;
+      border: 0;
+    }
   }
 </style>

@@ -22,7 +22,14 @@ function isEpubPublication(payload: ReaderPublicationIpc): payload is EpubPublic
 }
 
 export async function openEpubReader(editionId: string): Promise<void> {
-  await invoke('open_reader', { edition_id: editionId })
+  console.debug('[reader] requesting open_reader', { editionId })
+  try {
+    await invoke('open_reader', { editionId })
+    console.debug('[reader] open_reader completed', { editionId })
+  } catch (error) {
+    console.error('[reader] open_reader failed', { editionId, error })
+    throw error
+  }
 }
 
 function parseJsonField(raw: string, field: string, editionId: string): unknown {
@@ -39,7 +46,7 @@ export async function loadEpubReaderPublication(
   editionId: string,
 ): Promise<ReaderPublicationPayload> {
   const payload = await invoke<ReaderPublicationIpc>('reader_publication', {
-    edition_id: editionId,
+    editionId,
   })
   // The backend serves a tagged union: audiobooks resolve to the `Audiobook`
   // variant and missing editions to `null`. The EPUB navigator only accepts
@@ -71,7 +78,7 @@ export async function loadEpubReaderPublication(
 }
 
 export async function readReaderResource(editionId: string, href: string): Promise<string> {
-  return invoke<string>('reader_resource', { edition_id: editionId, href })
+  return invoke<string>('reader_resource', { editionId, href })
 }
 
 export interface ReadableFile {

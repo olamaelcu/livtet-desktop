@@ -37,10 +37,10 @@ function publicationPayload(overrides: { manifest?: string; positions?: string }
 describe('openEpubReader', () => {
   beforeEach(() => invoke.mockReset())
 
-  it('invokes open_reader with the snake_case edition id', async () => {
+  it('invokes open_reader with the generated camelCase edition id', async () => {
     invoke.mockResolvedValueOnce(undefined)
     await openEpubReader('edition-1')
-    expect(invoke).toHaveBeenCalledWith('open_reader', { edition_id: 'edition-1' })
+    expect(invoke).toHaveBeenCalledWith('open_reader', { editionId: 'edition-1' })
   })
 })
 
@@ -50,7 +50,7 @@ describe('loadEpubReaderPublication', () => {
   it('maps the IPC payload to camelCase with parsed JSON', async () => {
     invoke.mockResolvedValueOnce(publicationPayload())
     const result = await loadEpubReaderPublication('edition-1')
-    expect(invoke).toHaveBeenCalledWith('reader_publication', { edition_id: 'edition-1' })
+    expect(invoke).toHaveBeenCalledWith('reader_publication', { editionId: 'edition-1' })
     expect(result.baseUrl).toBe('reader://localhost/edition-1/')
     expect(result.manifest).toEqual(JSON.parse(manifestJson))
     expect(result.positions).toEqual(JSON.parse(positionsJson))
@@ -103,7 +103,7 @@ describe('readReaderResource', () => {
     invoke.mockResolvedValueOnce('<html></html>')
     const text = await readReaderResource('edition-1', 'OEBPS/ch01.xhtml')
     expect(invoke).toHaveBeenCalledWith('reader_resource', {
-      edition_id: 'edition-1',
+      editionId: 'edition-1',
       href: 'OEBPS/ch01.xhtml',
     })
     expect(text).toBe('<html></html>')

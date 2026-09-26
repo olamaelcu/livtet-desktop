@@ -29,3 +29,5 @@ age.key
 # Ignore everything under docs/superpowers EXCEPT the tracked specs subtree.
 docs/superpowers/*
 test-results/
+
+.superpowers/

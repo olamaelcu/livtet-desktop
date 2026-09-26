@@ -518,7 +518,8 @@ async fn open_audiobook_reader(
         WebviewUrl::App(reader_audio_window_path(&id).into()),
     )
     .title(title)
-    .inner_size(480.0, 800.0)
+    .inner_size(800.0, 800.0)
+    .min_inner_size(569.0, 600.0)
     .build()
     .map_err(|error| ReaderError::new("window", error))?;
     Ok(())
@@ -533,11 +534,15 @@ async fn open_epub_reader(
     state: &State<'_, AppState>,
     edition_id: &str,
 ) -> Result<(), ReaderError> {
-    let resolved = resolve_reader(state, edition_id)
-        .await
-        .map_err(ReaderError::from)?;
+    let resolved = resolve_reader(state, edition_id).await.map_err(|error| {
+        tracing::warn!(edition_id = %edition_id, error = %error, "failed to resolve EPUB publication");
+        ReaderError::from(error)
+    })?;
     let label = format!("{READER_WINDOW_PREFIX}{}", resolved.id);
+    let window_path = reader_pub_window_path(&resolved.id);
+    tracing::debug!(edition_id = %resolved.id, window_label = %label, window_path = %window_path, "resolved EPUB publication");
     if let Some(window) = app.get_webview_window(&label) {
+        tracing::info!(edition_id = %resolved.id, window_label = %label, "focusing existing EPUB reader window");
         window
             .set_focus()
             .map_err(EpubError::publication)
@@ -551,13 +556,14 @@ async fn open_epub_reader(
     tauri::WebviewWindowBuilder::new(
         app,
         &label,
-        tauri::WebviewUrl::App(reader_pub_window_path(&resolved.id).into()),
+        tauri::WebviewUrl::App(window_path.clone().into()),
     )
     .title(title)
-    .inner_size(1000.0, 720.0)
-    .min_inner_size(480.0, 480.0)
+    .inner_size(800.0, 1000.0)
+    .min_inner_size(569.0, 600.0)
     .build()
     .map_err(|error| {
+        tracing::warn!(edition_id = %resolved.id, window_label = %label, error = %error, "failed to build EPUB reader window");
         // No window will serve this publication: evict the entry this open
         // cached so a later open retries from disk instead of reusing an
         // orphan. A concurrent replacement (if any) is left alone.
@@ -571,6 +577,7 @@ async fn open_epub_reader(
         EpubError::publication(error)
     })
     .map_err(ReaderError::from)?;
+    tracing::info!(edition_id = %resolved.id, window_label = %label, window_path = %window_path, "opened EPUB reader window");
     Ok(())
 }
 
@@ -586,6 +593,7 @@ pub async fn open_reader(
     edition_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), ReaderError> {
+    tracing::info!(edition_id = %edition_id, "open_reader requested");
     let id = edition_id
         .parse::<DbId>()
         .map_err(|_| ReaderError::new("invalid-id", format!("invalid edition id: {edition_id}")))?;
@@ -593,10 +601,20 @@ pub async fn open_reader(
         .one(&state.db.db_conn())
         .await?
         .ok_or_else(|| ReaderError::new("not-found", "edition not found"))?;
-    if edition.format_id == Some(KnownFormats::Audiobook.into()) {
-        return open_audiobook_reader(&app, &state, id).await;
+    let is_audiobook = edition.format_id == Some(KnownFormats::Audiobook.into());
+    tracing::debug!(edition_id = %id, is_audiobook, "dispatching reader request");
+    let result = if is_audiobook {
+        open_audiobook_reader(&app, &state, id).await
+    } else {
+        open_epub_reader(&app, &state, &edition_id).await
+    };
+    match &result {
+        Ok(()) => tracing::info!(edition_id = %id, is_audiobook, "open_reader completed"),
+        Err(error) => {
+            tracing::warn!(edition_id = %id, is_audiobook, error = ?error, "open_reader failed")
+        }
     }
-    open_epub_reader(&app, &state, &edition_id).await
+    result
 }
 
 /// Fetch one edition's reader descriptor. `Ok(None)` when no edition with

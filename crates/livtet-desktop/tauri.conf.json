@@ -17,6 +17,8 @@
         "title": "livtet",
         "width": 1024,
         "height": 1024,
+        "minWidth": 569,
+        "minHeight": 600,
         "hiddenTitle": true,
         "titleBarStyle": "Overlay"
       }

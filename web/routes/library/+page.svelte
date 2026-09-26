@@ -528,6 +528,7 @@ function selectSuggestion(title: string) {
   
     & > .empty {
       height: 100%;
+      width: 100vw;
     }
   }
 
