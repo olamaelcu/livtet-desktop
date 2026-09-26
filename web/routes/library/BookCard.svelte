@@ -7,6 +7,7 @@ interface Props {
   /** File availability: `true` = on disk, `false` = virtual/remote. */
   in_filesystem?: boolean
   onclick?: () => void
+  ondblclick?: () => void
 }
 
 let {
@@ -16,6 +17,7 @@ let {
   selected = false,
   in_filesystem = undefined,
   onclick,
+  ondblclick,
 }: Props = $props()
 
 let failedUrl = $state<string | undefined>(undefined)
@@ -28,6 +30,7 @@ const showCover = $derived(cover_url !== undefined && failedUrl !== cover_url)
     type="button"
     aria-pressed={selectable ? selected : undefined}
     {onclick}
+    {ondblclick}
   >
     <figure class="cover {showCover ? '' : 'placeholder'}">
       {#if showCover}

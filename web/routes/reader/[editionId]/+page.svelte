@@ -1,222 +1,176 @@
 <script lang="ts">
-import { createQuery } from '@tanstack/svelte-query'
-import { toast } from 'svelte-sonner'
+import { EpubNavigator } from '@readium/navigator'
+import { Locator, Manifest, Publication } from '@readium/shared'
+import { getCurrentWindow } from '@tauri-apps/api/window'
+import { onDestroy, onMount } from 'svelte'
 import { page } from '$app/state'
 import ActionButton from '../../../lib/components/ActionButton.svelte'
-import { readerKeys } from '../../../lib/query/keys'
-import {
-  chapterAt,
-  formatTimestamp,
-  loadListeningProgress,
-  loadReaderPublication,
-  saveListeningProgress,
-} from '../../../lib/reader'
-
-const SAVE_EVERY_SECONDS = 15
-const SKIP_SECONDS = 30
-const RATES = [1, 1.25, 1.5, 1.75, 2]
+import { ReaderFetcher } from '../../../lib/reader/fetcher'
+import { loadReaderPublication } from '../../../lib/reader/read'
 
 const editionId = $derived(page.params.editionId ?? '')
 
-const publicationQuery = createQuery(() => ({
-  queryKey: readerKeys.publication(editionId),
-  queryFn: () => loadReaderPublication(editionId),
-  enabled: editionId !== '',
-}))
-const progressQuery = createQuery(() => ({
-  queryKey: readerKeys.progress(editionId),
-  queryFn: () => loadListeningProgress(editionId),
-  enabled: editionId !== '',
-}))
+let container = $state<HTMLElement | undefined>(undefined)
+let navigator = $state<EpubNavigator | undefined>(undefined)
+let phase = $state<'loading' | 'ready' | 'error'>('loading')
+let failure = $state('')
+let title = $state('Reader')
 
-const publication = $derived(
-  publicationQuery.data?.kind === 'Audiobook' ? publicationQuery.data : null,
-)
-const chapters = $derived(publication?.chapters ?? [])
-const duration = $derived(publication?.duration_seconds ?? 0)
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : 'Could not open this book.'
+}
 
-let audio = $state<HTMLAudioElement | undefined>()
-let position = $state(0)
-let rate = $state(1)
-let resumed = $state(false)
-let lastSaved = $state(0)
-
-const currentChapter = $derived(chapterAt(chapters, position))
-
-async function persist(force = false): Promise<void> {
-  if (!editionId) return
-  if (!force && Math.abs(position - lastSaved) < 1) return
+async function load() {
+  phase = 'loading'
+  failure = ''
   try {
-    await saveListeningProgress(editionId, position)
-    lastSaved = position
-  } catch {
-    toast.error('Could not save listening progress')
+    if (!editionId) throw new Error('No edition id was provided to the reader.')
+    const { manifest, positions } = await loadReaderPublication(editionId)
+    const deserialized = Manifest.deserialize(manifest)
+    if (!deserialized) {
+      throw new Error(
+        `The publication manifest for edition ${editionId} is invalid. Try re-importing the file.`,
+      )
+    }
+    const publication = new Publication({
+      manifest: deserialized,
+      fetcher: new ReaderFetcher(editionId),
+    })
+    title = publication.metadata.title.getTranslation() || `Reader — ${editionId}`
+    const locators = (Array.isArray(positions) ? positions : [])
+      .map((item) => Locator.deserialize(item))
+      .filter((locator) => locator !== undefined)
+    const host = container
+    if (!host) throw new Error('The reader container is not available.')
+    navigator = new EpubNavigator(
+      host,
+      publication,
+      {
+        frameLoaded: () => {},
+        positionChanged: () => {},
+        timelineItemChanged: () => {},
+        tap: () => false,
+        click: () => false,
+        zoom: () => {},
+        miscPointer: () => {},
+        scroll: () => {},
+        customEvent: () => {},
+        handleLocator: () => false,
+        textSelected: () => {},
+        contentProtection: () => {},
+        contextMenu: () => {},
+        peripheral: () => {},
+      },
+      locators,
+    )
+    await navigator.load()
+    phase = 'ready'
+  } catch (error) {
+    await navigator?.destroy().catch(() => {})
+    navigator = undefined
+    phase = 'error'
+    failure = messageOf(error)
   }
 }
 
-function onTimeUpdate(): void {
-  if (!audio) return
-  position = audio.currentTime
-  if (position - lastSaved >= SAVE_EVERY_SECONDS) void persist()
+function previous() {
+  navigator?.goBackward(false, () => {})
 }
 
-function onLoadedMetadata(): void {
-  if (!audio || resumed) return
-  resumed = true
-  const saved = progressQuery.data?.position_seconds ?? 0
-  const total = audio.duration || duration
-  if (saved > 5 && saved < total) {
-    audio.currentTime = saved
-    position = saved
-  }
-  lastSaved = position
+function next() {
+  navigator?.goForward(false, () => {})
 }
 
-function seekTo(seconds: number): void {
-  if (!audio) return
-  audio.currentTime = Math.min(Math.max(0, seconds), audio.duration || duration)
-  position = audio.currentTime
-  void audio.play().catch(() => toast.error('Could not start playback'))
+async function close() {
+  await getCurrentWindow().close()
 }
 
-function chooseRate(event: Event): void {
-  const value = Number((event.target as HTMLSelectElement).value)
-  rate = RATES.includes(value) ? value : 1
-  if (audio) audio.playbackRate = rate
-}
+onMount(() => {
+  void load()
+})
 
-$effect(() => {
-  const persistOnHide = () => void persist(true)
-  window.addEventListener('pagehide', persistOnHide)
-  return () => window.removeEventListener('pagehide', persistOnHide)
+onDestroy(() => {
+  void navigator?.destroy().catch(() => {})
 })
 </script>
 
-<div class="reader">
-  {#if publicationQuery.isPending}
-    <p class="muted">Loading…</p>
-  {:else if publicationQuery.isError}
-    <p class="error">Could not load this book for playback.</p>
-  {:else if !publication}
-    <p class="muted">No playable audiobook found for this edition.</p>
-  {:else}
-    <header class="header">
-      <h2 class="title">{publication.title ?? 'Untitled'}</h2>
-      <p class="muted">
-        {formatTimestamp(position)} / {formatTimestamp(duration)}
-      </p>
-    </header>
-
-    <audio
-      bind:this={audio}
-      class="player"
-      src={publication.audio_url}
-      controls
-      preload="metadata"
-      ontimeupdate={onTimeUpdate}
-      onloadedmetadata={onLoadedMetadata}
-      onpause={() => void persist(true)}
-      onended={() => void persist(true)}
-    ></audio>
-
+<main class="reader">
+  <header class="bar">
+    <h1 class="title">{title}</h1>
     <div class="controls">
-      <ActionButton onclick={() => seekTo(position - SKIP_SECONDS)}>
-        <wa-icon name="rotate-ccw"></wa-icon>
-        {SKIP_SECONDS}s
+      <ActionButton onclick={previous} disabled={phase !== 'ready'}>
+        <wa-icon name="chevron-left"></wa-icon>
+        Previous
       </ActionButton>
-      <ActionButton onclick={() => seekTo(position + SKIP_SECONDS)}>
-        <wa-icon name="rotate-cw"></wa-icon>
-        {SKIP_SECONDS}s
+      <ActionButton onclick={next} disabled={phase !== 'ready'}>
+        Next
+        <wa-icon name="chevron-right"></wa-icon>
       </ActionButton>
-      <wa-select
-        size="s"
-        class="rate"
-        aria-label="Playback speed"
-        value={String(rate)}
-        onchange={chooseRate}
-      >
-        {#each RATES as option (option)}
-          <wa-option value={String(option)}>{option}×</wa-option>
-        {/each}
-      </wa-select>
+      <ActionButton onclick={() => void close()}>Close</ActionButton>
     </div>
+  </header>
 
-    {#if chapters.length > 0}
-      <section class="section">
-        <h3 class="section-title">Chapters</h3>
-        <ol class="chapters">
-          {#each chapters as chapter, index (chapter.audio_start)}
-            <li>
-              <ActionButton
-                variant={index === currentChapter ? 'brand' : undefined}
-                onclick={() => seekTo(chapter.audio_start)}
-              >
-                <span class="chapter-name">{chapter.name}</span>
-                <span class="muted">{formatTimestamp(chapter.audio_start)}</span>
-              </ActionButton>
-            </li>
-          {/each}
-        </ol>
-      </section>
-    {/if}
+  {#if phase === 'loading'}
+    <p class="muted">Loading…</p>
+  {:else if phase === 'error'}
+    <div class="error">
+      <p>Could not open this book: {failure}</p>
+      <ActionButton onclick={() => void load()}>Retry</ActionButton>
+    </div>
   {/if}
-</div>
+
+  <div class="viewport" bind:this={container}></div>
+</main>
 
 <style>
   .reader {
     display: flex;
     flex-direction: column;
-    gap: var(--wa-space-m);
-    max-width: 40rem;
-    margin: 0 auto;
-    padding: var(--wa-space-l);
-  }
-  .header {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-s);
-  }
-  .title {
-    margin: 0;
-    font-size: 1.25rem;
-  }
-  .muted {
-    color: var(--wa-color-text-quiet);
-  }
-  .error {
-    color: var(--wa-color-danger-fill-loud);
-  }
-  .player {
     width: 100%;
+    height: 100%;
   }
-  .controls {
+
+  .bar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: var(--wa-space-s);
+    padding: var(--wa-space-s) var(--wa-space-m);
   }
-  .rate {
-    min-width: 6rem;
-  }
-  .section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-s);
-  }
-  .section-title {
+
+  .title {
     margin: 0;
-    font-size: 1rem;
-  }
-  .chapters {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-s);
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-  .chapter-name {
+    font-size: var(--wa-font-size-m);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .controls {
+    display: flex;
+    gap: var(--wa-space-2xs);
+  }
+
+  .muted {
+    padding: 0 var(--wa-space-m);
+    color: var(--wa-color-text-secondary);
+  }
+
+  .error {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-s);
+    align-items: flex-start;
+    padding: 0 var(--wa-space-m);
+    color: var(--wa-color-danger);
+  }
+
+  .error p {
+    margin: 0;
+  }
+
+  .viewport {
+    flex: 1;
+    min-height: 0;
   }
 </style>

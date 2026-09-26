@@ -32,6 +32,7 @@ import SelectionActionBar, { TAG_BUTTON_ID } from '../../lib/library/SelectionAc
 import { Selection } from '../../lib/library/selection.svelte'
 import TagPicker from '../../lib/library/TagPicker.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
+import { openReader } from '../../lib/reader/read'
 import {
   coverUrlFor,
   type Edition,
@@ -127,6 +128,15 @@ let detailOpen = $state(false)
 function openDetail(editionId: string) {
   selectedEditionId = editionId
   detailOpen = true
+}
+
+async function openBook(editionId: string, hasFile: boolean) {
+  if (selection.mode || !hasFile) return
+  try {
+    await openReader(editionId)
+  } catch (error) {
+    toast.error(messageOf(error))
+  }
 }
 
 const selection = new Selection()
@@ -376,6 +386,7 @@ function selectSuggestion(title: string) {
         in_filesystem={book.has_file}
         onclick={() =>
           selection.mode ? selection.toggle(book.edition_id) : openDetail(book.edition_id)}
+        ondblclick={() => void openBook(book.edition_id, book.has_file)}
       />
     {:else}
       {#if !editions.isPending && !editions.isError}

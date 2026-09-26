@@ -23,6 +23,18 @@ importers:
       '@olamaelcu/livtet-branding':
         specifier: github:olamaelcu/livtet-branding#6c429abca492d59e01eb726c22d09ebdbe7e4c42
         version: https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/6c429abca492d59e01eb726c22d09ebdbe7e4c42(@awesome.me/webawesome@3.10.0(@floating-ui/utils@0.2.12)(@types/node@26.1.2)(@types/react@19.2.17))(svelte@5.56.8)
+      '@readium/css':
+        specifier: ^2.0.5
+        version: 2.0.5
+      '@readium/navigator':
+        specifier: ^2.10.3
+        version: 2.10.3
+      '@readium/navigator-html-injectables':
+        specifier: ^2.8.3
+        version: 2.8.3
+      '@readium/shared':
+        specifier: ^2.5.1
+        version: 2.5.1
       '@tanstack/svelte-hotkeys':
         specifier: ^0.11.0
         version: 0.11.0(svelte@5.56.8)
@@ -286,6 +298,29 @@ packages:
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
+
+  '@readium/css@2.0.5':
+    resolution: {integrity: sha512-rQWeDFSS9UfRTFFdWIhlko0jtkL9dOfNTqFjgMumlguromsyHC9/lGmbWDde7deEeE5ns+yBOSGKixMU0wqZ4A==}
+
+  '@readium/decorator@1.2.3':
+    resolution: {integrity: sha512-uAZKTztLrrOISMjjizOQ4g2Tp9MNXuTE+tzH2KBGZSVmWNLRkhQkCZpk9CcDJh/xGMkurXE07omrHZ0NH5VP3Q==}
+    engines: {node: '>=18'}
+
+  '@readium/helpers@1.1.0':
+    resolution: {integrity: sha512-jerMfJn0ZXmJ1HwARzZybfJm+mFxDTYvKOV+HEuPBvj1OMNB46FW4pB5TC6hY61xla440hAAxnKxBJF2bFY51Q==}
+    engines: {node: '>=18'}
+
+  '@readium/navigator-html-injectables@2.8.3':
+    resolution: {integrity: sha512-kpbIiFyzeEnrcjpCPFPeA6c4mHvaG6HSR4JIlABi0lWJjj7taGzdK4cv5etkULhHjARdSjGacoZzaHzWwfozjA==}
+    engines: {node: '>=18'}
+
+  '@readium/navigator@2.10.3':
+    resolution: {integrity: sha512-lYhX1iF54Rpit5YFhos+DNEo0Jx+wUpBCRaUugRRTVPlp1Oh5asGCUd8qZIRTDN1HZ2x286hE5iCaNQNrviEaw==}
+    engines: {node: '>=18'}
+
+  '@readium/shared@2.5.1':
+    resolution: {integrity: sha512-qg/JRFhzcs7Uc4DPWlM0Wq1cfVeyoiT1gvP2JaINPG3uQvpuh3Cr9wFm2dt0jM4KzvrKo7kyoe7lpvTlczvh5w==}
+    engines: {node: '>=18'}
 
   '@rolldown/binding-android-arm64@1.1.5':
     resolution: {integrity: sha512-lZg8fqIv2v7FF237bwMgzGZEJvGL79/s5knJ/i6FmsGF4XXlzccZ4jb+TrFIxtSSxFtIpdsgrPZeMk1I9AFcyQ==}
@@ -1110,6 +1145,9 @@ packages:
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
+  user-agent-data-types@0.4.3:
+    resolution: {integrity: sha512-Dn3fjwVgeM363mx1sEgOpOp9NNqHBj6Gn68dFbV1WoTr3s05CijKdxfH6A3Q5uzXnYNB6vdAfs/1HWFpObc7EQ==}
+
   vite@8.1.5:
     resolution: {integrity: sha512-7ULLwsCdYx/nRyrpiEwvqb5TFHrMVZyBt+rg/OAXT7rgj/z+DtTDyKFeLAdDkubDVDKD8jOsndmy7m55XcfUsw==}
     engines: {node: ^20.19.0 || >=22.12.0}
@@ -1439,6 +1477,33 @@ snapshots:
       playwright: 1.62.1
 
   '@polka/url@1.0.0-next.29': {}
+
+  '@readium/css@2.0.5': {}
+
+  '@readium/decorator@1.2.3':
+    dependencies:
+      '@readium/navigator-html-injectables': 2.8.3
+      '@readium/shared': 2.5.1
+
+  '@readium/helpers@1.1.0':
+    dependencies:
+      user-agent-data-types: 0.4.3
+
+  '@readium/navigator-html-injectables@2.8.3':
+    dependencies:
+      '@readium/helpers': 1.1.0
+      '@readium/shared': 2.5.1
+
+  '@readium/navigator@2.10.3':
+    dependencies:
+      '@readium/decorator': 1.2.3
+      '@readium/helpers': 1.1.0
+      '@readium/navigator-html-injectables': 2.8.3
+      '@readium/shared': 2.5.1
+
+  '@readium/shared@2.5.1':
+    dependencies:
+      '@readium/helpers': 1.1.0
 
   '@rolldown/binding-android-arm64@1.1.5':
     optional: true
@@ -2163,6 +2228,8 @@ snapshots:
   ulid@2.4.0: {}
 
   undici-types@8.3.0: {}
+
+  user-agent-data-types@0.4.3: {}
 
   vite@8.1.5(@types/node@26.1.2):
     dependencies:

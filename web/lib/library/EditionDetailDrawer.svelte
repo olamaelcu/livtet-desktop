@@ -5,7 +5,7 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
 import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
-import { openReader } from '../reader'
+import { canOpenInReader, openReader } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { fileName, formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
@@ -63,6 +63,15 @@ async function relinkFile() {
     toast.error(error instanceof Error ? error.message : 'Could not re-link the file')
   } finally {
     relinking = false
+  }
+}
+
+async function readBook() {
+  if (!editionId) return
+  try {
+    await openReader(editionId)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Could not open the reader')
   }
 }
 
@@ -151,6 +160,12 @@ async function revealFile(path: string) {
         {@const file = book.file}
         <section class="section">
           <h3 class="section-title">File</h3>
+          <div>
+            <ActionButton onclick={readBook} disabled={!canOpenInReader(file)}>
+              <wa-icon name="book-open"></wa-icon>
+              Read
+            </ActionButton>
+          </div>
           <dl class="facts">
             {#if file.file_size_bytes !== null}
               {@const size = file.file_size_bytes}
