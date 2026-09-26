@@ -20,6 +20,9 @@ const positionsJson = JSON.stringify([
 
 function publicationPayload(overrides: { manifest?: string; positions?: string } = {}) {
   return {
+    kind: 'Epub',
+    edition_id: 'edition-1',
+    title: 'Test Book',
     base_url: 'reader://localhost/edition-1/',
     manifest: overrides.manifest ?? manifestJson,
     positions: overrides.positions ?? positionsJson,
@@ -68,6 +71,23 @@ describe('loadReaderPublication', () => {
   it('rejects non-array positions', async () => {
     invoke.mockResolvedValueOnce(publicationPayload({ positions: '{"positions": []}' }))
     await expect(loadReaderPublication('edition-1')).rejects.toThrow(/positions/)
+  })
+
+  it('rejects a missing publication', async () => {
+    invoke.mockResolvedValueOnce(null)
+    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/No publication found/)
+  })
+
+  it('rejects the Audiobook variant', async () => {
+    invoke.mockResolvedValueOnce({
+      kind: 'Audiobook',
+      edition_id: 'edition-1',
+      title: 'Test Book',
+      duration_seconds: 60,
+      chapters: [],
+      audio_url: 'http://127.0.0.1:9/audio/edition-1?t=t',
+    })
+    await expect(loadReaderPublication('edition-1')).rejects.toThrow(/not an EPUB/)
   })
 })
 

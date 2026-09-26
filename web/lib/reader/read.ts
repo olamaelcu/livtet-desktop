@@ -6,10 +6,19 @@ export interface ReaderPublicationPayload {
   positions: unknown
 }
 
-interface ReaderPublicationIpc {
+interface EpubPublicationIpc {
+  kind: 'Epub'
+  edition_id: string
+  title: string | null
   base_url: string
   manifest: string
   positions: string
+}
+
+type ReaderPublicationIpc = EpubPublicationIpc | { kind: string } | null
+
+function isEpubPublication(payload: ReaderPublicationIpc): payload is EpubPublicationIpc {
+  return payload !== null && payload.kind === 'Epub'
 }
 
 export async function openReader(editionId: string): Promise<void> {
@@ -30,6 +39,15 @@ export async function loadReaderPublication(editionId: string): Promise<ReaderPu
   const payload = await invoke<ReaderPublicationIpc>('reader_publication', {
     edition_id: editionId,
   })
+  // The backend serves a tagged union: audiobooks resolve to the `Audiobook`
+  // variant and missing editions to `null`. The EPUB navigator only accepts
+  // the `Epub` variant.
+  if (payload === null) {
+    throw new Error(`No publication found for edition ${editionId}.`)
+  }
+  if (!isEpubPublication(payload)) {
+    throw new Error(`Edition ${editionId} is not an EPUB publication.`)
+  }
   const manifest = parseJsonField(payload.manifest, 'publication manifest', editionId)
   if (
     typeof manifest !== 'object' ||

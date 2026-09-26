@@ -5,7 +5,8 @@ import { revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
 import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
-import { canOpenInReader, openReader } from '../reader/read'
+import { openReader as openAudiobookReader } from '../reader'
+import { canOpenInReader, openReader as openEpubReader } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { fileName, formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
@@ -41,7 +42,7 @@ async function listenBook() {
   if (!editionId || listening) return
   try {
     listening = true
-    await openReader(editionId)
+    await openAudiobookReader(editionId)
     onclose()
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Could not open the reader')
@@ -69,7 +70,7 @@ async function relinkFile() {
 async function readBook() {
   if (!editionId) return
   try {
-    await openReader(editionId)
+    await openEpubReader(editionId)
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Could not open the reader')
   }
