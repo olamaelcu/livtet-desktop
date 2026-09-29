@@ -55,7 +55,7 @@ function signerLabel(plugin: PluginSummary): string {
               {#if plugin.version}<wa-badge variant="neutral">{plugin.version}</wa-badge>{/if}
             </div>
             <ActionButton
-              disabled={remove.isPending}
+              disabled={remove.isPending && pendingRemoval === plugin.name}
               onclick={() => {
                 pendingRemoval = plugin.name
               }}

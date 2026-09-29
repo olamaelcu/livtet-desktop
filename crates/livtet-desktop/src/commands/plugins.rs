@@ -50,9 +50,7 @@ fn list_via_host(
 ) -> Result<Vec<PluginSummary>, PluginError> {
     let options = stanchion::remote::RemoteOptions::new(host)
         .config(config)
-        .plugins(&plugins_dir)
-        .arg("--contract")
-        .arg("report");
+        .plugins(&plugins_dir);
     let mut registry =
         stanchion::remote::RemoteRegistry::launch(options).map_err(PluginError::host)?;
     let plugins = registry.list().map_err(PluginError::host)?;
@@ -70,12 +68,27 @@ fn ensure_safe_name(name: &str) -> Result<(), PluginError> {
     Ok(())
 }
 
+/// Copies a plugin source tree, rejecting symbolic links.
+///
+/// `entry.file_type()` does not follow links, so a symlink lands in the `else`
+/// branch where `std::fs::copy` *would* follow it and pull external bytes (e.g. a
+/// link to `/etc/passwd`) into the plugins directory. Refusing symlinks keeps an
+/// installed plugin's directory a faithful, self-contained copy of its source.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
+        let file_type = entry.file_type()?;
         let target = dst.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        if file_type.is_symlink() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!(
+                    "symbolic links are not allowed in plugins: {}",
+                    entry.path().display()
+                ),
+            ));
+        } else if file_type.is_dir() {
             copy_dir_recursive(&entry.path(), &target)?;
         } else {
             std::fs::copy(entry.path(), &target)?;
@@ -123,7 +136,14 @@ fn install_plugin_dir(plugins_dir: &Path, source: &Path) -> Result<String, Plugi
         )));
     }
     std::fs::create_dir_all(plugins_dir).map_err(PluginError::host)?;
-    copy_dir_recursive(source, &dest).map_err(PluginError::host)?;
+    if let Err(err) = copy_dir_recursive(source, &dest) {
+        // A partial copy must not linger as a half-installed plugin.
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(PluginError::invalid(format!(
+            "could not copy plugin from {}: {err}",
+            source.display()
+        )));
+    }
     Ok(name)
 }
 
@@ -155,10 +175,41 @@ pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginSummar
         .map_err(PluginError::host)?
 }
 
+/// Copies a plugin into the plugins root and confirms the host loads it,
+/// returning its summary. Any failure after the copy — the host erroring, or the
+/// plugin loading but not appearing — rolls the copy back, so the plugins
+/// directory is never left with a broken plugin.
+fn install_and_verify(
+    host: PathBuf,
+    config: PathBuf,
+    plugins_dir: PathBuf,
+    source: &Path,
+) -> Result<PluginSummary, PluginError> {
+    let name = install_plugin_dir(&plugins_dir, source)?;
+    let rollback = || {
+        let _ = std::fs::remove_dir_all(plugins_dir.join(&name));
+    };
+
+    let loaded = match list_via_host(host, config, plugins_dir.clone()) {
+        Ok(loaded) => loaded,
+        Err(err) => {
+            rollback();
+            return Err(err);
+        }
+    };
+    match loaded.into_iter().find(|plugin| plugin.name == name) {
+        Some(summary) => Ok(summary),
+        None => {
+            rollback();
+            Err(PluginError::invalid(format!(
+                "plugin \"{name}\" was installed but the host could not load it"
+            )))
+        }
+    }
+}
+
 /// Installs a plugin from a local directory (developer / manual sideload), then
-/// confirms the host can load it and returns its summary. If the copied plugin
-/// fails to load, the install is rolled back so the plugins directory is never
-/// left with a broken plugin.
+/// confirms the host can load it and returns its summary.
 #[tauri::command]
 #[specta::specta]
 pub async fn add_plugin_from_path(
@@ -170,21 +221,9 @@ pub async fn add_plugin_from_path(
     let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
     let source = PathBuf::from(source);
 
-    tokio::task::spawn_blocking(move || {
-        let name = install_plugin_dir(&plugins_dir, &source)?;
-        let loaded = list_via_host(host, config, plugins_dir.clone())?;
-        match loaded.into_iter().find(|plugin| plugin.name == name) {
-            Some(summary) => Ok(summary),
-            None => {
-                let _ = std::fs::remove_dir_all(plugins_dir.join(&name));
-                Err(PluginError::invalid(format!(
-                    "plugin \"{name}\" was installed but the host could not load it"
-                )))
-            }
-        }
-    })
-    .await
-    .map_err(PluginError::host)?
+    tokio::task::spawn_blocking(move || install_and_verify(host, config, plugins_dir, &source))
+        .await
+        .map_err(PluginError::host)?
 }
 
 /// Uninstalls a plugin by name, removing its directory.
@@ -233,7 +272,53 @@ mod tests {
     use std::fs;
     use std::path::Path;
 
-    use super::{PluginError, install_plugin_dir, remove_plugin_dir};
+    use std::path::PathBuf;
+
+    use super::{
+        PluginError, install_and_verify, install_plugin_dir, list_via_host, remove_plugin_dir,
+    };
+
+    /// A Lua importer the host can actually load, for host-backed tests.
+    const LOADABLE_IMPORTER: &str = r#"
+local Importer = {}
+Importer.__index = Importer
+function Importer.new(config, deps) return setmetatable({}, Importer) end
+function Importer:extensions() return { "txt" } end
+function Importer:read_metadata(path) return { title = "T" } end
+return Importer
+"#;
+
+    fn host_binary() -> PathBuf {
+        let test_binary = std::env::current_exe().unwrap();
+        let profile_dir = test_binary.parent().and_then(|path| path.parent()).unwrap();
+        profile_dir.join(if cfg!(windows) {
+            "livtet-plugin-host.exe"
+        } else {
+            "livtet-plugin-host"
+        })
+    }
+
+    fn write_host_config(dir: &Path) -> PathBuf {
+        let config = dir.join("host.toml");
+        fs::write(
+            &config,
+            "[capabilities]\nallow = [\"log\"]\ncallbacks = [\"fs_read\"]\n\n[signatures]\nrequired = false\n",
+        )
+        .unwrap();
+        config
+    }
+
+    fn write_loadable_plugin(plugins_dir: &Path, name: &str) -> PathBuf {
+        let plugin_dir = plugins_dir.join(name);
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            format!("name = \"{name}\"\nversion = \"1.0.0\"\n\n[capabilities.log]\n"),
+        )
+        .unwrap();
+        fs::write(plugin_dir.join("init.lua"), LOADABLE_IMPORTER).unwrap();
+        plugin_dir
+    }
 
     fn write_plugin(plugins_dir: &Path, name: &str) -> std::path::PathBuf {
         let plugin_dir = plugins_dir.join(name);
@@ -311,5 +396,60 @@ mod tests {
             );
         }
         assert!(sentinel.is_file(), "sentinel outside plugins dir survived");
+    }
+
+    // Regression: list_via_host must not pass args the host rejects. The host
+    // only accepts --config/--plugins, so a stray `--contract report` made it
+    // exit before serving and every list/add call failed.
+    #[test]
+    fn list_via_host_lists_an_installed_plugin() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        write_loadable_plugin(&plugins_dir, "txt-importer");
+        let config = write_host_config(root.path());
+
+        let listed = list_via_host(host_binary(), config, plugins_dir)
+            .expect("host lists the installed plugin");
+        assert!(
+            listed.iter().any(|plugin| plugin.name == "txt-importer"),
+            "expected txt-importer in {listed:?}"
+        );
+    }
+
+    // Regression: a post-copy failure (here, an unreachable host) must roll the
+    // copied directory back instead of leaving a half-installed plugin.
+    #[test]
+    fn install_and_verify_rolls_back_when_the_host_is_unreachable() {
+        let root = tempfile::tempdir().unwrap();
+        let source = write_loadable_plugin(&root.path().join("src"), "rollback-me");
+        let plugins_dir = root.path().join("plugins");
+        let bogus_host = root.path().join("does-not-exist-host");
+        let config = write_host_config(root.path());
+
+        let err = install_and_verify(bogus_host, config, plugins_dir.clone(), &source)
+            .expect_err("unreachable host fails the install");
+        assert!(matches!(err, PluginError::Host { .. }), "got {err:?}");
+        assert!(
+            !plugins_dir.join("rollback-me").exists(),
+            "copied plugin directory was not rolled back"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_rejects_a_symlink_in_the_source() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = root.path().join("secret.txt");
+        fs::write(&outside, b"secret").unwrap();
+        let source = write_plugin(&root.path().join("src"), "sneaky");
+        std::os::unix::fs::symlink(&outside, source.join("link")).unwrap();
+        let plugins_dir = root.path().join("plugins");
+
+        let err = install_plugin_dir(&plugins_dir, &source).expect_err("symlink rejected");
+        assert!(matches!(err, PluginError::Invalid { .. }), "got {err:?}");
+        assert!(
+            !plugins_dir.join("sneaky").exists(),
+            "partial copy was not cleaned up"
+        );
     }
 }

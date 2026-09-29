@@ -1,6 +1,6 @@
 //! Livtet's out-of-process plugin host.
 //!
-//! Runs Livtet's Lua plugins in a child process, speaking length-prefixed JSON
+//! Runs Livtet's Lua plugins in a child process, speaking newline-delimited JSON
 //! over stdio, so a plugin that loops forever, exhausts memory, or crashes the
 //! interpreter takes down this process instead of the desktop app that launched
 //! it. The desktop app resolves this binary as `livtet-plugin-host`
@@ -79,7 +79,8 @@ OPTIONS:
     --plugins DIR   Plugin root to load at startup, overriding the config
     -h, --help      Print this message
 
-The protocol is length-prefixed JSON on stdin/stdout. stderr is for logs.";
+The protocol is newline-delimited JSON on stdin/stdout (one object per line).
+stderr is for logs.";
 
 struct Options {
     config: Option<PathBuf>,
