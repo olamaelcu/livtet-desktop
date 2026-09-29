@@ -28,6 +28,7 @@ let paletteOpen = $state(false)
 const navItems = [
   { href: '/library', label: 'Library' },
   { href: '/catalog', label: 'Catalogs' },
+  { href: '/plugins', label: 'Plugins' },
   { href: '/settings', label: 'Settings' },
 ] as const
 

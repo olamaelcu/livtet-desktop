@@ -49,6 +49,12 @@ export const opdsKeys = {
     [...opdsKeys.all, 'search', { catalogId, query }] as const,
 }
 
+export const pluginKeys = {
+  all: ['plugins'] as const,
+  installed: () => [...pluginKeys.all, 'installed'] as const,
+  remote: (registryUrl: string) => [...pluginKeys.all, 'remote', { registryUrl }] as const,
+}
+
 export const readerKeys = {
   all: ['reader'] as const,
   publication: (editionId: string) => [...readerKeys.all, 'publication', { editionId }] as const,
