@@ -585,4 +585,71 @@ return P
             .expect("call completes");
         assert_eq!(allowed, serde_json::json!(false), "non-granted db refused");
     }
+
+    // The `http` sandbox module: a plugin's `http(request)` is forwarded to the
+    // app, which performs the fetch under its allowlist and returns the reply.
+    #[test]
+    fn http_capability_forwards_to_the_app() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let _ = stream.read(&mut [0u8; 1024]);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\nContent-Type: text/plain\r\n\r\npong",
+                );
+            }
+        });
+
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let plugin_dir = plugins_dir.join("http-probe");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            "name = \"http-probe\"\nversion = \"1.0.0\"\n\n[capabilities.http]\n",
+        )
+        .unwrap();
+        fs::write(
+            plugin_dir.join("init.lua"),
+            r#"
+local P = {}
+P.__index = P
+function P.new(config, deps) return setmetatable({}, P) end
+function P:fetch(url)
+  local resp = http({ url = url })
+  return resp.status .. ":" .. resp.body
+end
+return P
+"#,
+        )
+        .unwrap();
+
+        let config = root.path().join("host.toml");
+        fs::write(
+            &config,
+            "[capabilities]\ncallbacks = [\"http\"]\n\n[signatures]\nrequired = false\n",
+        )
+        .unwrap();
+
+        let options = stanchion::remote::RemoteOptions::new(host_binary())
+            .config(config)
+            .plugins(&plugins_dir);
+        let remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
+        let allow = vec!["127.0.0.1".to_string()];
+        let mut remote = remote.on_callback(move |call| {
+            crate::commands::plugin_host_callbacks::answer_http(call, &allow)
+        });
+
+        let out: serde_json::Value = remote
+            .call(
+                "http-probe",
+                "fetch",
+                [serde_json::json!(format!("http://{addr}/"))],
+            )
+            .expect("plugin fetches via http");
+        assert_eq!(out, serde_json::json!("200:pong"));
+        server.join().unwrap();
+    }
 }

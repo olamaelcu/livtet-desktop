@@ -5,6 +5,7 @@ pub mod import;
 pub mod importers;
 pub mod opds;
 pub mod playback;
+pub mod plugin_host_callbacks;
 pub mod plugins;
 pub mod reader;
 pub mod search;
