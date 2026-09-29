@@ -88,11 +88,26 @@ pub enum PluginError {
 
     #[error("Plugin host error: {message}")]
     Host { message: String },
+
+    #[error("Invalid plugin: {message}")]
+    Invalid { message: String },
 }
 
 impl PluginError {
     pub fn host<E: std::fmt::Display>(err: E) -> Self {
         Self::Host {
+            message: err.to_string(),
+        }
+    }
+
+    pub fn unavailable<E: std::fmt::Display>(err: E) -> Self {
+        Self::Unavailable {
+            message: err.to_string(),
+        }
+    }
+
+    pub fn invalid<E: std::fmt::Display>(err: E) -> Self {
+        Self::Invalid {
             message: err.to_string(),
         }
     }
