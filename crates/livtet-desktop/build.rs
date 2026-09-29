@@ -75,7 +75,10 @@ fn main() {
     );
     println!("cargo:rustc-env=SENTRY_DSN={}", secrets.sentry_dsn);
 
-    // ── Sync daemon sidecar (`livtet-sync-daemon`) ──────────────
+    // ── Sidecars ────────────────────────────────────────────────
+    // Build each helper binary and stage it for Tauri (`externalBin`) and for
+    // dev runs. `livtet-sync-daemon` is the sync server (ADR-0012);
+    // `livtet-plugin-host` runs Lua plugins out-of-process.
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_dir = manifest_dir
         .parent()
@@ -84,32 +87,58 @@ fn main() {
     let target_triple =
         std::env::var("TARGET").unwrap_or_else(|_| "x86_64-unknown-linux-gnu".into());
     let is_windows = target_triple.contains("windows");
-
-    println!(
-        "cargo:rerun-if-changed={}",
-        workspace_dir.join("crates/livtet-sync-daemon").display()
-    );
-
-    // Build the daemon with its own target dir so the nested build does not
-    // contend with this one, then stage it for Tauri (`externalBin`) and for
-    // dev runs next to the application binary. `Command::status()` inherits
-    // stdio (no pipes), which avoids the deadlock a JSON-parsing wrapper hits
-    // when the child keeps writing after the artifact is found.
     let profile = std::env::var("PROFILE").unwrap_or_else(|_| "debug".into());
     let cargo_profile = if profile == "debug" {
         "dev"
     } else {
         profile.as_str()
     };
-    let sidecar_target = manifest_dir.join("target").join("sync-daemon");
 
+    for package in ["livtet-sync-daemon", "livtet-plugin-host"] {
+        stage_sidecar(
+            package,
+            workspace_dir,
+            manifest_dir,
+            &target_triple,
+            is_windows,
+            &profile,
+            cargo_profile,
+        );
+    }
+
+    tauri_build::build();
+}
+
+/// Builds one workspace sidecar binary and stages it for Tauri (`externalBin`)
+/// and for dev runs next to the application binary.
+///
+/// Each sidecar builds into its own target dir so the nested build does not
+/// contend with this one. `Command::status()` inherits stdio (no pipes), which
+/// avoids the deadlock a JSON-parsing wrapper hits when the child keeps writing
+/// after the artifact is found. Tauri expects `<name>-<target-triple>` (with a
+/// trailing `.exe` on Windows) next to the `externalBin` entry.
+fn stage_sidecar(
+    package: &str,
+    workspace_dir: &Path,
+    manifest_dir: &Path,
+    target_triple: &str,
+    is_windows: bool,
+    profile: &str,
+    cargo_profile: &str,
+) {
+    println!(
+        "cargo:rerun-if-changed={}",
+        workspace_dir.join("crates").join(package).display()
+    );
+
+    let sidecar_target = manifest_dir.join("target").join(package);
     let status = std::process::Command::new("cargo")
         .args([
             "build",
             "-p",
-            "livtet-sync-daemon",
+            package,
             "--bin",
-            "livtet-sync-daemon",
+            package,
             "--profile",
             cargo_profile,
             "--target-dir",
@@ -118,29 +147,31 @@ fn main() {
         .current_dir(workspace_dir)
         .env_remove("RUSTC_WRAPPER")
         .status()
-        .expect("build livtet-sync-daemon sidecar");
+        .unwrap_or_else(|err| panic!("build {package} sidecar: {err}"));
 
     if !status.success() {
-        eprintln!("error: livtet-sync-daemon sidecar build failed (profile={profile})");
+        eprintln!("error: {package} sidecar build failed (profile={profile})");
         std::process::exit(1);
     }
 
-    let built = sidecar_target.join(&profile).join(if is_windows {
-        "livtet-sync-daemon.exe"
-    } else {
-        "livtet-sync-daemon"
-    });
+    let exe_name = |name: &str| {
+        if is_windows {
+            format!("{name}.exe")
+        } else {
+            name.to_string()
+        }
+    };
+    let built = sidecar_target.join(profile).join(exe_name(package));
 
     let binaries_dir = manifest_dir.join("binaries");
     std::fs::create_dir_all(&binaries_dir).expect("create binaries dir");
-    // Tauri expects `<name>-<target-triple>` (with a trailing `.exe` on Windows)
-    // next to the `externalBin` entry in `tauri.conf.json`.
     let staged_name = if is_windows {
-        format!("livtet-sync-daemon-{target_triple}.exe")
+        format!("{package}-{target_triple}.exe")
     } else {
-        format!("livtet-sync-daemon-{target_triple}")
+        format!("{package}-{target_triple}")
     };
-    std::fs::copy(&built, binaries_dir.join(staged_name)).expect("stage sync daemon for bundling");
+    std::fs::copy(&built, binaries_dir.join(staged_name))
+        .unwrap_or_else(|err| panic!("stage {package} for bundling: {err}"));
 
     // Dev runs resolve the sidecar next to the application binary.
     if let Ok(out_dir) = std::env::var("OUT_DIR") {
@@ -150,13 +181,6 @@ fn main() {
                 profile_dir = parent.to_path_buf();
             }
         }
-        let bin_name = if is_windows {
-            "livtet-sync-daemon.exe"
-        } else {
-            "livtet-sync-daemon"
-        };
-        let _ = std::fs::copy(&built, profile_dir.join(bin_name));
+        let _ = std::fs::copy(&built, profile_dir.join(exe_name(package)));
     }
-
-    tauri_build::build();
 }

@@ -1,0 +1,15 @@
+[package]
+name = "livtet-plugin-host"
+version = "0.1.0"
+edition.workspace = true
+authors = ["olamaelcu"]
+license = "MPL-2.0"
+description = "Out-of-process host that runs Livtet's signed Lua plugins, isolated from the app"
+publish = false
+
+[[bin]]
+name = "livtet-plugin-host"
+path = "src/main.rs"
+
+[dependencies]
+stanchion.workspace = true

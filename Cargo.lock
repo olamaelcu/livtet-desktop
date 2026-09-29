@@ -4295,6 +4295,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "livtet-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "stanchion",
+]
+
+[[package]]
 name = "livtet-reader"
 version = "0.1.0"
 dependencies = [
