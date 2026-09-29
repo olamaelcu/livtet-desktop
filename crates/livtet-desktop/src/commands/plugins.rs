@@ -504,4 +504,85 @@ return Probe
             .expect("plugin parses xml");
         assert_eq!(out, serde_json::json!("package/metadata=m1"));
     }
+
+    // The `sqlite` sandbox module: livtet-plugin-host opens read-only, and only
+    // the database paths granted via `--sqlite`. A plugin declaring
+    // `[capabilities.sqlite]` queries a granted DB; a non-granted path is refused.
+    #[test]
+    fn sqlite_capability_queries_only_granted_databases() {
+        let root = tempfile::tempdir().unwrap();
+        let db_path = root.path().join("books.db");
+        {
+            let conn = rusqlite::Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE books(id INTEGER, title TEXT);\
+                 INSERT INTO books VALUES (1, 'Dune'), (2, 'Neuromancer');",
+            )
+            .unwrap();
+        }
+        let other_db = root.path().join("secret.db");
+        rusqlite::Connection::open(&other_db).unwrap();
+
+        let plugins_dir = root.path().join("plugins");
+        let plugin_dir = plugins_dir.join("sqlite-probe");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            "name = \"sqlite-probe\"\nversion = \"1.0.0\"\n\n[capabilities.sqlite]\n",
+        )
+        .unwrap();
+        fs::write(
+            plugin_dir.join("init.lua"),
+            r#"
+local P = {}
+P.__index = P
+function P.new(config, deps) return setmetatable({}, P) end
+function P:titles(db)
+  local rows = sqlite.query(db, "SELECT title FROM books ORDER BY id", {})
+  local out = {}
+  for i, row in ipairs(rows) do out[i] = row.title end
+  return table.concat(out, ",")
+end
+function P:forbidden(db)
+  local ok, err = pcall(function() return sqlite.query(db, "SELECT 1", {}) end)
+  return ok
+end
+return P
+"#,
+        )
+        .unwrap();
+
+        let config = root.path().join("host.toml");
+        fs::write(
+            &config,
+            "[capabilities]\nallow = [\"sqlite\"]\n\n[signatures]\nrequired = false\n",
+        )
+        .unwrap();
+
+        let options = stanchion::remote::RemoteOptions::new(host_binary())
+            .config(config)
+            .plugins(&plugins_dir)
+            .arg("--sqlite")
+            .arg(db_path.as_os_str());
+        let mut remote =
+            stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
+
+        let titles: serde_json::Value = remote
+            .call(
+                "sqlite-probe",
+                "titles",
+                [serde_json::json!(db_path.to_str().unwrap())],
+            )
+            .expect("query the granted database");
+        assert_eq!(titles, serde_json::json!("Dune,Neuromancer"));
+
+        let allowed: serde_json::Value = remote
+            .call(
+                "sqlite-probe",
+                "forbidden",
+                [serde_json::json!(other_db.to_str().unwrap())],
+            )
+            .expect("call completes");
+        assert_eq!(allowed, serde_json::json!(false), "non-granted db refused");
+    }
 }

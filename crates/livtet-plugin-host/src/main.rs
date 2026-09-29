@@ -55,9 +55,10 @@ fn run() -> Result<(), String> {
         io::BufWriter::new(io::stdout()),
     );
     let mut registry = build_registry(&config, &channel)?;
-    // Add Livtet's in-host module capabilities (xml, ...) on top of the remote
+    // Add Livtet's in-host module capabilities (xml, sqlite) on top of the remote
     // host's log + forwarded callbacks. Relies on `with_setup` being additive.
-    registry = capabilities::register(registry);
+    // `sqlite` may only open the database paths granted via `--sqlite`.
+    registry = capabilities::register(registry, options.sqlite);
 
     // Load up front so the caller's first call is fast and a broken plugin root
     // surfaces before any request arrives.
@@ -77,11 +78,13 @@ const USAGE: &str = "\
 livtet-plugin-host — run Livtet's Lua plugins in an isolated process
 
 USAGE:
-    livtet-plugin-host [--config FILE] [--plugins DIR]
+    livtet-plugin-host [--config FILE] [--plugins DIR] [--sqlite DB]...
 
 OPTIONS:
     --config FILE   TOML host configuration (sandbox, capabilities, signatures)
     --plugins DIR   Plugin root to load at startup, overriding the config
+    --sqlite DB     A database file the `sqlite` capability may open read-only;
+                    repeat to grant more than one
     -h, --help      Print this message
 
 The protocol is newline-delimited JSON on stdin/stdout (one object per line).
@@ -90,6 +93,7 @@ stderr is for logs.";
 struct Options {
     config: Option<PathBuf>,
     plugins: Option<PathBuf>,
+    sqlite: Vec<PathBuf>,
     help: bool,
 }
 
@@ -98,6 +102,7 @@ impl Options {
         let mut options = Options {
             config: None,
             plugins: None,
+            sqlite: Vec::new(),
             help: false,
         };
         let mut args = args.peekable();
@@ -105,6 +110,11 @@ impl Options {
         while let Some(arg) = args.next() {
             match arg.as_str() {
                 "-h" | "--help" => options.help = true,
+                "--sqlite" => {
+                    options
+                        .sqlite
+                        .push(PathBuf::from(args.next().ok_or("--sqlite needs a path")?));
+                }
                 "--config" => {
                     options.config =
                         Some(PathBuf::from(args.next().ok_or("--config needs a path")?));

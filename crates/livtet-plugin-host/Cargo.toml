@@ -16,3 +16,4 @@ stanchion.workspace = true
 stanchion-lua.workspace = true
 stanchion-abi = { workspace = true, features = ["lua"] }
 livtet-epub.workspace = true
+rusqlite = { version = "0.32", features = ["bundled"] }

@@ -204,7 +204,7 @@ async fn setup_plugin_host(
 
     let host_config = app_dir.join("host.toml");
     if !host_config.exists() {
-        let config = "[capabilities]\nallow = [\"log\", \"xml\"]\ncallbacks = [\"fs_read\"]\n\n[signatures]\nrequired = false\n";
+        let config = "[capabilities]\nallow = [\"log\", \"xml\", \"sqlite\"]\ncallbacks = [\"fs_read\"]\n\n[signatures]\nrequired = false\n";
         std::fs::write(&host_config, config).into_diagnostic()?;
     }
 
