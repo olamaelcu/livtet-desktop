@@ -13,3 +13,6 @@ path = "src/main.rs"
 
 [dependencies]
 stanchion.workspace = true
+stanchion-lua.workspace = true
+stanchion-abi = { workspace = true, features = ["lua"] }
+livtet-epub.workspace = true

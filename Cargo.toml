@@ -31,6 +31,7 @@ stanchion-lua = { git = "https://github.com/jalcine/stanchion", branch = "main",
   "lua54",
   "vendored",
 ] }
+stanchion-abi = { git = "https://github.com/jalcine/stanchion", branch = "main" }
 livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main", features = [
   "atom",
 ] }

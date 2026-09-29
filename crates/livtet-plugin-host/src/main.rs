@@ -23,6 +23,8 @@ use std::process::ExitCode;
 
 use stanchion::remote::{HostChannel, build_registry, load_config, serve};
 
+mod capabilities;
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -53,6 +55,9 @@ fn run() -> Result<(), String> {
         io::BufWriter::new(io::stdout()),
     );
     let mut registry = build_registry(&config, &channel)?;
+    // Add Livtet's in-host module capabilities (xml, ...) on top of the remote
+    // host's log + forwarded callbacks. Relies on `with_setup` being additive.
+    registry = capabilities::register(registry);
 
     // Load up front so the caller's first call is fast and a broken plugin root
     // surfaces before any request arrives.

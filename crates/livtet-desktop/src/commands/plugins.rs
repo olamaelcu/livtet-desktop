@@ -452,4 +452,56 @@ return Importer
             "partial copy was not cleaned up"
         );
     }
+
+    // The `xml` sandbox module: livtet-plugin-host registers it in-host, so a
+    // plugin that declares `[capabilities.xml]` can parse XML via `xml.parse`
+    // without vendoring a native module.
+    #[test]
+    fn xml_capability_lets_a_plugin_parse() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let plugin_dir = plugins_dir.join("xml-probe");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            "name = \"xml-probe\"\nversion = \"1.0.0\"\n\n[capabilities.xml]\n",
+        )
+        .unwrap();
+        fs::write(
+            plugin_dir.join("init.lua"),
+            r#"
+local Probe = {}
+Probe.__index = Probe
+function Probe.new(config, deps) return setmetatable({}, Probe) end
+function Probe:root(source)
+  local doc = xml.parse(source)
+  local first = doc.children[1]
+  return doc.tag .. "/" .. (first and first.tag or "") .. "=" .. (first and first.attrs.id or "")
+end
+return Probe
+"#,
+        )
+        .unwrap();
+
+        let config = root.path().join("host.toml");
+        fs::write(
+            &config,
+            "[capabilities]\nallow = [\"xml\"]\n\n[signatures]\nrequired = false\n",
+        )
+        .unwrap();
+
+        let options = stanchion::remote::RemoteOptions::new(host_binary())
+            .config(config)
+            .plugins(&plugins_dir);
+        let mut remote =
+            stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
+        let out: serde_json::Value = remote
+            .call(
+                "xml-probe",
+                "root",
+                [serde_json::json!("<package><metadata id=\"m1\"/></package>")],
+            )
+            .expect("plugin parses xml");
+        assert_eq!(out, serde_json::json!("package/metadata=m1"));
+    }
 }

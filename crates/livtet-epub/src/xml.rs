@@ -81,6 +81,11 @@ impl Element {
             .collect()
     }
 
+    /// This element's own direct text, excluding descendants.
+    pub fn direct_text(&self) -> &str {
+        &self.text
+    }
+
     /// Concatenated text of this element and all of its descendants.
     pub fn text(&self) -> String {
         let mut out = self.text.clone();
