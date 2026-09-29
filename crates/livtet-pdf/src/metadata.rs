@@ -233,6 +233,10 @@ fn parse_pdf_date(raw: &str) -> Option<PublicationDate> {
         return PublicationDate::parse(body);
     }
     let year: i32 = body.get(0..4)?.parse().ok()?;
+    // Clamp year to a sane range to avoid Tantivy datetime overflow on reindex.
+    if !(1..=9999).contains(&year) {
+        return None;
+    }
     let component = |range: std::ops::Range<usize>| {
         body.get(range)
             .filter(|part| part.bytes().all(|byte| byte.is_ascii_digit()))

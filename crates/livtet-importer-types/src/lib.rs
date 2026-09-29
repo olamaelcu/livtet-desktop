@@ -79,6 +79,10 @@ impl PublicationDate {
     pub fn parse(raw: &str) -> Option<Self> {
         let mut it = raw.trim().split(['-', 'T', ' ']);
         let year: i32 = it.next()?.parse().ok()?;
+        // Clamp year to a sane range to avoid Tantivy datetime overflow on reindex
+        if !(1..=9999).contains(&year) {
+            return None;
+        }
         let month = it
             .next()
             .and_then(|m| m.parse().ok())
