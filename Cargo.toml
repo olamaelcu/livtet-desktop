@@ -12,7 +12,9 @@ livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-data = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-sync = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-sync-http = { git = "https://github.com/olamaelcu/livtet", branch = "main", features = ["poem"] }
+livtet-sync-http = { git = "https://github.com/olamaelcu/livtet", branch = "main", features = [
+  "poem",
+] }
 livtet-sync-server = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer-types = { path = "crates/livtet-importer-types" }
@@ -22,12 +24,24 @@ livtet-mobi = { path = "crates/livtet-mobi" }
 livtet-pdf = { path = "crates/livtet-pdf" }
 livtet-importer = { path = "crates/livtet-importer" }
 livtet-reader = { path = "crates/livtet-reader" }
-stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["remote", "lua54", "vendored"] }
-stanchion-lua = { git = "https://github.com/jalcine/stanchion", branch = "main", features = ["lua54", "vendored"] }
-livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main", features = ["atom"] }
+stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = [
+  "remote",
+] }
+stanchion-lua = { git = "https://github.com/jalcine/stanchion", branch = "main", features = [
+  "lua54",
+  "vendored",
+] }
+livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main", features = [
+  "atom",
+] }
 livtet-opds-types = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "json",
+  "stream",
+] }
 url = "2"
+pdf_oxide = { git = "https://github.com/yfedoseev/pdf_oxide", branch = "main" }
 
 [profile.release]
 codegen-units = 1
