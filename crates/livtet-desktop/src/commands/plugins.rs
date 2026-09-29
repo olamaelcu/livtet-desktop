@@ -63,7 +63,9 @@ fn list_via_host(
 /// a manifest or the frontend can never escape the plugins directory.
 fn ensure_safe_name(name: &str) -> Result<(), PluginError> {
     if name.is_empty() || name.contains('/') || name.contains('\\') || name == "." || name == ".." {
-        return Err(PluginError::invalid(format!("unsafe plugin name: {name:?}")));
+        return Err(PluginError::invalid(format!(
+            "unsafe plugin name: {name:?}"
+        )));
     }
     Ok(())
 }
@@ -303,7 +305,10 @@ mod tests {
 
         for evil in ["..", "../keep.txt", "../..", "nested/child"] {
             let err = remove_plugin_dir(&plugins_dir, evil).expect_err("traversal rejected");
-            assert!(matches!(err, PluginError::Invalid { .. }), "{evil}: {err:?}");
+            assert!(
+                matches!(err, PluginError::Invalid { .. }),
+                "{evil}: {err:?}"
+            );
         }
         assert!(sentinel.is_file(), "sentinel outside plugins dir survived");
     }
