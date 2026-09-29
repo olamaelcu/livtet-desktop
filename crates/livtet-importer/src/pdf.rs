@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use stanchion::mlua;
+use stanchion_lua::mlua;
 
 use crate::{Importer, ImporterContributor, ImporterCover, ImporterMeta, ImporterPublicationDate};
 

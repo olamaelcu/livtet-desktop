@@ -26,6 +26,8 @@ livtet-importer = { path = "crates/livtet-importer" }
 livtet-reader = { path = "crates/livtet-reader" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = [
   "remote",
+] }
+stanchion-lua = { git = "https://github.com/jalcine/stanchion", branch = "main", features = [
   "lua54",
   "vendored",
 ] }
@@ -39,7 +41,7 @@ reqwest = { version = "0.12", default-features = false, features = [
   "stream",
 ] }
 url = "2"
-pdf_oxide = { version = "=0.3.70" }
+pdf_oxide = { git = "https://github.com/yfedoseev/pdf_oxide", branch = "main" }
 
 [profile.release]
 codegen-units = 1
