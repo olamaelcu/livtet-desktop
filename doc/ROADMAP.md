@@ -25,12 +25,8 @@ The goals of this project are as follows:
 
 ### Search & metadata
 
-- [x] Plugin-backed provider architecture — providers are supplied by
-      signed plugins through a stanchion registry rather than hardcoded
-      Rust `Provider` impls. `crates/livtet-desktop/src/commands/plugins.rs`
-      (`stanchion::remote::RemoteRegistry`),
-      `crates/livtet-desktop/src/commands/search.rs`.
-- [x] Filtered library search IPC —
+- [x] Filtered library search IPC — **local** search over the user's own
+      catalog via a Tantivy index; there is no remote metadata search.
       [ADR-0016](adr/0016-filtered-library-search-ipc.md),
       `commands/search.rs`.
 - [x] Edition detail IPC + drawer —
@@ -39,6 +35,14 @@ The goals of this project are as follows:
       `web/routes/catalog/[catalogId]`.
 - [x] Filter-option decorations + remote publisher logos —
       [ADR-0019](adr/0019-expose-filter-option-decorations-and-allow-remote-publisher-logos.md).
+
+> **Removed — no remote metadata search today.** Native OpenLibrary, Google
+> Books, and Hardcover metadata-search providers once lived at
+> `tauri/src/commands/remote_search/` (added 2026-07-30 on `feat/remote-search`)
+> and were removed in `a89ef71` ("gutting experience", 2026-09-14) during the
+> `tauri/` → `crates/` reorg, with no replacement yet. The stanchion plugin
+> path now serves **importers** (see Import), not search providers. `build.rs`
+> still embeds a `GOOGLE_BOOKS_API_KEY` that nothing reads at runtime.
 
 ### Library & catalog
 
