@@ -16,7 +16,7 @@ pub use pdf::PdfImporter;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value as Json};
-use stanchion::{
+use stanchion_lua::{
     lua_class,
     mlua::{FromLua, Lua, LuaSerdeExt, Result, Table, Value},
 };

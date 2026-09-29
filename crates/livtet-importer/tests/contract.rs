@@ -1,6 +1,6 @@
 use livtet_importer::{ImporterClass, ImporterHandle};
-use stanchion::mlua::{Lua, Result};
-use stanchion::{LuaObject, load_class};
+use stanchion_lua::mlua::{Lua, Result};
+use stanchion_lua::{LuaObject, load_class};
 
 const INCOMPLETE_IMPORTER: &str = r#"
 local Importer = {}

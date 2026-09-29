@@ -49,3 +49,8 @@ be a single safe path segment (no `/`, `\`, `.`, `..`) before joining onto
   signer editor yet.
 - The `Invalid` variant is additive to the `PluginError` IPC surface; existing
   callers are unaffected.
+- The install path reads only the manifest `name` via a local `toml` parse
+  rather than `stanchion::registry::read_manifest`. This keeps install decoupled
+  from the registry crate's export surface (it was not exported on the earlier
+  pin), and the host still fully validates the manifest when it loads the
+  plugin. Retained after the stanchion bump to `49d1781`.

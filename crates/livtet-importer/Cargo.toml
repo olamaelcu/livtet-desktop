@@ -7,7 +7,7 @@ description = "Typed contract for Livtet file importers"
 publish = false
 
 [dependencies]
-stanchion.workspace = true
+stanchion-lua.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
