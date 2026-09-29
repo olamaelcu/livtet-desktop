@@ -1,0 +1,4 @@
+name = "calibre"
+version = "1.0.0"
+
+[capabilities.sqlite]

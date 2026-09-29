@@ -42,7 +42,10 @@ pub fn answer_http(call: &CallbackCall, allowlist: &[String]) -> Result<Json, St
         return Err(format!("http: host `{host}` is not allowed"));
     }
 
-    let method_str = request.get("method").and_then(Json::as_str).unwrap_or("GET");
+    let method_str = request
+        .get("method")
+        .and_then(Json::as_str)
+        .unwrap_or("GET");
     let method = reqwest::Method::from_bytes(method_str.as_bytes())
         .map_err(|err| format!("http: invalid method: {err}"))?;
 
@@ -115,16 +118,28 @@ mod tests {
     #[test]
     fn rejects_a_host_outside_the_allowlist() {
         let allow = vec!["openlibrary.org".to_string()];
-        let err = answer_http(&call(vec![json!({ "url": "https://evil.example/x" })]), &allow)
-            .expect_err("non-allowlisted host refused");
+        let err = answer_http(
+            &call(vec![json!({ "url": "https://evil.example/x" })]),
+            &allow,
+        )
+        .expect_err("non-allowlisted host refused");
         assert!(err.contains("not allowed"), "got {err}");
     }
 
     #[test]
     fn subdomain_matches_an_allowlist_entry() {
-        assert!(host_allowed("covers.openlibrary.org", &["openlibrary.org".to_string()]));
-        assert!(host_allowed("openlibrary.org", &["openlibrary.org".to_string()]));
-        assert!(!host_allowed("notopenlibrary.org", &["openlibrary.org".to_string()]));
+        assert!(host_allowed(
+            "covers.openlibrary.org",
+            &["openlibrary.org".to_string()]
+        ));
+        assert!(host_allowed(
+            "openlibrary.org",
+            &["openlibrary.org".to_string()]
+        ));
+        assert!(!host_allowed(
+            "notopenlibrary.org",
+            &["openlibrary.org".to_string()]
+        ));
     }
 
     #[test]

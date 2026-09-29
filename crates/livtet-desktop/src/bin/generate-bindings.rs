@@ -29,6 +29,7 @@ fn main() {
         livtet_desktop_lib::commands::import::import_file,
         livtet_desktop_lib::commands::import::import_files,
         livtet_desktop_lib::commands::import::relink_edition_file,
+        livtet_desktop_lib::commands::calibre::import_calibre_library,
         livtet_desktop_lib::commands::plugins::list_plugins,
         livtet_desktop_lib::commands::plugins::add_plugin_from_path,
         livtet_desktop_lib::commands::plugins::remove_plugin,

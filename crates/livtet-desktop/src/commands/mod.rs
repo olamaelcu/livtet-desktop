@@ -1,5 +1,6 @@
 pub mod audio_server;
 pub mod bulk;
+pub mod calibre;
 pub mod catalog;
 pub mod import;
 pub mod importers;

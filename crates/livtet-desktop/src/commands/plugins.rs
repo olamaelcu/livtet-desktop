@@ -493,13 +493,14 @@ return Probe
         let options = stanchion::remote::RemoteOptions::new(host_binary())
             .config(config)
             .plugins(&plugins_dir);
-        let mut remote =
-            stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
+        let mut remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
         let out: serde_json::Value = remote
             .call(
                 "xml-probe",
                 "root",
-                [serde_json::json!("<package><metadata id=\"m1\"/></package>")],
+                [serde_json::json!(
+                    "<package><metadata id=\"m1\"/></package>"
+                )],
             )
             .expect("plugin parses xml");
         assert_eq!(out, serde_json::json!("package/metadata=m1"));
@@ -564,8 +565,7 @@ return P
             .plugins(&plugins_dir)
             .arg("--sqlite")
             .arg(db_path.as_os_str());
-        let mut remote =
-            stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
+        let mut remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
 
         let titles: serde_json::Value = remote
             .call(

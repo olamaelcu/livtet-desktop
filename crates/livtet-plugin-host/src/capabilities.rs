@@ -78,7 +78,10 @@ fn build_xml_module(lua: &mlua::Lua) -> mlua::Result<mlua::Table> {
 }
 
 /// Converts a parsed element into a Lua node table, recursively.
-fn element_to_lua(lua: &mlua::Lua, element: &livtet_epub::xml::Element) -> mlua::Result<mlua::Table> {
+fn element_to_lua(
+    lua: &mlua::Lua,
+    element: &livtet_epub::xml::Element,
+) -> mlua::Result<mlua::Table> {
     let node = lua.create_table()?;
     node.set("tag", element.local.clone())?;
 
@@ -134,7 +137,9 @@ fn run_query(
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
     )
     .map_err(|err| format!("open failed: {err}"))?;
-    let mut statement = conn.prepare(sql).map_err(|err| format!("prepare failed: {err}"))?;
+    let mut statement = conn
+        .prepare(sql)
+        .map_err(|err| format!("prepare failed: {err}"))?;
 
     let columns: Vec<String> = statement
         .column_names()
@@ -184,12 +189,17 @@ fn lua_value_to_sql(value: &mlua::Value) -> Result<rusqlite::types::Value, Strin
         mlua::Value::Boolean(b) => Value::Integer(i64::from(*b)),
         mlua::Value::Integer(i) => Value::Integer(*i),
         mlua::Value::Number(n) => Value::Real(*n),
-        mlua::Value::String(s) => Value::Text(s.to_str().map_err(|err| err.to_string())?.to_string()),
+        mlua::Value::String(s) => {
+            Value::Text(s.to_str().map_err(|err| err.to_string())?.to_string())
+        }
         other => return Err(format!("unsupported bind value: {other:?}")),
     })
 }
 
-fn sql_value_to_lua(lua: &mlua::Lua, value: rusqlite::types::ValueRef) -> Result<mlua::Value, String> {
+fn sql_value_to_lua(
+    lua: &mlua::Lua,
+    value: rusqlite::types::ValueRef,
+) -> Result<mlua::Value, String> {
     use rusqlite::types::ValueRef;
     Ok(match value {
         ValueRef::Null => mlua::Value::Nil,

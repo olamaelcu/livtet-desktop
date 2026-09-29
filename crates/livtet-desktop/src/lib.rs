@@ -361,6 +361,7 @@ pub fn run() {
         commands::import::import_file,
         commands::import::import_files,
         commands::import::relink_edition_file,
+        commands::calibre::import_calibre_library,
         commands::plugins::list_plugins,
         commands::plugins::add_plugin_from_path,
         commands::plugins::remove_plugin,

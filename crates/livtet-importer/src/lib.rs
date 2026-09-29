@@ -276,10 +276,13 @@ mod tests {
         let record = BookRecord::from_wire_json(wire).expect("record decodes");
         assert_eq!(record.meta.title, "Dune");
         assert!(record.meta.contributors.is_empty());
-        assert_eq!(record.files, vec![BookFile {
-            path: "Dune/dune.epub".into(),
-            format: "epub".into(),
-        }]);
+        assert_eq!(
+            record.files,
+            vec![BookFile {
+                path: "Dune/dune.epub".into(),
+                format: "epub".into(),
+            }]
+        );
         assert_eq!(record.cover_path.as_deref(), Some("Dune/cover.jpg"));
     }
 

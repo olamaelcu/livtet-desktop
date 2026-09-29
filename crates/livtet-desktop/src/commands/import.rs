@@ -89,9 +89,9 @@ pub enum ImportMode {
 
 /// Where and how an imported file is stored in the library.
 #[derive(Debug, Clone, Copy)]
-struct LibraryTarget<'a> {
-    dir: &'a camino::Utf8Path,
-    mode: ImportMode,
+pub(crate) struct LibraryTarget<'a> {
+    pub(crate) dir: &'a camino::Utf8Path,
+    pub(crate) mode: ImportMode,
 }
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -746,7 +746,7 @@ pub(crate) async fn import_one(
 /// match returns the pre-existing edition without writing anything. Kept free of
 /// Tauri state so it can be unit-tested against a `TestDb`.
 #[tracing::instrument(skip_all, fields(path = %file_path.display()), ret, err)]
-async fn persist_import(
+pub(crate) async fn persist_import(
     db: &livtet_core::data::SharedState,
     covers_dir: &camino::Utf8Path,
     target: LibraryTarget<'_>,

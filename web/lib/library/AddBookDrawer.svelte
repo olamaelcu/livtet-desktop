@@ -1,8 +1,10 @@
 <script lang="ts">
 import { useQueryClient } from '@tanstack/svelte-query'
+import { invoke } from '@tauri-apps/api/core'
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { toast } from 'svelte-sonner'
+import type { CalibreImportSummary } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
 import { searchKeys } from '../query/keys'
 import {
@@ -88,6 +90,25 @@ async function chooseFiles() {
   }
 }
 
+async function chooseCalibreLibrary() {
+  try {
+    const dir = await openDialog({ directory: true, title: 'Select a Calibre library folder' })
+    if (typeof dir !== 'string') return
+    const result = await invoke<CalibreImportSummary>('import_calibre_library', {
+      libraryPath: dir,
+      mode,
+    })
+    if (result.imported + result.duplicated > 0) {
+      await queryClient.invalidateQueries({ queryKey: searchKeys.all })
+    }
+    const message = `Calibre — ${result.imported} imported · ${result.duplicated} already in library · ${result.failed} failed (${result.books} books)`
+    if (result.failed > 0) toast.warning(message)
+    else toast.success(message)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Calibre import failed')
+  }
+}
+
 function retryFailed() {
   void run(rows.filter((row) => row.status === 'failed').map((row) => row.path))
 }
@@ -145,6 +166,7 @@ $effect(() => {
       <wa-icon name="file-arrow-up"></wa-icon>
       <p>Drag EPUB, AZW3, AZW or PDF files here</p>
       <ActionButton variant="brand" onclick={chooseFiles} disabled={busy}>Choose files…</ActionButton>
+      <ActionButton onclick={chooseCalibreLibrary} disabled={busy}>Import from Calibre…</ActionButton>
       <wa-switch
         checked={copy}
         disabled={busy}
