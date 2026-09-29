@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 livtet-importer-types.workspace = true
 livtet-types.workspace = true
-pdf_oxide = "=0.3.78"
+pdf_oxide.workspace = true
 hayro = "0.7"
 thiserror = "2"
 
