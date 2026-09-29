@@ -172,6 +172,77 @@ pub trait Importer {
     fn read_metadata(&self, path: String) -> Result<ImporterMeta>;
 }
 
+/// One of a book's format files within a source library, relative to its root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BookFile {
+    /// Path relative to the library root (the application resolves it).
+    pub path: String,
+    /// Format tag, lowercase and without a leading dot (e.g. `epub`, `pdf`).
+    pub format: String,
+}
+
+impl FromLua for BookFile {
+    fn from_lua(value: Value, lua: &Lua) -> Result<Self> {
+        lua.from_value(value)
+    }
+}
+
+/// One book discovered by a [`LibraryImporter`]: its metadata, its format files,
+/// and an optional cover, all with paths relative to the library root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BookRecord {
+    pub meta: ImporterMeta,
+    #[serde(default)]
+    pub files: Vec<BookFile>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover_path: Option<String>,
+}
+
+impl BookRecord {
+    /// Decode one record after Lua's lossy table-to-JSON boundary, normalizing
+    /// the nested [`ImporterMeta`] the same way [`ImporterMeta::from_wire_json`]
+    /// does.
+    pub fn from_wire_json(value: Json) -> std::result::Result<Self, serde_json::Error> {
+        let mut record = match value {
+            Json::Object(record) => record,
+            other => return serde_json::from_value(other),
+        };
+        let meta = ImporterMeta::from_wire_json(record.remove("meta").unwrap_or(Json::Null))?;
+        let files = match record.remove("files") {
+            Some(Json::Array(items)) => serde_json::from_value(Json::Array(items))?,
+            _ => Vec::new(),
+        };
+        let cover_path = match record.remove("cover_path") {
+            Some(Json::String(path)) if !path.is_empty() => Some(path),
+            _ => None,
+        };
+        Ok(Self {
+            meta,
+            files,
+            cover_path,
+        })
+    }
+}
+
+impl FromLua for BookRecord {
+    fn from_lua(value: Value, lua: &Lua) -> Result<Self> {
+        lua.from_value(value)
+    }
+}
+
+/// A library importer scans a whole source library (e.g. a Calibre library) and
+/// yields one [`BookRecord`] per book. Unlike [`Importer`], which reads a single
+/// file, it enumerates many; the application persists the records and imports
+/// their files.
+#[lua_class]
+pub trait LibraryImporter {
+    /// `LibraryImporter.new(config, deps)` — receiverless, lands on the class.
+    fn new(config: Table, deps: Table) -> Result<Self>;
+
+    /// Scan the library rooted at `source`, returning one record per book.
+    fn scan(&self, source: String) -> Result<Vec<BookRecord>>;
+}
+
 pub(crate) fn role_string(role: &livtet_epub::Role) -> String {
     match role {
         livtet_epub::Role::Author => "aut",
@@ -182,4 +253,41 @@ pub(crate) fn role_string(role: &livtet_epub::Role) -> String {
         livtet_epub::Role::Other(raw) => raw,
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn book_record_normalizes_empty_lua_tables() {
+        // A Lua plugin sends `{}` for empty lists; the record must still decode.
+        let wire = serde_json::json!({
+            "meta": {
+                "title": "Dune",
+                "contributors": {},
+                "isbns": {},
+                "other_identifiers": {},
+                "subjects": {},
+            },
+            "files": [{ "path": "Dune/dune.epub", "format": "epub" }],
+            "cover_path": "Dune/cover.jpg",
+        });
+        let record = BookRecord::from_wire_json(wire).expect("record decodes");
+        assert_eq!(record.meta.title, "Dune");
+        assert!(record.meta.contributors.is_empty());
+        assert_eq!(record.files, vec![BookFile {
+            path: "Dune/dune.epub".into(),
+            format: "epub".into(),
+        }]);
+        assert_eq!(record.cover_path.as_deref(), Some("Dune/cover.jpg"));
+    }
+
+    #[test]
+    fn book_record_defaults_missing_files_and_cover() {
+        let wire = serde_json::json!({ "meta": { "title": "T", "contributors": {}, "isbns": {}, "other_identifiers": {}, "subjects": {} } });
+        let record = BookRecord::from_wire_json(wire).expect("record decodes");
+        assert!(record.files.is_empty());
+        assert!(record.cover_path.is_none());
+    }
 }
