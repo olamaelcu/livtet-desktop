@@ -104,6 +104,7 @@ fn read_capped(response: reqwest::blocking::Response, cap: u64) -> Result<Vec<u8
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn call(args: Vec<Json>) -> CallbackCall {

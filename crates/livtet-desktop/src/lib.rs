@@ -81,7 +81,10 @@ async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     let file_appender = RollingFileAppender::new(Rotation::DAILY, logs_dir, "livtet.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
     let non_blocking_writer = file_writer;
-    *LOG_FILE_GUARD.lock().unwrap() = Some(guard);
+    *LOG_FILE_GUARD.lock().unwrap_or_else(|poisoned| {
+        tracing::error!("log file guard lock poisoned: {poisoned:?}");
+        poisoned.into_inner()
+    }) = Some(guard);
 
     let use_json = std::env::var("LIVTET_LOG_FORMAT")
         .map(|v| v == "json")
@@ -222,8 +225,9 @@ async fn setup_plugin_host(
 #[tracing::instrument(skip_all, err, level = "info")]
 async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'static>> {
     let data_dir = livtet_core::paths::data_dir().unwrap_or_else(|| {
-        let current_dir = std::env::current_dir().expect("current dir");
-        Utf8PathBuf::from_path_buf(current_dir).expect("valid utf8 path")
+        let current_dir = std::env::current_dir().unwrap_or_else(|e| panic!("current dir: {e}"));
+        Utf8PathBuf::from_path_buf(current_dir)
+            .unwrap_or_else(|e| panic!("valid utf8 path: {}", e.display()))
     });
 
     let paths = Paths::new(&data_dir);
@@ -252,7 +256,11 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     if fs_err::tokio::try_exists(&sidecar).await.ok() == Some(true) {
         let empty = livtet_core::search::SearchIndex::open(paths.search_index_path.as_path())
             .map(|ix| {
-                let searcher = ix.index().reader().unwrap().searcher();
+                let searcher = ix
+                    .index()
+                    .reader()
+                    .unwrap_or_else(|e| panic!("search index reader failed: {e}"))
+                    .searcher();
                 searcher.num_docs() == 0
             })
             .unwrap_or(true);
@@ -342,7 +350,7 @@ fn reader_status(status: tauri::http::StatusCode) -> tauri::http::Response<Vec<u
     tauri::http::Response::builder()
         .status(status)
         .body(Vec::new())
-        .expect("reader status is a valid response")
+        .unwrap_or_else(|e| panic!("reader status is a valid response: {e}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -468,7 +476,7 @@ pub fn run() {
                 specta_typescript::Typescript::default(),
                 "../../web/lib/bindings.ts",
             )
-            .expect("export bindings");
+            .unwrap_or_else(|e| panic!("export bindings: {e}"));
     }
 
     #[cfg(feature = "e2e-testing")]
@@ -497,5 +505,5 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .unwrap_or_else(|e| panic!("error while running tauri application: {e}"));
 }

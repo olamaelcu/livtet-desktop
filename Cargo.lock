@@ -4307,8 +4307,11 @@ dependencies = [
 name = "livtet-plugin-host"
 version = "0.1.0"
 dependencies = [
+ "camino",
+ "fs-err",
  "livtet-epub",
  "rusqlite",
+ "serde_json",
  "stanchion",
  "stanchion-abi",
  "stanchion-lua",

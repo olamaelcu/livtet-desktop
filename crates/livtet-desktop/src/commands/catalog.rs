@@ -355,6 +355,7 @@ fn format_timestamp(timestamp: time::PrimitiveDateTime) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use livtet_core::data::entities::works;
     use livtet_core::data::orm::{ActiveModelTrait, Set};
@@ -366,6 +367,7 @@ mod tests {
         edition_id: DbId,
     }
 
+    #[allow(clippy::unwrap_used, clippy::expect_used)]
     async fn seed_edition(db: &DatabaseConnection) -> Seed {
         let now = now_primitive();
         let format_id = DbId::new();

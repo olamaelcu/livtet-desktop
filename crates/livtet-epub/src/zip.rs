@@ -319,6 +319,7 @@ fn is_safe_name(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::test_support::strip_central_directory;
     use ::zip::write::SimpleFileOptions;

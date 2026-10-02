@@ -17,6 +17,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use mlua::LuaSerdeExt;
 use stanchion::registry::{DynClass, Registry};
 use stanchion_lua::mlua;
 
@@ -46,6 +47,38 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
             let lua_state = lua.lua_state().expect("Lua runtime available");
             let lua = lua_state.lock().expect("Lua mutex not poisoned");
             let module = build_sqlite_module(&lua, Arc::clone(&sqlite_paths))
+                .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
+            Ok(stanchion_abi::value::lua::lua_to_abi(
+                &lua,
+                &mlua::Value::Table(module),
+            ))
+        });
+        host.capability("json", |lua, _grant| {
+            let lua_state = lua.lua_state().expect("Lua runtime available");
+            let lua = lua_state.lock().expect("Lua mutex not poisoned");
+            let module = lua
+                .create_table()
+                .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
+            let decode = lua
+                .create_function(|lua, source: String| {
+                    let val: serde_json::Value = serde_json::from_str(&source)
+                        .map_err(|e| mlua::Error::RuntimeError(format!("json decode: {e}")))?;
+                    lua.to_value(&val)
+                })
+                .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
+            module
+                .set("decode", decode)
+                .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
+            Ok(stanchion_abi::value::lua::lua_to_abi(
+                &lua,
+                &mlua::Value::Table(module),
+            ))
+        });
+        host.capability("base64", |lua, _grant| {
+            let lua_state = lua.lua_state().expect("Lua runtime available");
+            let lua = lua_state.lock().expect("Lua mutex not poisoned");
+            let module = lua
+                .create_table()
                 .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
             Ok(stanchion_abi::value::lua::lua_to_abi(
                 &lua,

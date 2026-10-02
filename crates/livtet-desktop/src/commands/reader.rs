@@ -667,6 +667,7 @@ pub async fn reader_resource(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use livtet_core::data::{Kind, TestDb};
 

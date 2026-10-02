@@ -1141,6 +1141,7 @@ pub async fn relink_edition_file(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use livtet_core::data::entities::{
         digital_inventory, edition_authors, edition_identifiers, edition_subjects, editions,
         identifiers, works,

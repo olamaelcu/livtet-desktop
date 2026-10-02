@@ -7,6 +7,7 @@
 mod audio;
 mod epub;
 mod mobi;
+mod normalization;
 mod pdf;
 
 pub use audio::AudiobookImporter;
@@ -15,10 +16,10 @@ pub use mobi::MobiImporter;
 pub use pdf::PdfImporter;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value as Json};
+use serde_json::Value as Json;
 use stanchion_lua::{
     lua_class,
-    mlua::{FromLua, Lua, LuaSerdeExt, Result, Table, Value},
+    mlua::{self, FromLua, IntoLuaMulti, Lua, LuaSerdeExt, Result, Table, Value},
 };
 
 /// A contributor in importer order.
@@ -84,72 +85,14 @@ pub struct ImporterMeta {
     pub format_metadata: Option<Json>,
 }
 
-fn normalize_optional_object(value: &mut Json) {
-    if matches!(value, Json::Object(entries) if entries.is_empty()) {
-        *value = Json::Null;
-    }
-}
-
-fn normalize_optional_fields(record: &mut Map<String, Json>, fields: &[&str]) {
-    for field in fields {
-        if let Some(value) = record.get_mut(*field) {
-            normalize_optional_object(value);
-        }
-    }
-}
-
-fn normalize_contributor_optionals(record: &mut Map<String, Json>) {
-    let Some(Json::Array(contributors)) = record.get_mut("contributors") else {
-        return;
-    };
-    for contributor in contributors {
-        if let Some(contributor) = contributor.as_object_mut() {
-            normalize_optional_fields(contributor, &["role", "file_as"]);
-        }
-    }
-}
-
-fn normalize_publication_optionals(record: &mut Map<String, Json>) {
-    let Some(published) = record.get_mut("published") else {
-        return;
-    };
-    if let Some(published) = published.as_object_mut() {
-        normalize_optional_fields(published, &["month", "day"]);
-    }
-}
-
 impl ImporterMeta {
     /// Decode importer metadata after Lua's lossy table-to-JSON boundary.
     ///
     /// An empty Lua table has no way to say whether it is an empty list or an
     /// empty object, and the host sends `{}`. Normalize the known list fields
     /// before deserializing.
-    pub fn from_wire_json(mut value: Json) -> std::result::Result<Self, serde_json::Error> {
-        if let Some(record) = value.as_object_mut() {
-            normalize_optional_fields(
-                record,
-                &[
-                    "title_sort",
-                    "publisher",
-                    "language",
-                    "published",
-                    "description",
-                    "cover",
-                    "format_metadata",
-                ],
-            );
-            normalize_contributor_optionals(record);
-            normalize_publication_optionals(record);
-            for field in ["contributors", "isbns", "other_identifiers", "subjects"] {
-                if let Some(list) = record.get_mut(field)
-                    && let Json::Object(entries) = list
-                    && entries.is_empty()
-                {
-                    *list = Json::Array(Vec::new());
-                }
-            }
-        }
-        serde_json::from_value(value)
+    pub fn from_wire_json(value: Json) -> std::result::Result<Self, serde_json::Error> {
+        normalization::parse_importer_meta(value)
     }
 }
 
@@ -243,6 +186,97 @@ pub trait LibraryImporter {
     fn scan(&self, source: String) -> Result<Vec<BookRecord>>;
 }
 
+/// A single identifier kind/value pair (e.g. ISBN, OLID, Amazon, Google, OCLC, DOI).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Identifier {
+    pub kind: String,
+    pub value: String,
+}
+
+impl FromLua for Identifier {
+    fn from_lua(value: Value, lua: &Lua) -> Result<Self> {
+        lua.from_value(value)
+    }
+}
+
+impl IntoLuaMulti for Identifier {
+    fn into_lua_multi(self, lua: &Lua) -> Result<mlua::MultiValue> {
+        Ok(mlua::MultiValue::from(vec![lua.to_value(&self)?]))
+    }
+}
+
+/// A book's identity, taken from `edition_identifiers`. Source-agnostic:
+/// the enricher decides which identifier kinds it understands and in what order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BookIdentity {
+    pub identifiers: Vec<Identifier>,
+    pub title: Option<String>,
+    pub authors: Vec<String>,
+}
+
+impl FromLua for BookIdentity {
+    fn from_lua(value: Value, lua: &Lua) -> Result<Self> {
+        lua.from_value(value)
+    }
+}
+
+impl IntoLuaMulti for BookIdentity {
+    fn into_lua_multi(self, lua: &Lua) -> Result<mlua::MultiValue> {
+        Ok(mlua::MultiValue::from(vec![lua.to_value(&self)?]))
+    }
+}
+
+/// A partial record to merge into the edition. Every field is optional;
+/// an enricher contributes only what its source knows. `found` carries
+/// identifiers discovered during lookup (e.g. an OLID resolved from an ISBN)
+/// to persist back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Enrichment {
+    pub title: Option<String>,
+    pub title_sort: Option<String>,
+    pub contributors: Vec<ImporterContributor>,
+    pub publisher: Option<String>,
+    pub language: Option<String>,
+    pub published: Option<ImporterPublicationDate>,
+    pub description: Option<String>,
+    pub subjects: Vec<String>,
+    pub cover: Option<ImporterCover>,
+    pub found: Vec<Identifier>,
+}
+
+impl Enrichment {
+    /// Decode enrichment metadata after Lua's lossy table-to-JSON boundary.
+    pub fn from_wire_json(value: Json) -> std::result::Result<Self, serde_json::Error> {
+        normalization::parse_enrichment(value)
+    }
+}
+
+impl FromLua for Enrichment {
+    fn from_lua(value: Value, lua: &Lua) -> Result<Self> {
+        lua.from_value(value)
+    }
+}
+
+impl IntoLuaMulti for Enrichment {
+    fn into_lua_multi(self, lua: &Lua) -> Result<mlua::MultiValue> {
+        Ok(mlua::MultiValue::from(vec![lua.to_value(&self)?]))
+    }
+}
+
+/// An enricher plugin receives a book's identity and returns partial metadata
+/// to merge in.
+#[lua_class]
+pub trait Enricher {
+    /// `Enricher.new(config, deps)` — receiverless, lands on the class.
+    fn new(config: Table, deps: Table) -> Result<Self>;
+
+    /// Identifier kinds this enricher can key on, for skip decisions and UI.
+    fn sources(&self) -> Result<Vec<String>>;
+
+    /// Look the book up and return whatever fields the source provides.
+    fn enrich(&self, identity: BookIdentity) -> Result<Enrichment>;
+}
+
 pub(crate) fn role_string(role: &livtet_epub::Role) -> String {
     match role {
         livtet_epub::Role::Author => "aut",
@@ -284,6 +318,22 @@ mod tests {
             }]
         );
         assert_eq!(record.cover_path.as_deref(), Some("Dune/cover.jpg"));
+    }
+
+    #[test]
+    fn enrichment_normalizes_empty_lua_tables() {
+        // A Lua plugin sends `{}` for empty lists; the record must still decode.
+        let wire = serde_json::json!({
+            "title": "Dune",
+            "contributors": {},
+            "subjects": {},
+            "found": {},
+        });
+        let enrichment = Enrichment::from_wire_json(wire).expect("enrichment decodes");
+        assert_eq!(enrichment.title, Some("Dune".into()));
+        assert!(enrichment.contributors.is_empty());
+        assert!(enrichment.subjects.is_empty());
+        assert!(enrichment.found.is_empty());
     }
 
     #[test]

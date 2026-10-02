@@ -2,6 +2,7 @@ pub mod audio_server;
 pub mod bulk;
 pub mod calibre;
 pub mod catalog;
+pub mod enrich;
 pub mod import;
 pub mod importers;
 pub mod opds;

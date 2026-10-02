@@ -245,6 +245,7 @@ fn answer_fs_read(call: &CallbackCall, selected_path: &Path) -> Result<Json, Str
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use std::fs;
     use std::path::PathBuf;
 

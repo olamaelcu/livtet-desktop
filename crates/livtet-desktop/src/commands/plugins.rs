@@ -269,6 +269,7 @@ pub async fn install_remote_plugin(
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use std::fs;
     use std::path::Path;
 

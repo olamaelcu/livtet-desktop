@@ -113,6 +113,7 @@ fn canonical_reference(uri: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
 
     fn parse_algorithms(xml_doc: &str) -> Encryption {

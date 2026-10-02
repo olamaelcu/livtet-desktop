@@ -54,6 +54,7 @@ pub fn base_dir(opf_path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::test_support::{EpubBuilder, default_container};
 

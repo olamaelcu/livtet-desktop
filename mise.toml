@@ -23,7 +23,7 @@ run = "cargo run --bin generate-bindings"
 
 [tasks.dev]
 depends = ["generate-bindings"]
-run = "pnpm tauri dev"
+run = ["cargo build -p livtet-plugin-host", "pnpm tauri dev"]
 
 # --- Local parity with CI ---
 

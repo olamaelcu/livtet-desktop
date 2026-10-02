@@ -17,10 +17,12 @@
 //! caller in `livtet-desktop`, not here. stdin and stdout carry JSON-RPC 2.0,
 //! one message per line; stderr is free for logging.
 
-use std::io::{self, BufReader};
-use std::path::PathBuf;
-use std::process::ExitCode;
+use std::{
+    io::{self, BufReader},
+    process::ExitCode,
+};
 
+use camino::Utf8PathBuf;
 use stanchion::remote::{HostChannel, build_registry, load_config, serve};
 
 mod capabilities;
@@ -43,11 +45,11 @@ fn run() -> Result<(), String> {
     }
 
     let mut config = match &options.config {
-        Some(path) => load_config(path)?,
+        Some(path) => load_config(path.as_path().as_std_path())?,
         None => Default::default(),
     };
     if let Some(plugins) = options.plugins {
-        config.plugins = Some(plugins);
+        config.plugins = Some(plugins.into_std_path_buf());
     }
 
     let channel = HostChannel::new(
@@ -58,11 +60,20 @@ fn run() -> Result<(), String> {
     // Add Livtet's in-host module capabilities (xml, sqlite) on top of the remote
     // host's log + forwarded callbacks. Relies on `with_setup` being additive.
     // `sqlite` may only open the database paths granted via `--sqlite`.
-    registry = capabilities::register(registry, options.sqlite);
+    registry = capabilities::register(
+        registry,
+        options
+            .sqlite
+            .iter()
+            .map(|up| up.as_path().to_path_buf().into_std_path_buf())
+            .collect::<Vec<_>>(),
+    );
 
     // Load up front so the caller's first call is fast and a broken plugin root
     // surfaces before any request arrives.
     if let Some(root) = &config.plugins {
+        fs_err::create_dir_all(root)
+            .map_err(|e| format!("creating plugin root `{}`: {e}", root.display()))?;
         let report = registry
             .load_dir(root)
             .map_err(|err| format!("loading `{}`: {err}", root.display()))?;
@@ -91,9 +102,9 @@ The protocol is newline-delimited JSON on stdin/stdout (one object per line).
 stderr is for logs.";
 
 struct Options {
-    config: Option<PathBuf>,
-    plugins: Option<PathBuf>,
-    sqlite: Vec<PathBuf>,
+    config: Option<Utf8PathBuf>,
+    plugins: Option<Utf8PathBuf>,
+    sqlite: Vec<Utf8PathBuf>,
     help: bool,
 }
 
@@ -111,17 +122,19 @@ impl Options {
             match arg.as_str() {
                 "-h" | "--help" => options.help = true,
                 "--sqlite" => {
-                    options
-                        .sqlite
-                        .push(PathBuf::from(args.next().ok_or("--sqlite needs a path")?));
+                    options.sqlite.push(Utf8PathBuf::from(
+                        args.next().ok_or("--sqlite needs a path")?,
+                    ));
                 }
                 "--config" => {
-                    options.config =
-                        Some(PathBuf::from(args.next().ok_or("--config needs a path")?));
+                    options.config = Some(Utf8PathBuf::from(
+                        args.next().ok_or("--config needs a path")?,
+                    ));
                 }
                 "--plugins" => {
-                    options.plugins =
-                        Some(PathBuf::from(args.next().ok_or("--plugins needs a path")?));
+                    options.plugins = Some(Utf8PathBuf::from(
+                        args.next().ok_or("--plugins needs a path")?,
+                    ));
                 }
                 other => return Err(format!("unexpected argument `{other}`\n\n{USAGE}")),
             }

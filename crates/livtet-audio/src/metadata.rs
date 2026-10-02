@@ -154,6 +154,7 @@ fn format_metadata(tag: &Tag, duration_seconds: i32) -> Result<serde_json::Value
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use livtet_importer_types::Role;
     use mp4ameta::{AudioInfo, Chapter, Img, ImgFmt, Userdata};
