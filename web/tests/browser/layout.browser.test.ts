@@ -10,6 +10,7 @@ import DockFixture from './fixtures/DockFixture.svelte'
 import ListLayoutFixture from './fixtures/ListLayoutFixture.svelte'
 import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
+import SettingsFixture from './fixtures/SettingsFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
 
 test('ScrollRegion is the only scrolling element and a real scroll is observable', async () => {
@@ -132,13 +133,31 @@ test('Pane still grows its ScrollRegion when a Dock follows it in source order',
   expect(region.scrollTop).toBe(50)
 })
 
-test('the app frame never scrolls and each route has exactly one scroll region', async () => {
-  const { container } = await render(ListLayoutFixture)
+/**
+ * The frame-and-scroll contract: the AppFrame itself never scrolls, the route
+ * owns exactly one scroll region, and overflowing route content is reachable
+ * through it. Asserted per route rather than once, because the contract is a
+ * property of each route's wrapper chain: a route that wraps tall content in no
+ * ScrollRegion pushes the frame's scrollHeight past its clientHeight and then
+ * clips it, leaving the overflow unreachable.
+ */
+function expectFrameAndSingleScrollRegion(container: HTMLElement) {
   const frame = container.firstElementChild as HTMLElement
   expect(getComputedStyle(frame).overflowY).toBe('hidden')
   expect(frame.scrollHeight).toBe(frame.clientHeight)
   expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
   const region = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
   expect(region.scrollHeight).toBeGreaterThan(region.clientHeight)
+  expect(getComputedStyle(region).overflowY).toBe('auto')
   expect(container.querySelector('nav[aria-label="Primary"]')).not.toBeNull()
+}
+
+test('the app frame never scrolls and a ListLayout route has exactly one scroll region', async () => {
+  const { container } = await render(ListLayoutFixture)
+  expectFrameAndSingleScrollRegion(container)
+})
+
+test('the app frame never scrolls and the settings route has exactly one scroll region', async () => {
+  const { container } = await render(SettingsFixture)
+  expectFrameAndSingleScrollRegion(container)
 })
