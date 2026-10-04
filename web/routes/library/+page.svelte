@@ -6,14 +6,9 @@ import {
   useQueryClient,
 } from '@tanstack/svelte-query'
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
-import { onDestroy } from 'svelte'
-import { fly } from 'svelte/transition'
+import { onDestroy, onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
-import { page } from '$app/state'
-import NavRail from '../../lib/layout/NavRail.svelte'
-import { NAV_ITEMS } from '../../lib/layout/navItems'
-import Pane from '../../lib/layout/Pane.svelte'
-import RouteShell from '../../lib/layout/RouteShell.svelte'
+import { registerSearchTarget } from '../../lib/hotkeys/searchTarget.svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
 import {
   addEditionTags,
@@ -35,6 +30,7 @@ import { activeChips, activeFilterCount, removeAxisId } from '../../lib/library/
 import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
 import SelectionActionBar, { TAG_BUTTON_ID } from '../../lib/library/SelectionActionBar.svelte'
 import { Selection } from '../../lib/library/selection.svelte'
+import { sentinel } from '../../lib/library/sentinel'
 import TagPicker from '../../lib/library/TagPicker.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
 import { openEpubReader } from '../../lib/reader/read'
@@ -49,6 +45,7 @@ import {
   searchTypeahead,
 } from '../../lib/search'
 import BookCard from './BookCard.svelte'
+import LibraryLayout from './LibraryLayout.svelte'
 
 const PAGE_SIZE = 20
 const TYPEAHEAD_LIMIT = 8
@@ -235,23 +232,10 @@ function loadMore() {
   if (editions.hasNextPage && !editions.isFetchingNextPage) editions.fetchNextPage()
 }
 
-/**
- * Auto-loads the next page while the sentinel is visible. `wa-scroller`
- * scrolls an inner container that never emits a bubbling `scrollend`, so
- * scroll listeners on the host cannot drive pagination — intersection does.
- */
-function sentinel(node: HTMLElement) {
-  const observer = new IntersectionObserver(
-    (entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) loadMore()
-    },
-    { rootMargin: '200px' },
-  )
-  observer.observe(node)
-  return {
-    destroy: () => observer.disconnect(),
-  }
-}
+let scrollElement = $state<HTMLElement>()
+let searchInput = $state<HTMLElement>()
+
+onMount(() => registerSearchTarget(() => searchInput?.focus()))
 
 function handleSearchInput(event: Event) {
   const value = (event.target as HTMLInputElement).value
@@ -270,11 +254,20 @@ function selectSuggestion(title: string) {
 }
 </script>
 
-<RouteShell>
-{#snippet nav()}
-  <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} expanded />
+{#snippet selectionDock()}
+  <SelectionActionBar
+    count={selection.count}
+    {busy}
+    ontag={() => (tagOpen = !tagOpen)}
+    onexport={runExport}
+    ondelete={() => (confirmDelete = true)}
+    onclear={() => selection.clear()}
+    onselectall={runSelectAll}
+  />
 {/snippet}
-<Pane>
+
+<LibraryLayout bind:scrollElement dock={selection.mode ? selectionDock : undefined}>
+  {#snippet toolbar()}
 <LibraryToolbar
   onaddbook={() => (addBookOpen = true)}
   activeFilterCount={activeCount}
@@ -285,29 +278,8 @@ function selectSuggestion(title: string) {
   {coverSize}
   oncoversizechange={setCoverSize}
 />
-{#if selection.mode}
-  <div class="selection-dock" in:fly={{ y: 24, duration: 180 }} out:fly={{ y: 24, duration: 150 }}>
-    <SelectionActionBar
-      count={selection.count}
-      {busy}
-      ontag={() => (tagOpen = !tagOpen)}
-      onexport={runExport}
-      ondelete={() => (confirmDelete = true)}
-      onclear={() => selection.clear()}
-      onselectall={runSelectAll}
-    />
-  </div>
-  <wa-popover
-    for={TAG_BUTTON_ID}
-    label="Tags"
-    placement="top-start"
-    open={tagOpen}
-    onwa-after-show={() => (tagOpen = true)}
-    onwa-after-hide={() => (tagOpen = false)}
-  >
-    <TagPicker onadd={runAddTag} onremove={runRemoveTag} onclose={() => (tagOpen = false)} />
-  </wa-popover>
-{/if}
+  {/snippet}
+  {#snippet strip()}
 {#if chips.length > 0}
   <div class="filter-chips" role="group" aria-label="Active filters">
     {#each chips as chip (chip.key)}
@@ -326,24 +298,11 @@ function selectSuggestion(title: string) {
     </button>
   </div>
 {/if}
-<wa-popover
-  for={FILTERS_BUTTON_ID}
-  label="Filters"
-  placement="bottom-start"
-  open={filtersOpen}
-  onwa-after-show={() => (filtersOpen = true)}
-  onwa-after-hide={() => (filtersOpen = false)}
->
-  <FilterPanel
-    {filters}
-    onchange={(next) => (filters = next)}
-    onclose={() => (filtersOpen = false)}
-  />
-</wa-popover>
 <div class="search-container">
   <div class="search-wrapper">
     <wa-input
       id="library-search"
+      bind:this={searchInput}
       type="text"
       placeholder="Search books..."
       value={queryInput}
@@ -379,8 +338,7 @@ function selectSuggestion(title: string) {
     {/if}
   </div>
 {/if}
-
-<wa-scroller orientation="vertical" class="book-scroller" data-scroll-region>
+  {/snippet}
   <div
     class="book-list"
     class:selection-docked={selection.mode}
@@ -404,7 +362,7 @@ function selectSuggestion(title: string) {
     {/each}
   </div>
   {#if editions.hasNextPage}
-    <div class="load-more" use:sentinel>
+    <div class="load-more" use:sentinel={{ root: scrollElement, onvisible: loadMore }}>
       <button
         type="button"
         class="load-more-button"
@@ -419,7 +377,34 @@ function selectSuggestion(title: string) {
       </button>
     </div>
   {/if}
-</wa-scroller>
+  {#snippet overlays()}
+{#if selection.mode}
+<wa-popover
+    for={TAG_BUTTON_ID}
+    label="Tags"
+    placement="top-start"
+    open={tagOpen}
+    onwa-after-show={() => (tagOpen = true)}
+    onwa-after-hide={() => (tagOpen = false)}
+  >
+    <TagPicker onadd={runAddTag} onremove={runRemoveTag} onclose={() => (tagOpen = false)} />
+  </wa-popover>
+{/if}
+<wa-popover
+  for={FILTERS_BUTTON_ID}
+  label="Filters"
+  placement="bottom-start"
+  open={filtersOpen}
+  onwa-after-show={() => (filtersOpen = true)}
+  onwa-after-hide={() => (filtersOpen = false)}
+>
+  <FilterPanel
+    {filters}
+    onchange={(next) => (filters = next)}
+    onclose={() => (filtersOpen = false)}
+  />
+</wa-popover>
+
 
 {#if editions.isPending}
   <div class="loading-indicator">Loading...</div>
@@ -445,8 +430,8 @@ function selectSuggestion(title: string) {
   open={detailOpen}
   onclose={() => (detailOpen = false)}
 />
-</Pane>
-</RouteShell>
+  {/snippet}
+</LibraryLayout>
 
 <style>
   .search-container {
@@ -514,41 +499,21 @@ function selectSuggestion(title: string) {
     color: var(--wa-color-text-secondary);
   }
 
-  .book-scroller {
-    min-height: 0;
-    max-width: 100%;
-    padding: var(--wa-space-s) var(--wa-space-l);
-  }
-
   .book-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--col-min, 8rem), 1fr));
     gap: var(--wa-space-xs);
-    width: 100%;
-  
+    padding: var(--wa-space-s) var(--wa-space-l);
+
     & > .empty {
-      height: 100%;
-      width: 100vw;
+      grid-column: 1 / -1;
+      padding: var(--wa-space-xl);
+      text-align: center;
     }
   }
 
   .book-list.selection-docked {
     padding-bottom: calc(var(--wa-space-l) * 2.5);
-  }
-
-  .selection-dock {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: var(--wa-space-l);
-    width: max-content;
-    margin-inline: auto;
-    z-index: 40;
-    display: flex;
-    background: var(--wa-color-surface-default);
-    border: 1px solid var(--wa-color-border-default);
-    border-radius: var(--wa-radius-m);
-    box-shadow: var(--wa-shadow-l);
   }
 
   .loading-indicator {
