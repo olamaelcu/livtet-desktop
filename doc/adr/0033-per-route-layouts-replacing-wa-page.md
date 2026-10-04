@@ -40,7 +40,7 @@ its own.
 Five primitives live in `web/lib/layout/` and are placed by routes, not by the
 shell: **`RouteShell`** (the route's nav/pane grid, which establishes the
 container-query context), **`NavRail`** (vertical navigation a route may omit), **`Pane`** (vertical
-grid, `position: relative` so docks anchor to it), **`ScrollRegion`** (a plain
+stack, column flex, `position: relative` so docks anchor to it), **`ScrollRegion`** (a plain
 `overflow: auto` element, exactly one per route), and **`Dock`** (pane-anchored
 action bar). Height chains use `min-height: 0`; no `height: 100%`.
 

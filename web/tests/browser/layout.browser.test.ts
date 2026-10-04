@@ -6,19 +6,52 @@ import { render } from 'vitest-browser-svelte'
 import NavRail from '../../lib/layout/NavRail.svelte'
 import { NAV_ITEMS } from '../../lib/layout/navItems'
 import DockFixture from './fixtures/DockFixture.svelte'
+import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
 
-test('ScrollRegion is the only scrolling element and scroll events bubble', async () => {
-  let bubbled = false
-  const { container } = await render(ScrollFixture, { onscroll: () => (bubbled = true) })
-  const region = container.querySelector<HTMLElement>('[data-scroll-region]')
-  expect(region).not.toBeNull()
+test('ScrollRegion is the only scrolling element and a real scroll is observable', async () => {
+  const { container } = await render(ScrollFixture)
+  const region = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
   expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
-  expect(getComputedStyle(region as HTMLElement).overflowY).toBe('auto')
-  expect((region as HTMLElement).scrollHeight).toBeGreaterThan((region as HTMLElement).clientHeight)
-  region?.dispatchEvent(new Event('scroll', { bubbles: true }))
-  expect(bubbled).toBe(true)
+  expect(getComputedStyle(region).overflowY).toBe('auto')
+  expect(region.scrollHeight).toBeGreaterThan(region.clientHeight)
+
+  // No ancestor scrolls: the region is the only scroll container.
+  for (let el = region.parentElement; el; el = el.parentElement) {
+    expect(['auto', 'scroll']).not.toContain(getComputedStyle(el).overflowY)
+  }
+
+  // Drive a real scroll; native scroll events do not bubble, so observe in the
+  // capture phase at the host.
+  const host = container.querySelector('#host') as HTMLElement
+  const captured = new Promise<EventTarget | null>((resolve) =>
+    host.addEventListener('scroll', (e) => resolve(e.target), { capture: true, once: true }),
+  )
+  region.scrollTop = 50
+  expect(await captured).toBe(region)
+  expect(region.scrollTop).toBe(50)
+
+  // The region works as an IntersectionObserver root (what pagination needs).
+  const probe = document.createElement('div')
+  region.firstElementChild?.append(probe)
+  probe.style.cssText = 'position:absolute;top:900px;height:10px'
+  ;(region.firstElementChild as HTMLElement).style.position = 'relative'
+  const seen = await new Promise<boolean>((resolve) => {
+    const io = new IntersectionObserver((entries) => resolve(entries[0].isIntersecting), {
+      root: region,
+    })
+    io.observe(probe)
+  })
+  expect(seen).toBe(false)
+  region.scrollTop = 800
+  const seenAfter = await new Promise<boolean>((resolve) => {
+    const io = new IntersectionObserver((entries) => resolve(entries[0].isIntersecting), {
+      root: region,
+    })
+    io.observe(probe)
+  })
+  expect(seenAfter).toBe(true)
 })
 
 test('RouteShell omits the nav column when no nav snippet is given', async () => {
@@ -37,8 +70,15 @@ test('NavRail marks the active item with aria-current and keeps an accessible na
   })
   const buttons = [...container.querySelectorAll<HTMLElement>('wa-button[href]')]
   expect(buttons).toHaveLength(NAV_ITEMS.length)
-  const current = container.querySelector('[aria-current="page"]')
-  expect(current?.getAttribute('href')).toBe('/library')
+  // aria-current must be on the real link inside wa-button's shadow root.
+  await expect
+    .poll(() =>
+      buttons.map((b) => b.shadowRoot?.querySelector('a')?.getAttribute('aria-current') ?? null),
+    )
+    .toEqual(NAV_ITEMS.map((i) => (i.href === '/library' ? 'page' : null)))
+  await expect
+    .element(page.getByRole('link', { name: 'Library', exact: true }))
+    .toHaveAttribute('href', '/library')
   for (const b of buttons) {
     const label = b.querySelector<HTMLElement>('.rail__label') as HTMLElement
     expect(label.textContent?.trim()).toBeTruthy()
@@ -59,4 +99,24 @@ test('Dock positions against its Pane, not the viewport', async () => {
   expect(getComputedStyle(dock).position).toBe('absolute')
   expect(dock.offsetParent).toBe(dock.parentElement)
   expect(getComputedStyle(dock.parentElement as HTMLElement).position).toBe('relative')
+})
+
+test('NavRail collapses to icon width below 46rem even when expanded, keeping its names', async () => {
+  const { container } = await render(NarrowRailFixture, { width: '400px' })
+  const rail = container.querySelector('.rail') as HTMLElement
+  await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(52, 0)
+  for (const label of container.querySelectorAll<HTMLElement>('.rail__label')) {
+    expect(label.getBoundingClientRect().width).toBeLessThanOrEqual(1)
+  }
+  for (const item of NAV_ITEMS) {
+    await expect.element(page.getByRole('link', { name: item.label })).toBeInTheDocument()
+  }
+})
+
+test('NavRail shows full width with labels when expanded in a wide container', async () => {
+  const { container } = await render(NarrowRailFixture, { width: '900px' })
+  const rail = container.querySelector('.rail') as HTMLElement
+  await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(176, 0)
+  const label = container.querySelector('.rail__label') as HTMLElement
+  expect(label.getBoundingClientRect().width).toBeGreaterThan(1)
 })

@@ -13,6 +13,26 @@ let { items, currentPath, expanded = false }: Props = $props()
 function isActive(href: string) {
   return currentPath === href || currentPath.startsWith(`${href}/`)
 }
+
+/**
+ * wa-button does not forward `aria-current`; the real link is in its shadow
+ * root. Set it there so the state reaches the accessibility tree.
+ */
+function currentOnLink(current: boolean) {
+  return (node: Element) => {
+    let live = true
+    customElements.whenDefined('wa-button').then(async () => {
+      await (node as HTMLElement & { updateComplete?: Promise<unknown> }).updateComplete
+      const link = node.shadowRoot?.querySelector('a')
+      if (!live || !link) return
+      if (current) link.setAttribute('aria-current', 'page')
+      else link.removeAttribute('aria-current')
+    })
+    return () => {
+      live = false
+    }
+  }
+}
 </script>
 
 <nav class="rail" aria-label="Primary" data-expanded={expanded ? '' : undefined}>
@@ -20,6 +40,7 @@ function isActive(href: string) {
     <wa-button
       href={item.href}
       aria-current={isActive(item.href) ? 'page' : undefined}
+      {@attach currentOnLink(isActive(item.href))}
       variant={isActive(item.href) ? 'brand' : 'neutral'}
       appearance={isActive(item.href) ? 'filled' : 'plain'}
     >

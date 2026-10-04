@@ -58,9 +58,13 @@ Routes place these; the shell places none of them.
 | --- | --- |
 | `RouteShell` | The route's nav/pane grid: one column, or `auto 1fr` when a nav is supplied. Establishes the container-query context (`container-type: inline-size`). |
 | `NavRail` | Vertical navigation. Icon-only by default, expandable. A route may omit it. |
-| `Pane` | Vertical grid whose final row is the scroller. `position: relative`, so docks anchor to the pane. |
+| `Pane` | Vertical stack (column flex) whose final child is the scroller. `position: relative`, so docks anchor to the pane. |
 | `ScrollRegion` | A plain `overflow: auto` element. **Exactly one per route.** |
 | `Dock` | Pane-anchored floating action bar. |
+
+`ScrollRegion` must be the last in-flow child of its `Pane`: the pane gives its
+last child the remaining height, so a later in-flow sibling would steal it.
+(A `Dock` is absolutely positioned and so is out of flow.)
 
 `ScrollRegion` being an ordinary div is the point: `scroll` events bubble and it
 can serve as an `IntersectionObserver` root, which retires the `<wa-scroller>`
