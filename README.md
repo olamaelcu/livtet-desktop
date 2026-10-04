@@ -12,14 +12,14 @@ The shell is Rust, talking to the webview through Tauri IPC.
 
 ## Stack
 
-- Tauri 2 with `tauri-plugin-opener`, `tauri-plugin-decorum` (overlay
+- [Tauri](https://tauri.app/) 2 with `tauri-plugin-opener`, `tauri-plugin-decorum` (overlay
   titlebar), and `tauri-plugin-mcp-bridge` in dev
-- SvelteKit 2 + Svelte 5, bundled by Vite 8, source under `web/`
-- WebAwesome 3.x components, loaded via the auto-loader
+- [SvelteKit](https://svelte.dev/docs/kit/) 2 + [Svelte 5](https://svelte.dev/), bundled by Vite 8, source under `web/`
+- [WebAwesome](https://webawesome.com/) 3.x components, loaded via the auto-loader
 - Livtet brand tokens via `@olamaelcu/livtet-branding` (git dependency); fonts
-  bundled from Fontsource: Work Sans (body), Lora Variable (heading), JetBrains
+  bundled from [Fontsource](https://fontsource.org/): Work Sans (body), Lora Variable (heading), JetBrains
   Mono (code)
-- Rust 1.85+, edition 2021, single workspace member in `tauri/`
+- [Rust](https://www.rust-lang.org/) 1.85+, edition 2021, single workspace member in `tauri/`
 
 ## Quick start
 
