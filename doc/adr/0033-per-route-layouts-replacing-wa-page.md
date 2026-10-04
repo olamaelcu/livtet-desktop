@@ -78,5 +78,10 @@ and `"hiddenTitle": true` to a normally decorated window.
 - `web/app.wa.js` drops `page/page.js` and gains `switch/switch.js`, which
   `/plugins` uses for a new per-plugin enable/disable toggle.
 
-Design detail and measurements:
-[doc/superpowers/specs/2026-10-04-layout-system-design.md](../superpowers/specs/2026-10-04-layout-system-design.md).
+Scope: all eight routes. The five primary ones (`/`, `/library`, `/catalog`,
+`/plugins`, `/settings`) plus `/catalog/[catalogId]` and the two reader routes,
+`/reader/pub/[editionId]` and `/reader/audio/[editionId]`. The reader opens in a
+second Tauri window via `open_reader`, but that window loads this same SPA, so
+the reader is both a separate window and a route and inherits whatever the root
+layout provides. The reader routes take `RouteShell` with no nav snippet —
+application navigation is wrong in a reader window.
