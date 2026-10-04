@@ -9,7 +9,7 @@ import ReaderLayout from '../../../routes/reader/ReaderLayout.svelte'
   <ReaderLayout>
     <header>Title</header>
     <div class="viewport" data-scroll-region>
-      <div style="position: absolute; inset: 0">book</div>
+      <div style="height: 3000px">book</div>
     </div>
   </ReaderLayout>
 </AppFrame>
@@ -18,5 +18,6 @@ import ReaderLayout from '../../../routes/reader/ReaderLayout.svelte'
   .viewport {
     position: relative;
     min-width: 0;
+    overflow: hidden; /* stands in for the iframe containing its own content */
   }
 </style>
