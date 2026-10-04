@@ -9,6 +9,11 @@ import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { onDestroy } from 'svelte'
 import { fly } from 'svelte/transition'
 import { toast } from 'svelte-sonner'
+import { page } from '$app/state'
+import NavRail from '../../lib/layout/NavRail.svelte'
+import { NAV_ITEMS } from '../../lib/layout/navItems'
+import Pane from '../../lib/layout/Pane.svelte'
+import RouteShell from '../../lib/layout/RouteShell.svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
 import {
   addEditionTags,
@@ -265,7 +270,11 @@ function selectSuggestion(title: string) {
 }
 </script>
 
-<main>
+<RouteShell>
+{#snippet nav()}
+  <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} expanded />
+{/snippet}
+<Pane>
 <LibraryToolbar
   onaddbook={() => (addBookOpen = true)}
   activeFilterCount={activeCount}
@@ -371,7 +380,7 @@ function selectSuggestion(title: string) {
   </div>
 {/if}
 
-<wa-scroller orientation="vertical" class="book-scroller">
+<wa-scroller orientation="vertical" class="book-scroller" data-scroll-region>
   <div
     class="book-list"
     class:selection-docked={selection.mode}
@@ -421,8 +430,6 @@ function selectSuggestion(title: string) {
   </div>
 {/if}
 
-</main>
-
 <ConfirmDialog
   open={confirmDelete}
   title="Delete editions"
@@ -438,17 +445,10 @@ function selectSuggestion(title: string) {
   open={detailOpen}
   onclose={() => (detailOpen = false)}
 />
+</Pane>
+</RouteShell>
 
 <style>
-  main {
-    display: flex;
-    width: 100%;
-    height: 100%;
-    flex-direction: column;
-    padding: 0;
-    margin: 0;
-  }
-
   .search-container {
     padding: var(--wa-space-xs);
   }
@@ -515,7 +515,7 @@ function selectSuggestion(title: string) {
   }
 
   .book-scroller {
-    flex: 1 1;
+    min-height: 0;
     max-width: 100%;
     padding: var(--wa-space-s) var(--wa-space-l);
   }

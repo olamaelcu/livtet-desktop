@@ -1,10 +1,20 @@
 <script lang="ts">
+import { page } from '$app/state'
 import CatalogSettings from '../../lib/components/CatalogSettings.svelte'
 import HotkeySettings from '../../lib/components/HotkeySettings.svelte'
 import SyncPanel from '../../lib/components/SyncPanel.svelte'
+import NavRail from '../../lib/layout/NavRail.svelte'
+import { NAV_ITEMS } from '../../lib/layout/navItems'
+import Pane from '../../lib/layout/Pane.svelte'
+import RouteShell from '../../lib/layout/RouteShell.svelte'
 </script>
 
-<main class="settings">
+<RouteShell>
+  {#snippet nav()}
+    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} expanded />
+  {/snippet}
+  <Pane>
+<div class="settings">
   <wa-tab-group>
     <wa-tab slot="nav" panel="sync">Sync</wa-tab>
     <wa-tab slot="nav" panel="catalogs">Catalogs</wa-tab>
@@ -20,7 +30,9 @@ import SyncPanel from '../../lib/components/SyncPanel.svelte'
       <HotkeySettings />
     </wa-tab-panel>
   </wa-tab-group>
-</main>
+</div>
+  </Pane>
+</RouteShell>
 
 <style>
   .settings {

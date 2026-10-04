@@ -7,6 +7,7 @@ import NavRail from '../../lib/layout/NavRail.svelte'
 import { NAV_ITEMS } from '../../lib/layout/navItems'
 import DockAfterScrollFixture from './fixtures/DockAfterScrollFixture.svelte'
 import DockFixture from './fixtures/DockFixture.svelte'
+import ListLayoutFixture from './fixtures/ListLayoutFixture.svelte'
 import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
@@ -129,4 +130,15 @@ test('Pane still grows its ScrollRegion when a Dock follows it in source order',
   expect(region.scrollHeight).toBeGreaterThan(region.clientHeight)
   region.scrollTop = 50
   expect(region.scrollTop).toBe(50)
+})
+
+test('the app frame never scrolls and each route has exactly one scroll region', async () => {
+  const { container } = await render(ListLayoutFixture)
+  const frame = container.firstElementChild as HTMLElement
+  expect(getComputedStyle(frame).overflowY).toBe('hidden')
+  expect(frame.scrollHeight).toBe(frame.clientHeight)
+  expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
+  const region = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
+  expect(region.scrollHeight).toBeGreaterThan(region.clientHeight)
+  expect(container.querySelector('nav[aria-label="Primary"]')).not.toBeNull()
 })
