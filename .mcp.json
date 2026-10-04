@@ -2,7 +2,7 @@
   "mcpServers": {
     "mcp": {
       "url": "https://mcp.svelte.dev/mcp",
-      "directTools": ["get-documentation"]
+      "directTools": true
     }
   }
 }

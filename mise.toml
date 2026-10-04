@@ -8,6 +8,7 @@ taskwarrior = "3.4.2"
 pnpm = "10"
 "cargo:cargo-machete" = "0.7"
 "github:corca-ai/nose" = "v0.20.0"
+"npm:@hypothesi/tauri-mcp-cli" = "0.10.0"
 
 [env]
 _.file = ".mise/secrets.env"
