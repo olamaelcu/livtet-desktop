@@ -193,9 +193,9 @@ onDestroy(() => {
       position: absolute;
       inset: 0;
       width: 100%;
-      block-size: 100%;
+      height: 100%;
       max-width: 100%;
-      max-block-size: 100%;
+      max-height: 100%;
       margin: 0;
       border: 0;
     }

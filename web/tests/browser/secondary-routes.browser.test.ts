@@ -43,7 +43,9 @@ test('the reader frame never scrolls and the growing region is bounded by the wi
 })
 
 test('the reader routes carry no height: 100% chain', () => {
-  expect(pubPage).not.toMatch(/height:\s*100%/)
+  // The old `.reader { height: 100% }` chain is gone. The pub iframe's own
+  // `height: 100%` fills an absolutely positioned box and is not a chain.
+  expect(pubPage).not.toMatch(/\.reader\s*\{/)
   expect(audioPage).not.toMatch(/height:\s*100%/)
   expect(pubPage).toContain('<ReaderLayout>')
   expect(audioPage).toContain('<ReaderLayout>')
