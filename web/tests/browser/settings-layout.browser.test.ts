@@ -39,6 +39,7 @@ test('the tab body scrolls and the pane does not', async () => {
   expect(pane.scrollHeight).toBe(pane.clientHeight)
 
   const frame = container.firstElementChild as HTMLElement
+  expect(getComputedStyle(frame).overflowY).toBe('hidden')
   expect(frame.scrollHeight).toBe(frame.clientHeight)
 
   // Exactly one region, and it is the tab group; nothing else scrolls.

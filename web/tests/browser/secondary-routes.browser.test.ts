@@ -1,0 +1,50 @@
+import '@awesome.me/webawesome/dist/components/button/button.js'
+import '@awesome.me/webawesome/dist/components/icon/icon.js'
+import { expect, test } from 'vitest'
+import { render } from 'vitest-browser-svelte'
+import audioPage from '../../routes/reader/audio/[editionId]/+page.svelte?raw'
+import pubPage from '../../routes/reader/pub/[editionId]/+page.svelte?raw'
+import CatalogDetailFixture from './fixtures/CatalogDetailFixture.svelte'
+import ReaderFixture from './fixtures/ReaderFixture.svelte'
+
+test('the catalog detail route renders a nav rail and one scroll region', async () => {
+  const { container } = await render(CatalogDetailFixture)
+  const frame = container.firstElementChild as HTMLElement
+  expect(getComputedStyle(frame).overflowY).toBe('hidden')
+  expect(frame.scrollHeight).toBe(frame.clientHeight)
+  expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
+  const region = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
+  expect(region.scrollHeight).toBeGreaterThan(region.clientHeight)
+  expect(getComputedStyle(region).overflowY).toBe('auto')
+  const rail = container.querySelector('nav[aria-label="Primary"]')
+  expect(rail).not.toBeNull()
+  expect(rail?.querySelector('wa-button[href="/library"]')).not.toBeNull()
+  expect(container.querySelector('main.browser')).toBeNull()
+})
+
+test('the reader layout renders no navigation rail', async () => {
+  const { container } = await render(ReaderFixture)
+  expect(container.querySelector('nav')).toBeNull()
+  expect(container.querySelector('wa-button[href]')).toBeNull()
+  const shell = container.querySelector('[data-route-shell]') as HTMLElement
+  expect(getComputedStyle(shell).gridTemplateColumns.trim().split(/\s+/)).toHaveLength(1)
+})
+
+test('the reader frame never scrolls and the growing region is bounded by the window', async () => {
+  const { container } = await render(ReaderFixture)
+  const frame = container.firstElementChild as HTMLElement
+  expect(getComputedStyle(frame).overflowY).toBe('hidden')
+  expect(frame.scrollHeight).toBe(frame.clientHeight)
+  expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
+  const viewport = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
+  // Bounded: the 3000px content does not stretch it past the frame.
+  expect(viewport.clientHeight).toBeGreaterThan(0)
+  expect(viewport.clientHeight).toBeLessThan(frame.clientHeight)
+})
+
+test('the reader routes carry no height: 100% chain', () => {
+  expect(pubPage).not.toMatch(/height:\s*100%/)
+  expect(audioPage).not.toMatch(/height:\s*100%/)
+  expect(pubPage).toContain('<ReaderLayout>')
+  expect(audioPage).toContain('<ReaderLayout>')
+})

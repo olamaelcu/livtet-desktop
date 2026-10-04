@@ -5,6 +5,7 @@ import { page } from '$app/state'
 import AudioPlayer from '$lib/components/AudioPlayer.svelte'
 import ChapterList from '$lib/components/ChapterList.svelte'
 import PlayerProgress from '$lib/components/PlayerProgress.svelte'
+import ScrollRegion from '$lib/layout/ScrollRegion.svelte'
 import { readerKeys } from '$lib/query/keys'
 import {
   formatTimestamp,
@@ -12,6 +13,7 @@ import {
   loadReaderPublication,
   saveListeningProgress,
 } from '$lib/reader'
+import ReaderLayout from '../../ReaderLayout.svelte'
 
 const SAVE_EVERY_SECONDS = 15
 const SKIP_SECONDS = 30
@@ -113,19 +115,21 @@ $effect(() => {
 })
 </script>
 
-<!-- Hidden audio element for native playback engine -->
-<audio
-  bind:this={audio}
-  class="wa-player-audio"
-  src={publication?.audio_url}
-  preload="metadata"
-  ontimeupdate={onTimeUpdate}
-  onloadedmetadata={onLoadedMetadata}
-  onpause={() => void persist(true)}
-  onended={() => void persist(true)}
-  onratechange={() => void (rate = audio!.playbackRate)}
-></audio>
+<ReaderLayout>
+  <!-- Hidden audio element for native playback engine -->
+  <audio
+    bind:this={audio}
+    class="wa-player-audio"
+    src={publication?.audio_url}
+    preload="metadata"
+    ontimeupdate={onTimeUpdate}
+    onloadedmetadata={onLoadedMetadata}
+    onpause={() => void persist(true)}
+    onended={() => void persist(true)}
+    onratechange={() => void (rate = audio!.playbackRate)}
+  ></audio>
 
+  <ScrollRegion>
 <div class="reader">
   {#if publicationQuery.isPending}
     <p class="muted">Loading…</p>
@@ -171,6 +175,8 @@ $effect(() => {
     />
   {/if}
 </div>
+  </ScrollRegion>
+</ReaderLayout>
 
 <style>
   .wa-player-audio {

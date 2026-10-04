@@ -12,6 +12,7 @@ import {
   searchCatalog,
 } from '../../../lib/opds'
 import { opdsKeys, searchKeys } from '../../../lib/query/keys'
+import CatalogDetailLayout from './CatalogDetailLayout.svelte'
 
 const catalogId = $derived(page.params.catalogId ?? '')
 const queryClient = useQueryClient()
@@ -65,8 +66,8 @@ const acquire = createMutation(() => ({
 }))
 </script>
 
-<main class="browser">
-  <header class="browser-header">
+<CatalogDetailLayout>
+  {#snippet toolbar()}
     {#if active?.has_search || submitted}
       <wa-input
         placeholder="Search this catalog"
@@ -77,7 +78,7 @@ const acquire = createMutation(() => ({
     {#if href || submitted}
       <ActionButton onclick={reset}>Back to root</ActionButton>
     {/if}
-  </header>
+  {/snippet}
 
   {#if loading}
     <wa-spinner></wa-spinner>
@@ -140,27 +141,9 @@ const acquire = createMutation(() => ({
       </div>
     {/if}
   {/if}
-</main>
+</CatalogDetailLayout>
 
 <style>
-  .browser {
-    padding: var(--wa-space-xl);
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-l);
-  }
-
-  .browser-header {
-    display: flex;
-    align-items: flex-end;
-    gap: var(--wa-space-s);
-    max-width: 40rem;
-  }
-
-  .browser-header wa-input {
-    flex: 1 1;
-  }
-
   .navigation {
     display: flex;
     flex-wrap: wrap;
