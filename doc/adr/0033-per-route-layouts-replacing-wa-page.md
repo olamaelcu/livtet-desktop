@@ -44,6 +44,15 @@ stack, column flex, `position: relative` so docks anchor to it), **`ScrollRegion
 `overflow: auto` element, exactly one per route), and **`Dock`** (pane-anchored
 action bar). Height chains use `min-height: 0`; no `height: 100%`.
 
+`data-scroll-region` marks **the element `Pane` grows**, which is not always the
+element that scrolls. On `/settings` the attribute sits on the `wa-tab-group`
+host so `Pane` bounds it, while the scrolling and the padding live on that
+component's `::part(body)` inside its shadow root — which is how the layout
+keeps the scroll contract instead of surrendering it to the component. A route
+is still allowed exactly one scrolling element; because a generic
+`querySelectorAll` cannot see into shadow roots, that rule is enforced by each
+route's own tests rather than by one shared assertion.
+
 Each route owns a layout beside it — `library/LibraryLayout.svelte`,
 `settings/SettingsLayout.svelte`, and `web/lib/layout/ListLayout.svelte` shared
 by `/catalog` and `/plugins` — carrying that route's title and actions in its
