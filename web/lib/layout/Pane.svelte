@@ -10,9 +10,10 @@ let { children }: { children: Snippet } = $props()
 
 <style>
   /*
-   * A vertical stack whose final child takes the remaining height. CSS grid
+   * A vertical stack whose ScrollRegion takes the remaining height. CSS grid
    * cannot give "the last of N auto rows" 1fr without knowing N, so this uses
-   * a column flexbox; the min-height: 0 discipline is the same.
+   * a column flexbox; the min-height: 0 discipline is the same. The pane grows
+   * its ScrollRegion specifically, so a Dock may sit anywhere in source order.
    */
   .pane {
     position: relative;
@@ -26,7 +27,7 @@ let { children }: { children: Snippet } = $props()
     flex: 0 0 auto;
   }
 
-  .pane > :global(:last-child) {
+  .pane > :global([data-scroll-region]) {
     flex: 1 1 0;
     min-height: 0;
   }

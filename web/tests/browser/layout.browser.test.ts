@@ -5,6 +5,7 @@ import { page } from 'vitest/browser'
 import { render } from 'vitest-browser-svelte'
 import NavRail from '../../lib/layout/NavRail.svelte'
 import { NAV_ITEMS } from '../../lib/layout/navItems'
+import DockAfterScrollFixture from './fixtures/DockAfterScrollFixture.svelte'
 import DockFixture from './fixtures/DockFixture.svelte'
 import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
@@ -119,4 +120,13 @@ test('NavRail shows full width with labels when expanded in a wide container', a
   await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(176, 0)
   const label = container.querySelector('.rail__label') as HTMLElement
   expect(label.getBoundingClientRect().width).toBeGreaterThan(1)
+})
+
+test('Pane still grows its ScrollRegion when a Dock follows it in source order', async () => {
+  const { container } = await render(DockAfterScrollFixture)
+  const region = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
+  expect(region.clientHeight).toBeLessThanOrEqual(200)
+  expect(region.scrollHeight).toBeGreaterThan(region.clientHeight)
+  region.scrollTop = 50
+  expect(region.scrollTop).toBe(50)
 })

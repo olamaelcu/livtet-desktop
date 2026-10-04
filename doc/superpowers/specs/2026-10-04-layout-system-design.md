@@ -62,9 +62,8 @@ Routes place these; the shell places none of them.
 | `ScrollRegion` | A plain `overflow: auto` element. **Exactly one per route.** |
 | `Dock` | Pane-anchored floating action bar. |
 
-`ScrollRegion` must be the last in-flow child of its `Pane`: the pane gives its
-last child the remaining height, so a later in-flow sibling would steal it.
-(A `Dock` is absolutely positioned and so is out of flow.)
+A `Pane` grows its `ScrollRegion` specifically (it targets `[data-scroll-region]`,
+not source order), so a `Dock` may sit before or after the region.
 
 `ScrollRegion` being an ordinary div is the point: `scroll` events bubble and it
 can serve as an `IntersectionObserver` root, which retires the `<wa-scroller>`

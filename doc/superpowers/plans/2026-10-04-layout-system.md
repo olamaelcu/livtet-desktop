@@ -52,7 +52,7 @@ The spec names four primitives. Implementation needs a fifth, `RouteShell`, to o
   - `AppFrame` — props `{ children: Snippet }`. Renders a `100dvh` grid, `overflow: hidden`.
   - `RouteShell` — props `{ nav?: Snippet, children: Snippet }`. Grid; `container-type: inline-size`. Two columns (`auto 1fr`) when `nav` is supplied, one column otherwise.
   - `NavRail` — props `{ items: NavItem[], currentPath: string, expanded?: boolean }`. Items render as `<wa-button href=…>` so existing e2e selectors and link semantics hold. Marks the active item with `aria-current="page"`.
-  - `Pane` — props `{ children: Snippet }`. Vertical grid, `min-height: 0`, `position: relative`.
+  - `Pane` — props `{ children: Snippet }`. Vertical stack (column flex) that grows its `ScrollRegion`, `min-height: 0`, `position: relative`.
   - `ScrollRegion` — props `{ children: Snippet, element?: HTMLElement }` (bindable `element`). A plain `overflow: auto` div carrying a `data-scroll-region` attribute, which is how tests assert the one-per-route rule.
   - `Dock` — props `{ children: Snippet }`. Absolutely positioned within the nearest `Pane`.
   - `navItems.ts` — `export type NavItem = { href: string; label: string; icon: string }` and `export const NAV_ITEMS: readonly NavItem[]` for Library, Catalogs, Plugins, Settings.
