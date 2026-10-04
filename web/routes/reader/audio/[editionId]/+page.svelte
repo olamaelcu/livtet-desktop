@@ -141,23 +141,28 @@ $effect(() => {
       </wa-select>
     </div>
 
-    {#if chapters.length > 0}
-      <section class="section">
-        <h3 class="section-title">Chapters</h3>
-        <ol class="chapters">
-          {#each chapters as chapter, index (chapter.audio_start)}
-            <li>
-              <ActionButton
-                variant={index === currentChapter ? 'brand' : undefined}
-                onclick={() => seekTo(chapter.audio_start)}
-              >
-                <span class="chapter-name">{chapter.name}</span>
-                <span class="muted">{formatTimestamp(chapter.audio_start)}</span>
-              </ActionButton>
-            </li>
-          {/each}
-        </ol>
-      </section>
+     {#if chapters.length > 0}
+       <section class="section">
+         <h3 class="section-title">Chapters</h3>
+         <table class="chapters-table">
+           <thead>
+             <tr>
+               <th class="th-index">#</th>
+               <th class="th-title">Title</th>
+               <th class="th-time">Time</th>
+             </tr>
+           </thead>
+           <tbody>
+             {#each chapters as chapter, index (chapter.audio_start)}
+               <tr class:current={index === currentChapter} onclick={() => seekTo(chapter.audio_start)}>
+                 <td class="td-index">{index + 1}</td>
+                 <td class="td-title"><div class="chapter-name-wrap">{chapter.name}</div></td>
+                 <td class="td-time">{formatTimestamp(chapter.audio_start)} – {formatTimestamp(chapter.audio_end)}</td>
+               </tr>
+             {/each}
+           </tbody>
+         </table>
+       </section>
     {/if}
   {/if}
 </div>
@@ -203,20 +208,43 @@ $effect(() => {
     gap: var(--wa-space-s);
   }
   .section-title {
-    margin: 0;
+    margin: var(--wa-space-s) 0;
     font-size: 1rem;
   }
-  .chapters {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-s);
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  .chapters-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: var(--wa-space-s);
   }
-  .chapter-name {
+  .chapters-table th,
+  .chapters-table td {
+    padding: var(--wa-space-xxs) var(--wa-space-s);
+    border: 1px solid var(--wa-color-divider);
+  }
+  .chapters-table th {
+    font-size: 0.75rem;
+    color: var(--wa-color-text-muted);
+    text-align: left;
+    background: var(--wa-color-bg-subtle);
+  }
+  .chapters-table td {
+    font-size: 0.875rem;
+  }
+  .chapters-table tr {
+    cursor: pointer;
+  }
+  .chapters-table tr:hover {
+    background: var(--wa-color-bg-hover);
+  }
+   .chapters-table tr.current {
+    background: var(--wa-color-brand-fill-quiet);
+  }
+  .chapter-name-wrap {
+    display: block;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 30ch;
+    margin: 0 auto;
   }
 </style>
