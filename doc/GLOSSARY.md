@@ -7,6 +7,7 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 ## UI
 
 - **App frame** — the application shell: a full-height grid that never scrolls and hands the entire webview to the active route. It draws no header, navigation, footer, or titlebar; the native window titlebar stands on its own. Replaces `<wa-page>`. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Route shell** — the grid a route places to hold its optional nav rail and its pane; it owns the nav/pane columns and establishes the container-query context. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
 - **Nav rail** — the vertical navigation column, icon-only by default and expandable, collapsing to icons below `46rem`. Each route places it, so a route may omit it entirely. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
 - **Pane** — a route's vertical region inside the app frame, whose final row is its scroll region. Docks anchor to it rather than to the viewport. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
 - **Scroll region** — the single scrolling element in a route; exactly one per route. A plain overflow container, so `scroll` events bubble and it can serve as an `IntersectionObserver` root. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).

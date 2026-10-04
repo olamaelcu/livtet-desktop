@@ -56,6 +56,7 @@ Routes place these; the shell places none of them.
 
 | Primitive | Responsibility |
 | --- | --- |
+| `RouteShell` | The route's nav/pane grid: one column, or `auto 1fr` when a nav is supplied. Establishes the container-query context (`container-type: inline-size`). |
 | `NavRail` | Vertical navigation. Icon-only by default, expandable. A route may omit it. |
 | `Pane` | Vertical grid whose final row is the scroller. `position: relative`, so docks anchor to the pane. |
 | `ScrollRegion` | A plain `overflow: auto` element. **Exactly one per route.** |

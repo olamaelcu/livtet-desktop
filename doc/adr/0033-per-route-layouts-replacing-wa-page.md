@@ -37,8 +37,9 @@ plus `QueryClientProvider`, `Toaster`, `CommandPalette` and dev tools. It draws
 no header, navigation, footer, or titlebar; the native window titlebar stands on
 its own.
 
-Four primitives live in `web/lib/layout/` and are placed by routes, not by the
-shell: **`NavRail`** (vertical navigation a route may omit), **`Pane`** (vertical
+Five primitives live in `web/lib/layout/` and are placed by routes, not by the
+shell: **`RouteShell`** (the route's nav/pane grid, which establishes the
+container-query context), **`NavRail`** (vertical navigation a route may omit), **`Pane`** (vertical
 grid, `position: relative` so docks anchor to it), **`ScrollRegion`** (a plain
 `overflow: auto` element, exactly one per route), and **`Dock`** (pane-anchored
 action bar). Height chains use `min-height: 0`; no `height: 100%`.
