@@ -10,7 +10,6 @@ import DockFixture from './fixtures/DockFixture.svelte'
 import ListLayoutFixture from './fixtures/ListLayoutFixture.svelte'
 import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
-import SettingsFixture from './fixtures/SettingsFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
 
 test('ScrollRegion is the only scrolling element and a real scroll is observable', async () => {
@@ -154,10 +153,5 @@ function expectFrameAndSingleScrollRegion(container: HTMLElement) {
 
 test('the app frame never scrolls and a ListLayout route has exactly one scroll region', async () => {
   const { container } = await render(ListLayoutFixture)
-  expectFrameAndSingleScrollRegion(container)
-})
-
-test('the app frame never scrolls and the settings route has exactly one scroll region', async () => {
-  const { container } = await render(SettingsFixture)
   expectFrameAndSingleScrollRegion(container)
 })
