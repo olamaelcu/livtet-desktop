@@ -1,5 +1,6 @@
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
+import ListLayout from '../../lib/layout/ListLayout.svelte'
 import { loadCatalogs, opdsErrorMessage } from '../../lib/opds'
 import { opdsKeys } from '../../lib/query/keys'
 
@@ -9,11 +10,10 @@ const catalogs = createQuery(() => ({
 }))
 </script>
 
-<main class="catalogs">
-  <header class="catalogs-header">
-    <h2>Catalogs</h2>
+<ListLayout title="Catalogs">
+  {#snippet action()}
     <wa-button href="/settings">Manage catalogs</wa-button>
-  </header>
+  {/snippet}
 
   {#if catalogs.isPending}
     <wa-spinner></wa-spinner>
@@ -38,27 +38,9 @@ const catalogs = createQuery(() => ({
       {/each}
     </div>
   {/if}
-</main>
+</ListLayout>
 
 <style>
-  .catalogs {
-    padding: var(--wa-space-xl);
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-l);
-  }
-
-  .catalogs-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--wa-space-m);
-  }
-
-  .catalogs-header h2 {
-    margin: 0;
-  }
-
   .catalog-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));

@@ -1,11 +1,12 @@
 <script lang="ts">
 import AddPluginPanel from '../../lib/components/AddPluginPanel.svelte'
 import PluginList from '../../lib/components/PluginList.svelte'
+import ListLayout from '../../lib/layout/ListLayout.svelte'
 </script>
 
-<main class="plugins-page">
+<ListLayout title="Plugins">
+<div class="plugins-page">
   <header>
-    <h1>Plugins</h1>
     <p class="muted">
       Plugins extend Livtet with importers and providers. They run out-of-process
       and sandboxed — review each plugin's signer and the capabilities it was
@@ -22,19 +23,15 @@ import PluginList from '../../lib/components/PluginList.svelte'
     <h2>Installed</h2>
     <PluginList />
   </section>
-</main>
+</div>
+</ListLayout>
 
 <style>
   .plugins-page {
     display: flex;
     flex-direction: column;
     gap: var(--wa-space-xl);
-    padding: var(--wa-space-xl);
     max-width: 56rem;
-  }
-
-  header h1 {
-    margin: 0 0 var(--wa-space-2xs);
   }
 
   section h2 {

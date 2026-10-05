@@ -88,6 +88,7 @@ function handleCoverSize(event: Event) {
 <style>
   .toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--wa-space-xs);
     padding: var(--wa-space-xs) var(--wa-space-m) 0;

@@ -32,3 +32,6 @@ test-results/
 
 .superpowers/
 .claude
+doc/superpowers/
+.claude
+prototype/

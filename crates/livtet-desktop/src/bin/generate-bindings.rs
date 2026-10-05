@@ -33,6 +33,7 @@ fn main() {
         livtet_desktop_lib::commands::plugins::list_plugins,
         livtet_desktop_lib::commands::plugins::add_plugin_from_path,
         livtet_desktop_lib::commands::plugins::remove_plugin,
+        livtet_desktop_lib::commands::plugins::set_plugin_enabled,
         livtet_desktop_lib::commands::plugins::discover_remote_plugins,
         livtet_desktop_lib::commands::plugins::install_remote_plugin,
         livtet_desktop_lib::commands::opds::opds_default_catalogs,

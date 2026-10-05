@@ -170,7 +170,7 @@ $effect(() => {
       <wa-switch
         checked={copy}
         disabled={busy}
-        onwa-change={(event) => {
+        onchange={(event) => {
           copy = (event.target as WaSwitchElement).checked
         }}>Copy files into library</wa-switch>
     </div>

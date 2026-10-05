@@ -14,15 +14,23 @@ pub struct PluginSummary {
     pub version: Option<String>,
     pub granted: Vec<String>,
     pub signer: String,
+    /// Whether the plugin's directory lives in the root the host scans for work.
+    /// See ADR-0034.
+    pub enabled: bool,
 }
 
 impl From<stanchion::remote::PluginInfo> for PluginSummary {
+    /// The host reports no enabled state — it reports what it parsed from the
+    /// root it was pointed at. Which root that was is the caller's knowledge, so
+    /// a conversion defaults to enabled and [`list_all_via_host`] flips the
+    /// plugins it read from the disabled root.
     fn from(plugin: stanchion::remote::PluginInfo) -> Self {
         Self {
             name: plugin.name,
             version: plugin.version,
             granted: plugin.granted,
             signer: plugin.signer,
+            enabled: true,
         }
     }
 }
@@ -55,6 +63,44 @@ fn list_via_host(
         stanchion::remote::RemoteRegistry::launch(options).map_err(PluginError::host)?;
     let plugins = registry.list().map_err(PluginError::host)?;
     Ok(plugins.into_iter().map(PluginSummary::from).collect())
+}
+
+/// Whether a root holds at least one plugin directory.
+///
+/// A second host launch is only worth paying for when there is something in the
+/// disabled root to parse; a missing root (nothing has ever been disabled) reads
+/// as empty rather than as an error.
+fn has_plugin_dirs(root: &Path) -> bool {
+    std::fs::read_dir(root).is_ok_and(|mut entries| {
+        entries.any(|entry| entry.is_ok_and(|entry| entry.path().is_dir()))
+    })
+}
+
+/// Lists both plugin roots, marking everything from the disabled root
+/// `enabled: false`.
+///
+/// The host is launched once per root (ADR-0034). A disabled plugin therefore
+/// keeps reporting its real name, version, signer and grants, because the host
+/// still parses it — it is simply never loaded for work, since the root it sits
+/// in is not the one the app points the host at elsewhere.
+fn list_all_via_host(
+    host: PathBuf,
+    config: PathBuf,
+    plugins_dir: PathBuf,
+    disabled_dir: PathBuf,
+) -> Result<Vec<PluginSummary>, PluginError> {
+    let mut plugins = list_via_host(host.clone(), config.clone(), plugins_dir)?;
+    if has_plugin_dirs(&disabled_dir) {
+        plugins.extend(
+            list_via_host(host, config, disabled_dir)?
+                .into_iter()
+                .map(|plugin| PluginSummary {
+                    enabled: false,
+                    ..plugin
+                }),
+        );
+    }
+    Ok(plugins)
 }
 
 /// Rejects names that are not a single, safe path segment, so a plugin name from
@@ -162,17 +208,99 @@ fn remove_plugin_dir(plugins_dir: &Path, name: &str) -> Result<(), PluginError> 
     Ok(())
 }
 
-/// Lists the plugins the host loads from the application's plugin directory.
+/// Removes a plugin from whichever root holds it.
+///
+/// Two roots hold plugin directories now, so anything reasoning about "installed
+/// plugins" must consider both (ADR-0034) — otherwise uninstalling a disabled
+/// plugin silently does nothing. The error for a name in neither root is the same
+/// one [`remove_plugin_dir`] has always given.
+fn remove_plugin_from_roots(
+    plugins_dir: &Path,
+    disabled_dir: &Path,
+    name: &str,
+) -> Result<(), PluginError> {
+    ensure_safe_name(name)?;
+    if plugins_dir.join(name).is_dir() {
+        remove_plugin_dir(plugins_dir, name)
+    } else {
+        remove_plugin_dir(disabled_dir, name)
+    }
+}
+
+/// Moves a plugin's directory between the scanned root and the disabled root.
+///
+/// Disabling moves `<name>` out of `plugins_dir`; enabling moves it back. The
+/// loaded set is exactly the directories under `plugins_dir`, so a moved-out
+/// plugin is unreachable by the same mechanism as an uninstalled one, while its
+/// files and grant decisions survive and the state survives a restart with no new
+/// store (ADR-0034). The two roots are siblings in the app directory, so the
+/// rename never crosses a filesystem.
+///
+/// Idempotent: a plugin already in the requested root is left alone, so toggling
+/// a switch twice is not an error.
+fn move_plugin_between_roots(
+    plugins_dir: &Path,
+    disabled_dir: &Path,
+    name: &str,
+    enabled: bool,
+) -> Result<(), PluginError> {
+    ensure_safe_name(name)?;
+    let (from, to) = if enabled {
+        (disabled_dir.join(name), plugins_dir.join(name))
+    } else {
+        (plugins_dir.join(name), disabled_dir.join(name))
+    };
+    if to.is_dir() {
+        return Ok(());
+    }
+    if !from.is_dir() {
+        return Err(PluginError::invalid(format!(
+            "no plugin named \"{name}\" is installed"
+        )));
+    }
+    if let Some(parent) = to.parent() {
+        std::fs::create_dir_all(parent).map_err(PluginError::host)?;
+    }
+    std::fs::rename(&from, &to).map_err(PluginError::host)?;
+    Ok(())
+}
+
+/// Lists the plugins in both plugin roots: those the host loads for work, and
+/// those parked in the disabled root, reported with `enabled: false`.
 #[tauri::command]
 #[specta::specta]
 pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginSummary>, PluginError> {
     let host = state.plugin_host_path.clone().into_std_path_buf();
     let config = state.plugin_host_config.clone().into_std_path_buf();
     let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
+    let disabled_dir = state.disabled_plugins_dir.clone().into_std_path_buf();
 
-    tokio::task::spawn_blocking(move || list_via_host(host, config, plugins_dir))
+    tokio::task::spawn_blocking(move || list_all_via_host(host, config, plugins_dir, disabled_dir))
         .await
         .map_err(PluginError::host)?
+}
+
+/// Enables or disables a plugin by moving its directory between the scanned and
+/// disabled plugin roots. Idempotent, and safe against names that would escape a
+/// root. See ADR-0034.
+///
+/// Not synchronised against an in-flight `list_plugins`: the host is launched per
+/// call and calls are short, so a plugin moved mid-call fails that one call.
+#[tauri::command]
+#[specta::specta]
+pub async fn set_plugin_enabled(
+    state: State<'_, AppState>,
+    name: String,
+    enabled: bool,
+) -> Result<(), PluginError> {
+    let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
+    let disabled_dir = state.disabled_plugins_dir.clone().into_std_path_buf();
+
+    tokio::task::spawn_blocking(move || {
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, &name, enabled)
+    })
+    .await
+    .map_err(PluginError::host)?
 }
 
 /// Copies a plugin into the plugins root and confirms the host loads it,
@@ -226,14 +354,18 @@ pub async fn add_plugin_from_path(
         .map_err(PluginError::host)?
 }
 
-/// Uninstalls a plugin by name, removing its directory.
+/// Uninstalls a plugin by name, removing its directory from whichever root holds
+/// it — a disabled plugin is still installed, and must still be uninstallable.
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_plugin(state: State<'_, AppState>, name: String) -> Result<(), PluginError> {
     let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
-    tokio::task::spawn_blocking(move || remove_plugin_dir(&plugins_dir, &name))
-        .await
-        .map_err(PluginError::host)?
+    let disabled_dir = state.disabled_plugins_dir.clone().into_std_path_buf();
+    tokio::task::spawn_blocking(move || {
+        remove_plugin_from_roots(&plugins_dir, &disabled_dir, &name)
+    })
+    .await
+    .map_err(PluginError::host)?
 }
 
 /// Browses a remote plugin registry for installable plugins.
@@ -276,7 +408,8 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        PluginError, install_and_verify, install_plugin_dir, list_via_host, remove_plugin_dir,
+        PluginError, install_and_verify, install_plugin_dir, list_all_via_host, list_via_host,
+        move_plugin_between_roots, remove_plugin_dir, remove_plugin_from_roots,
     };
 
     /// A Lua importer the host can actually load, for host-backed tests.
@@ -397,6 +530,182 @@ return Importer
             );
         }
         assert!(sentinel.is_file(), "sentinel outside plugins dir survived");
+    }
+
+    // ADR-0034: disabling moves the plugin's directory out of the scanned root
+    // and enabling moves it back. Nothing is marked; the filesystem is the
+    // registry.
+    #[test]
+    fn set_plugin_enabled_moves_between_roots() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let disabled_dir = root.path().join("plugins-disabled");
+        write_plugin(&plugins_dir, "movable");
+
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "movable", false)
+            .expect("disable succeeds");
+        assert!(
+            !plugins_dir.join("movable").exists(),
+            "disabled plugin stayed in the scanned root"
+        );
+        assert!(
+            disabled_dir.join("movable/plugin.toml").is_file(),
+            "the plugin's files did not move intact"
+        );
+
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "movable", true)
+            .expect("enable succeeds");
+        assert!(plugins_dir.join("movable/plugin.toml").is_file());
+        assert!(!disabled_dir.join("movable").exists());
+
+        let err = move_plugin_between_roots(&plugins_dir, &disabled_dir, "never-installed", false)
+            .expect_err("a plugin in neither root cannot be toggled");
+        assert!(matches!(err, PluginError::Invalid { .. }), "got {err:?}");
+    }
+
+    // The host loads exactly the directories under the scanned root, so a
+    // disabled plugin is unreachable by the same mechanism as an uninstalled one.
+    #[test]
+    fn disabled_plugin_is_not_listed_as_enabled() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let disabled_dir = root.path().join("plugins-disabled");
+        write_loadable_plugin(&plugins_dir, "txt-importer");
+        let config = write_host_config(root.path());
+
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "txt-importer", false)
+            .expect("disable succeeds");
+
+        let listed = list_via_host(host_binary(), config, plugins_dir).expect("host still lists");
+        assert!(
+            !listed.iter().any(|plugin| plugin.name == "txt-importer"),
+            "disabled plugin was still loaded: {listed:?}"
+        );
+    }
+
+    // A disabled plugin keeps reporting real metadata, because the host still
+    // parses it from the second root; it is simply never loaded for work.
+    #[test]
+    fn list_plugins_includes_disabled_with_metadata() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let disabled_dir = root.path().join("plugins-disabled");
+        write_loadable_plugin(&plugins_dir, "stays-on");
+        write_loadable_plugin(&plugins_dir, "turned-off");
+        let config = write_host_config(root.path());
+
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "turned-off", false)
+            .expect("disable succeeds");
+
+        let listed = list_all_via_host(host_binary(), config, plugins_dir, disabled_dir)
+            .expect("both roots are listed");
+
+        let on = listed
+            .iter()
+            .find(|plugin| plugin.name == "stays-on")
+            .unwrap_or_else(|| panic!("enabled plugin missing from {listed:?}"));
+        assert!(on.enabled, "enabled plugin reported as disabled");
+
+        let off = listed
+            .iter()
+            .find(|plugin| plugin.name == "turned-off")
+            .unwrap_or_else(|| panic!("disabled plugin missing from {listed:?}"));
+        assert!(!off.enabled, "disabled plugin reported as enabled");
+        assert_eq!(
+            off.version.as_deref(),
+            Some("1.0.0"),
+            "version did not survive disabling: {off:?}"
+        );
+        assert!(
+            off.granted.iter().any(|grant| grant == "log"),
+            "grants did not survive disabling: {off:?}"
+        );
+    }
+
+    // A name from the frontend must not escape either root: the toggle reuses
+    // `ensure_safe_name`, exactly as remove does.
+    #[test]
+    fn set_plugin_enabled_rejects_unsafe_names() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let disabled_dir = root.path().join("plugins-disabled");
+        fs::create_dir_all(&plugins_dir).unwrap();
+        fs::create_dir_all(&disabled_dir).unwrap();
+        let sentinel = root.path().join("keep.txt");
+        fs::write(&sentinel, b"keep").unwrap();
+
+        for evil in [
+            "",
+            ".",
+            "..",
+            "../keep.txt",
+            "../..",
+            "nested/child",
+            "back\\slash",
+        ] {
+            for enabled in [true, false] {
+                let err = move_plugin_between_roots(&plugins_dir, &disabled_dir, evil, enabled)
+                    .expect_err("unsafe name rejected");
+                assert!(
+                    matches!(err, PluginError::Invalid { .. }),
+                    "{evil:?} (enabled={enabled}): {err:?}"
+                );
+            }
+        }
+        assert!(sentinel.is_file(), "sentinel outside both roots survived");
+        assert!(
+            plugins_dir.is_dir() && disabled_dir.is_dir(),
+            "roots survived"
+        );
+    }
+
+    #[test]
+    fn set_plugin_enabled_is_idempotent() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let disabled_dir = root.path().join("plugins-disabled");
+        write_plugin(&plugins_dir, "steady");
+
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "steady", true)
+            .expect("enabling an already-enabled plugin succeeds");
+        assert!(plugins_dir.join("steady/plugin.toml").is_file());
+        assert!(
+            !disabled_dir.exists(),
+            "enabling an enabled plugin touched the disabled root"
+        );
+
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "steady", false)
+            .expect("first disable");
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, "steady", false)
+            .expect("disabling an already-disabled plugin succeeds");
+        assert!(disabled_dir.join("steady/plugin.toml").is_file());
+        assert!(!plugins_dir.join("steady").exists());
+    }
+
+    // ADR-0034 consequence: two roots now hold plugin directories, so uninstall
+    // must delete from whichever one holds the plugin.
+    #[test]
+    fn remove_plugin_deletes_from_either_root() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = root.path().join("plugins");
+        let disabled_dir = root.path().join("plugins-disabled");
+        write_plugin(&plugins_dir, "enabled-one");
+        write_plugin(&disabled_dir, "disabled-one");
+
+        remove_plugin_from_roots(&plugins_dir, &disabled_dir, "enabled-one")
+            .expect("removes from the scanned root");
+        assert!(!plugins_dir.join("enabled-one").exists());
+
+        remove_plugin_from_roots(&plugins_dir, &disabled_dir, "disabled-one")
+            .expect("removes from the disabled root");
+        assert!(
+            !disabled_dir.join("disabled-one").exists(),
+            "uninstalling a disabled plugin silently did nothing"
+        );
+
+        let err = remove_plugin_from_roots(&plugins_dir, &disabled_dir, "never-installed")
+            .expect_err("an unknown plugin is still an error");
+        assert!(matches!(err, PluginError::Invalid { .. }), "got {err:?}");
     }
 
     // Regression: list_via_host must not pass args the host rejects. The host

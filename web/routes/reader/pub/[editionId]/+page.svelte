@@ -8,6 +8,7 @@ import ActionButton from '$lib/components/ActionButton.svelte'
 import { ReaderFetcher } from '$lib/reader/fetcher'
 import { createLoadSession } from '$lib/reader/loadSession'
 import { loadEpubReaderPublication } from '$lib/reader/read'
+import ReaderLayout from '../../ReaderLayout.svelte'
 
 const editionId = $derived(page.params.editionId ?? '')
 
@@ -112,7 +113,7 @@ onDestroy(() => {
 })
 </script>
 
-<main class="reader">
+<ReaderLayout>
   <header class="bar">
     <h1 class="title">{title}</h1>
     <div class="controls">
@@ -137,19 +138,11 @@ onDestroy(() => {
     </div>
   {/if}
 
-  <div class="viewport" bind:this={container}></div>
-</main>
+  <!-- Pane grows this; the Readium iframe scrolls inside it. -->
+  <div class="viewport" data-scroll-region bind:this={container}></div>
+</ReaderLayout>
 
 <style>
-  .reader {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    margin: 0;
-  }
-
   .bar {
     display: flex;
     align-items: center;
@@ -191,7 +184,6 @@ onDestroy(() => {
 
   .viewport {
     position: relative;
-    flex: 1;
     min-width: 0;
     min-height: 0;
     display: flex;

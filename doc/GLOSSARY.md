@@ -6,15 +6,22 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 
 ## UI
 
+- **App frame** — the application shell: a full-height grid that never scrolls and hands the entire webview to the active route. It draws no header, navigation, footer, or titlebar; the native window titlebar stands on its own. Replaces `<wa-page>`. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Route shell** — the grid a route places to hold its optional nav rail and its pane; it owns the nav/pane columns and establishes the container-query context. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Nav rail** — the vertical navigation column, icon-only by default and expandable, collapsing to icons below `46rem`. Each route places it, so a route may omit it entirely. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Pane** — a route's vertical stack (column flex) inside the app frame, whose final row is its scroll region. Docks anchor to it rather than to the viewport. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Scroll region** — the single scrolling element in a route; exactly one per route. A plain overflow container, so `scroll` events bubble and it can serve as an `IntersectionObserver` root. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Dock** — a pane-anchored floating action bar. The library's selection controls are a dock; the term supersedes **Selection action bar**. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
+- **Route layout** — the component beside a route that composes the primitives above into that route's chrome, and carries the route's title and actions in its own toolbar. See [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
 - **Settings** — the `/settings` route hosting the sync panel: server status and start/stop, pairing, paired devices, conflicts, and the recent-request feed. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
-- **Library toolbar** — the action row above the library search box; today it hosts **Add book**. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md).
+- **Library toolbar** — the library route layout's action row; carries the route title alongside **Add book**, **Import**, **Filters**, and **Select**. See [ADR 0014](adr/0014-batch-file-import-with-progress-events.md) and [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
 - **add-book drawer** — the right-hand `wa-drawer` that picks or receives dropped EPUB/AZW3/AZW/PDF/M4B/M4A files and shows per-file import progress.
 - **edition-detail drawer** — the right-hand `wa-drawer` opened by clicking a book in the library; shows that edition's cover, contributors, publishers, identifiers, and file. See [ADR 0015](adr/0015-add-get-edition-detail-ipc-and-edition-detail-drawer.md).
 - **Filter panel** — the popover that narrows the library by availability, format, language, author, tag, genre, subject, and publisher, and sets sort order. See [ADR 0016](adr/0016-filtered-library-search-ipc.md).
 - **Availability filter** — the filter panel's tri-state (Any / In filesystem / Not in filesystem) control, backed by `EditionFilters.has_file`. See [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
 - **File-availability badge** — the paired badge on a library card: `hard-drive` when the edition's file is on disk, `cloud` when it is virtual or remotely referenced. See [ADR 0021](adr/0021-file-availability-filter-and-card-badges.md).
 - **Selection mode** — the library state where cards show checkboxes and clicks toggle selection. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
-- **Selection action bar** — the toolbar that appears in selection mode with Tag, Export CSV, Delete, and Clear. See [ADR 0017](adr/0017-bulk-edition-mutations.md).
+- **Selection action bar** — former name for the bar that appears in selection mode with Tag, Export CSV, Delete, and Clear; it is a **Dock**. Kept because `SelectionActionBar.svelte` still carries the name. See [ADR 0017](adr/0017-bulk-edition-mutations.md) and [ADR 0033](adr/0033-per-route-layouts-replacing-wa-page.md).
 
 ## IPC
 

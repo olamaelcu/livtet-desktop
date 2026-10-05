@@ -22,7 +22,14 @@ export default defineConfig({
       },
       {
         plugins: [svelte()],
-        resolve: { alias: aliases },
+        resolve: {
+          alias: {
+            // Component tests run without a router; stub the page store.
+            '$app/state': new URL('./web/tests/browser/stubs/app-state.ts', import.meta.url)
+              .pathname,
+            ...aliases,
+          },
+        },
         test: {
           name: 'browser',
           include: ['web/tests/browser/**/*.browser.test.ts'],

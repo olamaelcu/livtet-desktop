@@ -200,8 +200,18 @@ fn resolve_plugin_host(app_dir: &Utf8PathBuf) -> Utf8PathBuf {
 async fn setup_plugin_host(
     app_dir: &Utf8PathBuf,
     plugins_dir: &Utf8PathBuf,
-) -> miette::Result<(Utf8PathBuf, Utf8PathBuf, Utf8PathBuf)> {
+) -> miette::Result<(Utf8PathBuf, Utf8PathBuf, Utf8PathBuf, Utf8PathBuf)> {
     fs_err::tokio::create_dir_all(plugins_dir)
+        .await
+        .into_diagnostic()?;
+
+    // Disabled plugins are parked in a sibling root the host is never pointed at,
+    // which is what turning a plugin off means (ADR-0034).
+    let disabled_plugins_dir = plugins_dir
+        .parent()
+        .unwrap_or(app_dir.as_path())
+        .join("plugins-disabled");
+    fs_err::tokio::create_dir_all(&disabled_plugins_dir)
         .await
         .into_diagnostic()?;
 
@@ -219,7 +229,12 @@ async fn setup_plugin_host(
         );
     }
 
-    Ok((plugin_host_path, host_config, plugins_dir.clone()))
+    Ok((
+        plugin_host_path,
+        host_config,
+        plugins_dir.clone(),
+        disabled_plugins_dir,
+    ))
 }
 
 #[tracing::instrument(skip_all, err, level = "info")]
@@ -287,7 +302,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .await
         .into_diagnostic()?;
 
-    let (plugin_host_path, plugin_host_config, plugins_dir) =
+    let (plugin_host_path, plugin_host_config, plugins_dir, disabled_plugins_dir) =
         setup_plugin_host(&data_dir, &paths.plugins_dir)
             .await
             .map_err(|e| {
@@ -329,6 +344,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         plugin_host_path,
         plugin_host_config,
         plugins_dir,
+        disabled_plugins_dir,
         sync: Arc::new(sync),
         opds_http,
         opds_store,
@@ -373,6 +389,7 @@ pub fn run() {
         commands::plugins::list_plugins,
         commands::plugins::add_plugin_from_path,
         commands::plugins::remove_plugin,
+        commands::plugins::set_plugin_enabled,
         commands::plugins::discover_remote_plugins,
         commands::plugins::install_remote_plugin,
         commands::opds::opds_default_catalogs,

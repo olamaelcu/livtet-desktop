@@ -96,7 +96,7 @@ declare global {
         checked?: boolean
         disabled?: boolean
         size?: 's' | 'm' | 'l' | 'small' | 'medium' | 'large'
-        'onwa-change'?: (event: Event) => void
+        onchange?: (event: Event) => void
       }
       'wa-avatar': Omit<import('svelte/elements').HTMLAttributes<HTMLElement>, 'label'> & {
         image?: string
