@@ -36,8 +36,8 @@ pub struct AppState {
     pub opds_store: Arc<tauri_plugin_store::Store<tauri::Wry>>,
     /// OS-keyring-backed storage for OPDS catalog credentials.
     pub secrets: Arc<dyn crate::secrets::SecretStore>,
-    /// Loopback HTTP server serving audiobook bytes to `<audio>`.
-    pub audio: crate::commands::audio_server::AudioServer,
+    /// Loopback HTTP server serving library file bytes to the webview.
+    pub loopback: crate::commands::byte_server::LoopbackServer,
     /// Open EPUB publications cached by edition id for the reader window.
     ///
     /// `DbId` is `Hash`, so it works as the cache key directly. Entries are

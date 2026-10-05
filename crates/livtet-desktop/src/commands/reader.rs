@@ -2,7 +2,7 @@
 //! streamer/navigator backend behind one dispatching entry point.
 //!
 //! Audiobooks play in a dedicated `/reader/audio/[editionId]` window backed by the
-//! loopback audio server (see [`super::audio_server`]): WebKitGTK routes
+//! loopback audio server (see [`super::byte_server`]): WebKitGTK routes
 //! `<audio>` through GStreamer, which cannot fetch custom schemes, so bytes
 //! are served over HTTP on 127.0.0.1 with ranges. Everything testable (range
 //! math, edition resolution, publication descriptors) lives here.
@@ -115,6 +115,15 @@ pub enum ReaderPublication {
         manifest: String,
         positions: String,
     },
+    /// A PDF served over the loopback byte server for pdf.js (ADR 0037).
+    ///
+    /// No page count travels here: pdf.js reports `numPages` once the document
+    /// loads, and a second copy could disagree with the file.
+    Pdf {
+        edition_id: String,
+        title: Option<String>,
+        pdf_url: String,
+    },
 }
 
 /// Label prefix for reader windows; the edition id follows the prefix.
@@ -157,22 +166,25 @@ pub(crate) fn parse_range_header(total_len: u64, header: &str) -> Option<(u64, u
     Some((start, end.min(last)))
 }
 
-/// Resolve the on-disk audio file for an audiobook edition.
+/// Resolve the on-disk file of an edition the loopback server may serve.
 ///
-/// Fails closed when the edition is missing, is not an audiobook, or has no
-/// stored file.
-pub(crate) async fn resolve_reader_audio(
+/// Fails closed when the edition is missing, carries a different format, or
+/// has no stored file. `format_label` names the accepted format in the
+/// `unsupported` message, which reaches the user.
+pub(crate) async fn resolve_reader_file(
     db: &livtet_core::data::orm::DatabaseConnection,
     edition_id: DbId,
+    format: KnownFormats,
+    format_label: &str,
 ) -> Result<camino::Utf8PathBuf, ReaderError> {
     let edition = editions::Entity::find_by_id(edition_id)
         .one(db)
         .await?
         .ok_or_else(|| ReaderError::new("not-found", "edition not found"))?;
-    if edition.format_id != Some(KnownFormats::Audiobook.into()) {
+    if edition.format_id != Some(format.into()) {
         return Err(ReaderError::new(
             "unsupported",
-            "the reader serves audiobook editions only",
+            format!("the reader serves {format_label} editions only"),
         ));
     }
     let inventory = digital_inventory::Entity::find()
@@ -187,6 +199,34 @@ pub(crate) async fn resolve_reader_audio(
         .ok_or_else(|| ReaderError::new("not-found", "edition has no stored file"))
 }
 
+/// The format label used for PDF editions in user-facing reader errors.
+pub(crate) const PDF_FORMAT_LABEL: &str = "PDF";
+
+/// Describe a PDF edition for its reader window (ADR 0037).
+///
+/// Fails closed on a missing edition, a non-PDF format, or a missing file, so
+/// the window is only ever opened for a book the server can actually serve.
+pub(crate) async fn describe_pdf_publication(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    edition_id: DbId,
+    loopback: &super::byte_server::LoopbackServer,
+) -> Result<ReaderPublication, ReaderError> {
+    let path = resolve_reader_file(db, edition_id, KnownFormats::Pdf, PDF_FORMAT_LABEL).await?;
+    check_reader_file(Some(path.as_str()), PDF_EXTENSION).map_err(ReaderError::from)?;
+    let title = editions::Entity::find_by_id(edition_id)
+        .one(db)
+        .await?
+        .and_then(|edition| edition.title);
+    Ok(ReaderPublication::Pdf {
+        edition_id: edition_id.to_string(),
+        title,
+        pdf_url: format!(
+            "{}/pdf/{edition_id}?t={}",
+            loopback.base_url, loopback.token
+        ),
+    })
+}
+
 /// Describe the audiobook edition for the reader window. `Ok(None)` when
 /// absent.
 ///
@@ -194,7 +234,7 @@ pub(crate) async fn resolve_reader_audio(
 pub(crate) async fn describe_publication(
     db: &livtet_core::data::orm::DatabaseConnection,
     edition_id: DbId,
-    audio: &super::audio_server::AudioServer,
+    loopback: &super::byte_server::LoopbackServer,
 ) -> Result<Option<ReaderPublication>, ReaderError> {
     let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
         return Ok(None);
@@ -241,7 +281,10 @@ pub(crate) async fn describe_publication(
         title: edition.title,
         duration_seconds,
         chapters,
-        audio_url: format!("{}/audio/{edition_id}?t={}", audio.base_url, audio.token),
+        audio_url: format!(
+            "{}/audio/{edition_id}?t={}",
+            loopback.base_url, loopback.token
+        ),
     }))
 }
 
@@ -326,9 +369,22 @@ pub(crate) fn parse_edition_id(edition_id: &str) -> Result<DbId, EpubError> {
         .map_err(|_| EpubError::unknown_edition(edition_id))
 }
 
+/// File extension the EPUB reader accepts.
+pub(crate) const EPUB_EXTENSION: &str = "epub";
+
+/// File extension the PDF reader accepts (ADR 0037).
+pub(crate) const PDF_EXTENSION: &str = "pdf";
+
 /// Validate the catalog file path for reader use: it must exist on disk and
-/// carry an `.epub` extension (compared case-insensitively).
-pub(crate) fn check_reader_file(file_path: Option<&str>) -> Result<PathBuf, EpubError> {
+/// carry the `expected` extension (compared case-insensitively).
+///
+/// The gate is symmetric by design — an EPUB is as unopenable in the PDF
+/// reader as a PDF is in the EPUB one — so a format mix-up fails here rather
+/// than inside a parser.
+pub(crate) fn check_reader_file(
+    file_path: Option<&str>,
+    expected: &str,
+) -> Result<PathBuf, EpubError> {
     let Some(path) = file_path else {
         return Err(EpubError::NoFile);
     };
@@ -336,16 +392,11 @@ pub(crate) fn check_reader_file(file_path: Option<&str>) -> Result<PathBuf, Epub
     if !fs_path.exists() {
         return Err(EpubError::MissingFile);
     }
-    let is_epub = fs_path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("epub"));
-    if !is_epub {
-        let format = fs_path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or("unknown");
-        return Err(EpubError::unsupported_format(format));
+    let extension = fs_path.extension().and_then(|extension| extension.to_str());
+    if !extension.is_some_and(|extension| extension.eq_ignore_ascii_case(expected)) {
+        return Err(EpubError::unsupported_format(
+            extension.unwrap_or("unknown"),
+        ));
     }
     Ok(fs_path)
 }
@@ -364,6 +415,14 @@ pub(crate) fn reader_pub_window_path(edition_id: &DbId) -> String {
 /// `reader/audio/{edition id}`); SvelteKit serves it in SPA fallback mode.
 pub(crate) fn reader_audio_window_path(edition_id: &DbId) -> String {
     format!("reader/audio/{edition_id}")
+}
+
+/// SPA path for an edition's PDF reader window, without a leading slash.
+///
+/// The desktop reader window targets this nested route (e.g.
+/// `reader/pdf/{edition id}`); SvelteKit serves it in SPA fallback mode.
+pub(crate) fn reader_pdf_window_path(edition_id: &DbId) -> String {
+    format!("reader/pdf/{edition_id}")
 }
 
 /// Base URL for an edition's publication resources. It always ends in `/`.
@@ -429,6 +488,7 @@ pub(crate) async fn resolve_reader(
             .file
             .as_ref()
             .and_then(|file| file.file_path.as_deref()),
+        EPUB_EXTENSION,
     )?;
     let reader = Arc::new(livtet_reader::Reader::open(&path)?);
     state
@@ -488,7 +548,7 @@ async fn open_audiobook_reader(
     id: DbId,
 ) -> Result<(), ReaderError> {
     // Fail closed before touching windows: only describable editions open.
-    let title = describe_publication(&state.db.db_conn(), id, &state.audio)
+    let title = describe_publication(&state.db.db_conn(), id, &state.loopback)
         .await?
         .ok_or_else(|| ReaderError::new("not-found", "edition not found"))?;
     let title = match &title {
@@ -497,10 +557,10 @@ async fn open_audiobook_reader(
         }
         // Unreachable through the audiobook describe path, but fail closed
         // rather than panic if the backend ever misroutes here.
-        ReaderPublication::Epub { .. } => {
+        ReaderPublication::Epub { .. } | ReaderPublication::Pdf { .. } => {
             return Err(ReaderError::new(
                 "unsupported",
-                "audiobook editions never describe as EPUB",
+                "audiobook editions never describe as EPUB or PDF",
             ));
         }
     };
@@ -522,6 +582,53 @@ async fn open_audiobook_reader(
     .min_inner_size(547.0, 600.0)
     .build()
     .map_err(|error| ReaderError::new("window", error))?;
+    Ok(())
+}
+
+/// Open the PDF reader window for an edition, focusing it when already open.
+///
+/// The publication is described first, so a missing file or a format mix-up
+/// fails with no window ever appearing. Unlike the EPUB branch there is no
+/// reader cache to evict on failure: pdf.js reads the file over the loopback
+/// server, so nothing is held in Rust.
+async fn open_pdf_reader(
+    app: &AppHandle,
+    state: &State<'_, AppState>,
+    id: DbId,
+) -> Result<(), ReaderError> {
+    let publication = describe_pdf_publication(&state.db.db_conn(), id, &state.loopback).await?;
+    let title = match &publication {
+        ReaderPublication::Pdf { title, .. } => {
+            title.clone().unwrap_or_else(|| format!("Reader — {id}"))
+        }
+        // Unreachable: `describe_pdf_publication` only builds the PDF variant.
+        _ => {
+            return Err(ReaderError::new(
+                "unsupported",
+                "PDF editions never describe as EPUB or audiobook",
+            ));
+        }
+    };
+
+    let label = format!("{READER_WINDOW_PREFIX}{id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        tracing::info!(edition_id = %id, window_label = %label, "focusing existing PDF reader window");
+        window
+            .set_focus()
+            .map_err(|error| ReaderError::new("window", error))?;
+        return Ok(());
+    }
+    let window_path = reader_pdf_window_path(&id);
+    WebviewWindowBuilder::new(app, &label, WebviewUrl::App(window_path.clone().into()))
+        .title(title)
+        .inner_size(800.0, 1000.0)
+        .min_inner_size(569.0, 600.0)
+        .build()
+        .map_err(|error| {
+            tracing::warn!(edition_id = %id, window_label = %label, error = %error, "failed to build PDF reader window");
+            ReaderError::new("window", error)
+        })?;
+    tracing::info!(edition_id = %id, window_label = %label, window_path = %window_path, "opened PDF reader window");
     Ok(())
 }
 
@@ -601,17 +708,23 @@ pub async fn open_reader(
         .one(&state.db.db_conn())
         .await?
         .ok_or_else(|| ReaderError::new("not-found", "edition not found"))?;
-    let is_audiobook = edition.format_id == Some(KnownFormats::Audiobook.into());
-    tracing::debug!(edition_id = %id, is_audiobook, "dispatching reader request");
-    let result = if is_audiobook {
-        open_audiobook_reader(&app, &state, id).await
+    let format = if edition.format_id == Some(KnownFormats::Audiobook.into()) {
+        "audiobook"
+    } else if edition.format_id == Some(KnownFormats::Pdf.into()) {
+        "pdf"
     } else {
-        open_epub_reader(&app, &state, &edition_id).await
+        "epub"
+    };
+    tracing::debug!(edition_id = %id, format, "dispatching reader request");
+    let result = match format {
+        "audiobook" => open_audiobook_reader(&app, &state, id).await,
+        "pdf" => open_pdf_reader(&app, &state, id).await,
+        _ => open_epub_reader(&app, &state, &edition_id).await,
     };
     match &result {
-        Ok(()) => tracing::info!(edition_id = %id, is_audiobook, "open_reader completed"),
+        Ok(()) => tracing::info!(edition_id = %id, format, "open_reader completed"),
         Err(error) => {
-            tracing::warn!(edition_id = %id, is_audiobook, error = ?error, "open_reader failed")
+            tracing::warn!(edition_id = %id, format, error = ?error, "open_reader failed")
         }
     }
     result
@@ -636,7 +749,12 @@ pub async fn reader_publication(
         return Ok(None);
     };
     if edition.format_id == Some(KnownFormats::Audiobook.into()) {
-        return describe_publication(&db, id, &state.audio).await;
+        return describe_publication(&db, id, &state.loopback).await;
+    }
+    if edition.format_id == Some(KnownFormats::Pdf.into()) {
+        return describe_pdf_publication(&db, id, &state.loopback)
+            .await
+            .map(Some);
     }
     let resolved = resolve_reader(&state, &edition_id)
         .await
@@ -733,6 +851,20 @@ mod tests {
     }
 
     async fn audiobook_fixture(db: &livtet_core::data::orm::DatabaseConnection) -> Fixture {
+        reader_fixture(db, "m4b", b"fake audio").await
+    }
+
+    async fn pdf_fixture(db: &livtet_core::data::orm::DatabaseConnection) -> Fixture {
+        reader_fixture(db, "pdf", b"%PDF-1.7").await
+    }
+
+    /// An edition with one on-disk file. The extension matters: the reader's
+    /// format gates compare it case-insensitively.
+    async fn reader_fixture(
+        db: &livtet_core::data::orm::DatabaseConnection,
+        extension: &str,
+        contents: &[u8],
+    ) -> Fixture {
         use livtet_core::data::entities::works;
         use livtet_core::data::orm::{ActiveModelTrait, Set};
         use livtet_types::now_primitive;
@@ -774,9 +906,9 @@ mod tests {
         .expect("edition");
 
         let dir = tempfile::tempdir().expect("temp dir");
-        let path =
-            camino::Utf8PathBuf::from_path_buf(dir.path().join("book.m4b")).expect("utf8 path");
-        std::fs::write(&path, b"fake audio").expect("fixture file");
+        let path = camino::Utf8PathBuf::from_path_buf(dir.path().join(format!("book.{extension}")))
+            .expect("utf8 path");
+        std::fs::write(&path, contents).expect("fixture file");
 
         digital_inventory::ActiveModel {
             id: Set(DbId::new()),
@@ -820,6 +952,22 @@ mod tests {
         active.update(db).await.expect("update ok");
     }
 
+    async fn mark_format(
+        db: &livtet_core::data::orm::DatabaseConnection,
+        edition_id: DbId,
+        format: KnownFormats,
+    ) {
+        use livtet_core::data::orm::{ActiveModelTrait, IntoActiveModel, Set};
+        let mut active = editions::Entity::find_by_id(edition_id)
+            .one(db)
+            .await
+            .expect("query ok")
+            .expect("edition present")
+            .into_active_model();
+        active.format_id = Set(Some(format.into()));
+        active.update(db).await.expect("update ok");
+    }
+
     #[tokio::test]
     async fn resolves_audiobook_files() {
         let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
@@ -827,9 +975,14 @@ mod tests {
         let fixture = audiobook_fixture(&db).await;
         mark_audiobook(&db, fixture.edition_id, None).await;
 
-        let resolved = resolve_reader_audio(&db, fixture.edition_id)
-            .await
-            .expect("audiobook resolves");
+        let resolved = resolve_reader_file(
+            &db,
+            fixture.edition_id,
+            KnownFormats::Audiobook,
+            "audiobook",
+        )
+        .await
+        .expect("audiobook resolves");
         assert_eq!(resolved, fixture.path);
     }
 
@@ -839,12 +992,38 @@ mod tests {
         let db = test_db.state().db_conn();
         let fixture = audiobook_fixture(&db).await;
 
-        resolve_reader_audio(&db, fixture.edition_id)
-            .await
-            .expect_err("an edition without the audiobook format fails closed");
-        resolve_reader_audio(&db, DbId::new())
+        resolve_reader_file(
+            &db,
+            fixture.edition_id,
+            KnownFormats::Audiobook,
+            "audiobook",
+        )
+        .await
+        .expect_err("an edition without the audiobook format fails closed");
+        resolve_reader_file(&db, DbId::new(), KnownFormats::Audiobook, "audiobook")
             .await
             .expect_err("a missing edition fails closed");
+    }
+
+    /// The format gate is what keeps the two byte routes from leaking into
+    /// each other, so assert it in both directions.
+    #[tokio::test]
+    async fn resolving_rejects_a_mismatched_format() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let fixture = audiobook_fixture(&db).await;
+        mark_audiobook(&db, fixture.edition_id, None).await;
+
+        let error =
+            resolve_reader_file(&db, fixture.edition_id, KnownFormats::Pdf, PDF_FORMAT_LABEL)
+                .await
+                .expect_err("an audiobook is not a PDF");
+        assert_eq!(error.code, "unsupported");
+        assert!(
+            error.message.contains("PDF"),
+            "the message names the accepted format, got {:?}",
+            error.message
+        );
     }
 
     #[tokio::test]
@@ -862,7 +1041,7 @@ mod tests {
         )
         .await;
 
-        let audio = super::super::audio_server::AudioServer {
+        let audio = super::super::byte_server::LoopbackServer {
             base_url: "http://127.0.0.1:9".to_string(),
             token: "t".to_string(),
         };
@@ -891,7 +1070,7 @@ mod tests {
         let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
         let db = test_db.state().db_conn();
 
-        let audio = super::super::audio_server::AudioServer {
+        let audio = super::super::byte_server::LoopbackServer {
             base_url: "http://127.0.0.1:9".to_string(),
             token: "t".to_string(),
         };
@@ -998,7 +1177,10 @@ mod tests {
     #[test]
     fn edition_without_a_file_path_is_rejected() {
         assert!(
-            matches!(check_reader_file(None), Err(EpubError::NoFile)),
+            matches!(
+                check_reader_file(None, EPUB_EXTENSION),
+                Err(EpubError::NoFile)
+            ),
             "missing file path must be NoFile"
         );
     }
@@ -1012,7 +1194,7 @@ mod tests {
         );
         assert!(
             matches!(
-                check_reader_file(Some(&missing.to_string_lossy())),
+                check_reader_file(Some(&missing.to_string_lossy()), EPUB_EXTENSION),
                 Err(EpubError::MissingFile)
             ),
             "unreachable file path must be MissingFile"
@@ -1024,7 +1206,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("temp dir");
         let pdf = dir.path().join("book.pdf");
         std::fs::write(&pdf, b"%PDF").expect("write pdf stand-in");
-        match check_reader_file(Some(&pdf.to_string_lossy())) {
+        match check_reader_file(Some(&pdf.to_string_lossy()), EPUB_EXTENSION) {
             Err(EpubError::UnsupportedFormat { format }) => assert_eq!(format, "pdf"),
             other => panic!("expected UnsupportedFormat, got {other:?}"),
         }
@@ -1032,9 +1214,99 @@ mod tests {
         let upper = dir.path().join("book.EPUB");
         std::fs::write(&upper, b"epub stand-in").expect("write epub stand-in");
         assert!(
-            check_reader_file(Some(&upper.to_string_lossy())).is_ok(),
+            check_reader_file(Some(&upper.to_string_lossy()), EPUB_EXTENSION).is_ok(),
             ".EPUB must be accepted case-insensitively"
         );
+    }
+
+    #[test]
+    fn the_pdf_gate_accepts_pdfs_case_insensitively_and_nothing_else() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        let upper = dir.path().join("book.PDF");
+        std::fs::write(&upper, b"%PDF").expect("write pdf stand-in");
+        assert!(
+            check_reader_file(Some(&upper.to_string_lossy()), PDF_EXTENSION).is_ok(),
+            ".PDF must be accepted case-insensitively"
+        );
+
+        // The gate is symmetric: an EPUB is not openable as a PDF either.
+        let epub = dir.path().join("book.epub");
+        std::fs::write(&epub, b"epub stand-in").expect("write epub stand-in");
+        match check_reader_file(Some(&epub.to_string_lossy()), PDF_EXTENSION) {
+            Err(EpubError::UnsupportedFormat { format }) => assert_eq!(format, "epub"),
+            other => panic!("expected UnsupportedFormat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn reader_pdf_window_path_targets_the_nested_spa_route() {
+        let id = DbId::new();
+        let path = reader_pdf_window_path(&id);
+        assert!(
+            path.starts_with("reader/pdf/"),
+            "window path must target the nested route, got {path}"
+        );
+        assert!(
+            !path.starts_with('/'),
+            "window path must be relative, got {path}"
+        );
+        assert!(
+            path.ends_with(id.to_string().as_str()),
+            "window path must end with the canonical edition id, got {path}"
+        );
+    }
+
+    #[tokio::test]
+    async fn describes_pdf_publications_with_a_tokenized_url() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let fixture = pdf_fixture(&db).await;
+        mark_format(&db, fixture.edition_id, KnownFormats::Pdf).await;
+
+        let loopback = super::super::byte_server::LoopbackServer {
+            base_url: "http://127.0.0.1:9000".to_string(),
+            token: "tok".to_string(),
+        };
+        let publication = describe_pdf_publication(&db, fixture.edition_id, &loopback)
+            .await
+            .expect("pdf publication");
+
+        let ReaderPublication::Pdf {
+            edition_id,
+            pdf_url,
+            ..
+        } = publication
+        else {
+            panic!("expected a Pdf publication, got {publication:?}");
+        };
+        assert_eq!(edition_id, fixture.edition_id.to_string());
+        assert_eq!(
+            pdf_url,
+            format!("http://127.0.0.1:9000/pdf/{}?t=tok", fixture.edition_id)
+        );
+    }
+
+    /// An edition of the wrong format must not describe as a PDF: routing a
+    /// non-PDF here is what the format gate exists to stop.
+    #[tokio::test]
+    async fn non_pdf_editions_do_not_describe_as_pdfs() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let fixture = audiobook_fixture(&db).await;
+        mark_format(&db, fixture.edition_id, KnownFormats::Audiobook).await;
+
+        let error = describe_pdf_publication(
+            &db,
+            fixture.edition_id,
+            &super::super::byte_server::LoopbackServer {
+                base_url: "http://127.0.0.1:9000".to_string(),
+                token: "tok".to_string(),
+            },
+        )
+        .await
+        .expect_err("an audiobook must not describe as a PDF");
+        assert_eq!(error.code, "unsupported");
     }
 
     #[test]

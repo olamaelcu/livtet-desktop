@@ -6,7 +6,8 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 import {
   canOpenInReader,
   loadEpubReaderPublication,
-  openEpubReader,
+  loadPdfReaderPublication,
+  openReaderWindow,
   readReaderResource,
 } from './read'
 
@@ -34,13 +35,44 @@ function publicationPayload(overrides: { manifest?: string; positions?: string }
   }
 }
 
-describe('openEpubReader', () => {
+describe('openReaderWindow', () => {
   beforeEach(() => invoke.mockReset())
 
   it('invokes open_reader with the generated camelCase edition id', async () => {
     invoke.mockResolvedValueOnce(undefined)
-    await openEpubReader('edition-1')
+    await openReaderWindow('edition-1')
     expect(invoke).toHaveBeenCalledWith('open_reader', { editionId: 'edition-1' })
+  })
+})
+
+describe('loadPdfReaderPublication', () => {
+  beforeEach(() => invoke.mockReset())
+
+  it('returns the loopback URL for a PDF publication', async () => {
+    invoke.mockResolvedValueOnce({
+      kind: 'Pdf',
+      edition_id: 'edition-1',
+      title: 'Scanned Book',
+      pdf_url: 'http://127.0.0.1:9000/pdf/edition-1?t=tok',
+    })
+    const result = await loadPdfReaderPublication('edition-1')
+    expect(invoke).toHaveBeenCalledWith('reader_publication', { editionId: 'edition-1' })
+    expect(result).toEqual({
+      title: 'Scanned Book',
+      pdfUrl: 'http://127.0.0.1:9000/pdf/edition-1?t=tok',
+    })
+  })
+
+  // The backend serves one tagged union for every reader; a window must never
+  // try to render a variant it cannot handle.
+  it('rejects a publication that is not a PDF', async () => {
+    invoke.mockResolvedValueOnce(publicationPayload())
+    await expect(loadPdfReaderPublication('edition-1')).rejects.toThrow(/not a PDF/i)
+  })
+
+  it('rejects a missing edition', async () => {
+    invoke.mockResolvedValueOnce(null)
+    await expect(loadPdfReaderPublication('edition-1')).rejects.toThrow(/no publication/i)
   })
 })
 
@@ -125,8 +157,26 @@ describe('canOpenInReader', () => {
     expect(canOpenInReader({ file_path: '/books/test.epub' })).toBe(true)
   })
 
-  it('rejects non-EPUB formats', () => {
-    expect(canOpenInReader({ file_path: '/books/test.pdf', file_format: 'pdf' })).toBe(false)
+  // Reversed by ADR 0037: PDFs now open in the pdf.js reader window.
+  it('accepts a present PDF file', () => {
+    expect(canOpenInReader({ file_path: '/books/test.pdf', file_format: 'pdf' })).toBe(true)
+    expect(canOpenInReader({ file_path: '/books/test.PDF', file_format: 'PDF' })).toBe(true)
+    expect(canOpenInReader({ file_path: '/books/test.pdf' })).toBe(true)
+  })
+
+  it('rejects formats with no reader', () => {
+    expect(canOpenInReader({ file_path: '/books/test.azw3', file_format: 'azw3' })).toBe(false)
+    expect(canOpenInReader({ file_path: '/books/test.m4b', file_format: 'm4b' })).toBe(false)
+  })
+
+  it('rejects a PDF marked missing', () => {
+    expect(
+      canOpenInReader({
+        file_path: '/books/test.pdf',
+        file_format: 'pdf',
+        file_status: 'missing',
+      }),
+    ).toBe(false)
   })
 
   it('rejects files marked missing', () => {

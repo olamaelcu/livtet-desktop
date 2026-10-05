@@ -4,8 +4,9 @@
   "description": "",
   "type": "module",
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build",
+    "stage:pdfjs": "node scripts/stage-pdfjs.mjs",
+    "dev": "pnpm stage:pdfjs && vite dev",
+    "build": "pnpm stage:pdfjs && vite build",
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
@@ -41,6 +42,7 @@
     "@tauri-apps/plugin-dialog": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2.6.0",
     "@tauri-apps/plugin-store": "^2.5.0",
+    "pdfjs-dist": "^6.4.299",
     "svelte-sonner": "^0.3",
     "ulid": "^2.3.0"
   },

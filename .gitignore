@@ -35,3 +35,6 @@ test-results/
 doc/superpowers/
 .claude
 prototype/
+
+# Staged by scripts/stage-pdfjs.mjs — recreated on each dev/build (ADR 0037)
+static/pdfjs/

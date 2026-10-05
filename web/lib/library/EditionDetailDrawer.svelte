@@ -6,7 +6,7 @@ import { toast } from 'svelte-sonner'
 import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
-import { canOpenInReader, openEpubReader } from '../reader/read'
+import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { fileName, formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
@@ -79,7 +79,7 @@ async function readBook() {
     return
   }
   try {
-    await openEpubReader(editionId)
+    await openReaderWindow(editionId)
   } catch (error) {
     console.error('[reader] Read action failed', { editionId, error })
     toast.error(error instanceof Error ? error.message : 'Could not open the reader')

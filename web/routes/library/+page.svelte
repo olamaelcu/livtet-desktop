@@ -33,7 +33,7 @@ import { Selection } from '../../lib/library/selection.svelte'
 import { sentinel } from '../../lib/library/sentinel'
 import TagPicker from '../../lib/library/TagPicker.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
-import { openEpubReader } from '../../lib/reader/read'
+import { openReaderWindow } from '../../lib/reader/read'
 import {
   coverUrlFor,
   type Edition,
@@ -135,7 +135,7 @@ function openDetail(editionId: string) {
 async function openBook(editionId: string, hasFile: boolean) {
   if (selection.mode || !hasFile) return
   try {
-    await openEpubReader(editionId)
+    await openReaderWindow(editionId)
   } catch (error) {
     toast.error(messageOf(error))
   }

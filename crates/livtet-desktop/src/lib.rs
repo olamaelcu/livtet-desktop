@@ -327,9 +327,10 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .build()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
 
-    // Loopback audio server for `<audio>` playback: WebKitGTK routes media
-    // through GStreamer, which cannot fetch the app's custom schemes.
-    let audio = commands::audio_server::spawn(db.db_conn(), paths.books_dir.clone())
+    // Loopback byte server for library files the webview must fetch:
+    // `<audio>` playback (WebKitGTK routes media through GStreamer, which
+    // cannot fetch the app's custom schemes) and ranged PDF reads.
+    let loopback = commands::byte_server::spawn(db.db_conn(), paths.books_dir.clone())
         .await
         .map_err(|e| {
             Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error>
@@ -340,7 +341,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         db,
         covers_dir: paths.covers_dir.clone(),
         books_dir: paths.books_dir.clone(),
-        audio,
+        loopback,
         plugin_host_path,
         plugin_host_config,
         plugins_dir,
