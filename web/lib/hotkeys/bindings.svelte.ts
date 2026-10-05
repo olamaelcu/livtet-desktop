@@ -20,13 +20,6 @@ export function setBinding(id: CommandId, hotkey: Hotkey) {
   void persist()
 }
 
-export function clearBinding(id: CommandId) {
-  const next = { ...overrides }
-  delete next[id]
-  overrides = next
-  void persist()
-}
-
 export function resetBindings() {
   overrides = {}
   void persist()

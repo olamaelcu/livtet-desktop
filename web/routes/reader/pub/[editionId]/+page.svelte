@@ -188,6 +188,9 @@ onDestroy(() => {
     min-height: 0;
     display: flex;
     width: 100%!important;
+    border-top: 2rem solid #fff;
+    border-bottom: 2rem solid #fff;
+    background-color: #fff;
 
     :global(iframe.readium-navigator-iframe) {
       position: absolute;

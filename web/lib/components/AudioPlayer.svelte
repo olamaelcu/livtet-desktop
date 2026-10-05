@@ -44,24 +44,28 @@ function handleVolume(event: Event): void {
 
 <!-- Controls section -->
 <div class="wa-player-controls">
-  <wa-button onclick={() => seekTo(position - SKIP_SECONDS)}>
-    <wa-icon slot="start" name="backward"></wa-icon>
+  <wa-button-group>
+  <ActionButton onclick={() => seekTo(position - SKIP_SECONDS)}>
+    <wa-icon name="backward"></wa-icon>
     {SKIP_SECONDS}s
-  </wa-button>
+  </ActionButton>
 
-  <wa-button onclick={togglePlay}>
+  <ActionButton onclick={togglePlay}>
     <wa-icon name={isPlaying ? "pause" : "play"}></wa-icon>
-  </wa-button>
+    {isPlaying ? "Pause" : "Play"}
+  </ActionButton>
 
-  <wa-button onclick={() => seekTo(position + SKIP_SECONDS)}>
+  <ActionButton onclick={() => seekTo(position + SKIP_SECONDS)}>
     {SKIP_SECONDS}s
-    <wa-icon slot="end" name="forward"></wa-icon>
-  </wa-button>
+    <wa-icon name="forward"></wa-icon>
+  </ActionButton>
+</wa-button-group>
 
   <wa-select
     aria-label="Playback speed"
     value={String(rate)}
     onchange={chooseRate}
+    size="small"
   >
     {#each RATES as option (option)}
       <wa-option value={String(option)}>{option}×</wa-option>
@@ -86,13 +90,26 @@ function handleVolume(event: Event): void {
     display: flex;
     align-items: center;
     gap: var(--wa-space-s);
-    margin: var(--wa-space-s) 0;
+    margin-bottom: var(--wa-space-s);
+
+    wa-select {
+      flex: 1 1;
+    }
   }
 
   .wa-player-volume {
     display: flex;
     align-items: center;
     gap: var(--wa-space-xxs);
+    width: 100%;
+
+    > wa-icon {
+      margin-right: var(--wa-space-xs);
+    }
+
+    input {
+      flex: 1 1;
+    }
   }
 
   .wa-volume-icon {

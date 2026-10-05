@@ -20,6 +20,7 @@ const queryClient = useQueryClient()
 let href = $state<string | null>(null)
 let searchQuery = $state('')
 let submitted = $state('')
+let history = $state<Array<{ title: string; href: string }>>([])
 
 const feed = createQuery(() => ({
   queryKey: [...opdsKeys.feed(catalogId), href] as const,
@@ -45,6 +46,7 @@ function reset() {
   href = null
   submitted = ''
   searchQuery = ''
+  history = []
 }
 
 function runSearch() {
@@ -86,47 +88,63 @@ const acquire = createMutation(() => ({
     <wa-callout variant="danger">{opdsErrorMessage(failure)}</wa-callout>
   {:else if active}
     <h2>{active.title}</h2>
+    <nav class="breadcrumb" aria-label="Path" data-testid="breadcrumb">
+      <a href="#" onclick={(e) => { e.preventDefault(); href = null; submitted = ''; history = []; }} class="crumb" data-testid="breadcrumb-root">Root</a>
+      {#each history as entry, i (entry.href)}
+        <span aria-hidden="true" class="sep">›</span>
+        <a href="#" onclick={(e) => { e.preventDefault(); href = entry.href; history = history.slice(0, i + 1); }} class="crumb" data-testid={`breadcrumb-${i}`}>{entry.title}</a>
+      {/each}
+      {#if href}
+        <span aria-hidden="true" class="sep">›</span>
+        <span class="crumb current" data-testid="breadcrumb-current">{active.title}</span>
+      {/if}
+    </nav>
 
     {#if active.navigation.length > 0}
-      <nav class="navigation">
+      <section class="folder-list" aria-label="Folders" data-testid="folder-list">
         {#each active.navigation as section (section.href ?? section.title)}
-          <ActionButton
-            disabled={!section.href}
-            onclick={() => {
-              if (section.href) {
-                submitted = ''
-                href = section.href
-              }
-            }}
+          <a
+            class="folder-row"
+            href="#"
+            data-testid="folder-link"
+            onclick={(e) => { e.preventDefault(); if (section.href) { submitted = ''; href = section.href; history = [...history, { title: section.title, href: section.href }]; } }}
+            aria-disabled={!section.href}
           >
-            {section.title}
-          </ActionButton>
+            <wa-icon name="folder"></wa-icon>
+            <span class="folder-title">{section.title}</span>
+            <wa-icon name="chevron-right" class="folder-arrow"></wa-icon>
+          </a>
         {/each}
-      </nav>
+      </section>
     {/if}
 
     <div class="publications">
       {#each active.publications as publication (publication.identifier ?? publication.title)}
         <wa-card>
-          <div class="publication">
-            {#if publication.cover_url}
-              <img class="cover" src={publication.cover_url} alt="" loading="lazy" />
-            {:else}
-              <div class="cover placeholder" aria-hidden="true"></div>
-            {/if}
-            <div class="publication-info">
-              <strong>{publication.title}</strong>
-              <span class="authors">{publication.authors.join(', ')}</span>
-              <ActionButton
-                variant="brand"
-                disabled={!publication.acquisition_href || acquire.isPending}
-                onclick={() =>
-                  publication.acquisition_href && acquire.mutate(publication.acquisition_href)}
-              >
-                Acquire
-              </ActionButton>
+          <a href="#" onclick={(e) => { e.preventDefault(); publication.acquisition_href && acquire.mutate(publication.acquisition_href); }} class="publication-link" aria-label={publication.title}>
+            <div class="publication">
+              {#if publication.cover_url}
+                <img class="cover" src={publication.cover_url} alt="" loading="lazy" />
+              {:else}
+                <div class="cover placeholder" aria-hidden="true"></div>
+              {/if}
+              <div class="publication-info">
+                <strong class="pub-title">{publication.title}</strong>
+                <div class="pub-meta">{publication.authors.join(', ')}</div>
+                {#if publication.summary}
+                  <div class="pub-summary">{publication.summary}</div>
+                {/if}
+                <div class="pub-tags">
+                  {#if publication.language}<span class="tag">{publication.language}</span>{/if}
+                  {#if publication.publisher}<span class="tag">{publication.publisher}</span>{/if}
+                  {#if publication.published}<span class="tag">{publication.published}</span>{/if}
+                </div>
+                {#if publication.acquisition_href}
+                  <wa-button size="small" onclick={() => acquire.mutate(publication.acquisition_href!)} disabled={acquire.isPending}>Acquire</wa-button>
+                {/if}
+              </div>
             </div>
-          </div>
+          </a>
         </wa-card>
       {/each}
     </div>
@@ -144,10 +162,70 @@ const acquire = createMutation(() => ({
 </CatalogDetailLayout>
 
 <style>
-  .navigation {
+  .breadcrumb {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--wa-space-2xs);
+    font-size: var(--wa-font-size-xs);
+  }
+
+  .crumb {
+    color: var(--wa-color-text-secondary);
+    text-decoration: none;
+  }
+
+  .crumb.current {
+    color: var(--wa-color-text-primary);
+    font-weight: 600;
+  }
+
+  .sep {
+    color: var(--wa-color-text-secondary);
+    font-size: 0.7rem;
+  }
+
+  .folder-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-2xs);
+    border: var(--wa-border-width-s) var(--wa-border-style) var(--wa-color-surface-border);
+    border-radius: var(--wa-border-radius);
+    background: var(--wa-color-surface-container-high, var(--wa-color-surface-alt));
+  }
+
+  .folder-row {
+    display: flex;
+    align-items: center;
     gap: var(--wa-space-s);
+    padding: var(--wa-space-s) var(--wa-space-m);
+    color: inherit;
+    text-decoration: none;
+    transition: background 0.15s ease;
+  }
+
+  .folder-row:hover {
+    background: var(--wa-color-surface-hover, color-mix(in srgb, var(--wa-color-surface-alt) 30%, transparent));
+  }
+
+  .folder-row[aria-disabled='true'] {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  .folder-icon {
+    font-size: 1.1rem;
+    flex: none;
+  }
+
+  .folder-title {
+    flex: 1;
+    font-weight: 500;
+  }
+
+  .folder-arrow {
+    flex: none;
+    font-size: 1.1rem;
+    color: var(--wa-color-text-secondary);
   }
 
   .publications {
@@ -156,10 +234,16 @@ const acquire = createMutation(() => ({
     gap: var(--wa-space-m);
   }
 
+  .publication-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
   .publication {
     display: flex;
     gap: var(--wa-space-s);
     padding: var(--wa-space-s);
+    height: 100%;
   }
 
   .cover {
@@ -176,9 +260,44 @@ const acquire = createMutation(() => ({
     flex-direction: column;
     gap: var(--wa-space-2xs);
     min-width: 0;
+    flex: 1;
+    height: 100%;
+    justify-content: space-between;
   }
 
-  .authors,
+  .pub-title {
+    font-size: var(--wa-font-size-sm);
+  }
+
+  .pub-meta {
+    color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-xs);
+  }
+
+  .pub-summary {
+    color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-xs);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .pub-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--wa-space-2xs);
+  }
+
+  .tag {
+    display: inline-block;
+    background: var(--wa-color-surface-alt);
+    padding: 0 var(--wa-space-2xs);
+    border-radius: calc(var(--wa-border-radius) / 2);
+    font-size: var(--wa-font-size-xs);
+    color: var(--wa-color-text-secondary);
+  }
+
   .empty {
     color: var(--wa-color-text-secondary);
     font-size: var(--wa-font-size-xs);

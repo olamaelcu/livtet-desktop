@@ -1,44 +1,50 @@
 <script lang="ts">
-  import type { ReaderChapter } from '../bindings';
-  import { chapterAt } from '../reader';
-  
-  export let chapters: ReaderChapter[] = [];
-  export let currentPosition: number = 0;
-  export let onChapterSelect: (startPosition: number) => void = () => {};
-  
-  $: current = chapterAt(chapters, currentPosition);
+import type { ReaderChapter } from '../bindings'
+import { chapterAt } from '../reader'
+
+export let chapters: ReaderChapter[] = []
+export let currentPosition: number = 0
+export let onChapterSelect: (startPosition: number) => void = () => {}
+
+$: current = chapterAt(chapters, currentPosition)
 </script>
 
 {#if chapters.length > 0}
   <section class="section">
     <h3 class="section-title">Chapters</h3>
-    <table class="chapters-table">
-      <thead>
-        <tr>
-          <th class="th-index">#</th>
-          <th class="th-title">Chapter</th>
-        </tr>
-      </thead>
-      <tbody>
-        {#each chapters as chapter, idx (idx)}
-          <tr
-            class:current={idx === current}
-            onclick={() => onChapterSelect(chapter.audio_start)}
-          >
-            <td>{chapter.audio_start}</td>
-            <td>
-              <span class="chapter-name-wrap">
-                {chapter.name}
-              </span>
-            </td>
+    <wa-scroller class="scroller">
+      <table class="chapters-table">
+        <thead>
+          <tr>
+            <th class="th-index">#</th>
+            <th class="th-title">Chapter</th>
           </tr>
-        {/each}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {#each chapters as chapter, idx (idx)}
+            <tr
+              class:current={idx === current}
+              onclick={() => onChapterSelect(chapter.audio_start)}
+            >
+              <td>{idx + 1}</td>
+              <td>
+                <span class="chapter-name-wrap">
+                  {chapter.name}
+                </span>
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </wa-scroller>
   </section>
 {/if}
 
 <style>
+  .scroller {
+    height: 60vh;
+    overflow-y: auto;
+  }
   .section {
     display: flex;
     flex-direction: column;
@@ -47,7 +53,6 @@
 
   .section-title {
     margin: var(--wa-space-s) 0;
-    font-size: 1rem;
   }
 
   .chapters-table {
@@ -63,14 +68,13 @@
   }
 
   .chapters-table th {
-    font-size: 0.75rem;
     color: var(--wa-color-text-muted);
-    text-align: left;
+    text-align: center;
     background: var(--wa-color-bg-subtle);
   }
 
   .chapters-table td {
-    font-size: 0.875rem;
+    text-align: center;
   }
 
   .chapters-table tr {
@@ -94,5 +98,5 @@
     margin: 0 auto;
   }
 
-  .th-index { width: 6rem; }
+  .th-index { width: 2rem; }
 </style>

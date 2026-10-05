@@ -1,6 +1,6 @@
 <script lang="ts">
 import { createHotkeyRecorder, formatForDisplay } from '@tanstack/svelte-hotkeys'
-import { bindingFor, clearBinding, hasOverride, setBinding } from '../hotkeys/bindings.svelte'
+import { bindingFor, hasOverride, setBinding } from '../hotkeys/bindings.svelte'
 import type { CommandDefinition } from '../hotkeys/commands'
 import ActionButton from './ActionButton.svelte'
 
@@ -31,11 +31,10 @@ const overridden = $derived(hasOverride(command.id))
     {#if recorder.isRecording}
       <ActionButton onclick={() => recorder.cancelRecording()}>Cancel</ActionButton>
     {:else}
-      <ActionButton onclick={() => recorder.startRecording()}>Record</ActionButton>
+      <ActionButton onclick={() => recorder.startRecording()}>
+        <wa-icon name="film"></wa-icon>
+        Record</ActionButton>
     {/if}
-    <ActionButton disabled={!overridden} onclick={() => clearBinding(command.id)}>
-      Reset
-    </ActionButton>
   </div>
 </div>
 
