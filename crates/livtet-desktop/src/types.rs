@@ -22,8 +22,12 @@ pub struct AppState {
     pub plugin_host_path: Utf8PathBuf,
     /// Path to the host.toml configuration.
     pub plugin_host_config: Utf8PathBuf,
-    /// Path to the plugins directory.
+    /// Path to the plugins directory: the set of directories here is exactly the
+    /// set of plugins the host loads.
     pub plugins_dir: Utf8PathBuf,
+    /// Sibling root holding disabled plugins. Moving a plugin's directory here is
+    /// how it is turned off; moving it back turns it on (ADR-0034).
+    pub disabled_plugins_dir: Utf8PathBuf,
     /// Bridge to the out-of-process sync daemon.
     pub sync: Arc<crate::sync::SyncHandle>,
     /// Shared HTTP client for OPDS catalog requests.
