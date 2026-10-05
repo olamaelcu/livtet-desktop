@@ -16,6 +16,15 @@ export async function removePlugin(name: string): Promise<void> {
   return invoke<void>('remove_plugin', { name })
 }
 
+/**
+ * Turns a plugin on or off by moving its directory between the scanned plugins
+ * root and the disabled one (ADR-0034). Idempotent, so re-asserting the state a
+ * plugin is already in resolves without doing anything.
+ */
+export async function setPluginEnabled(name: string, enabled: boolean): Promise<void> {
+  return invoke<void>('set_plugin_enabled', { name, enabled })
+}
+
 export async function discoverRemotePlugins(registryUrl: string): Promise<RemotePlugin[]> {
   return invoke<RemotePlugin[]>('discover_remote_plugins', { registryUrl })
 }
