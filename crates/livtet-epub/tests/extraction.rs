@@ -1,4 +1,5 @@
 //! Integration tests: build in-memory EPUBs and assert extraction.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "../src/test_support.rs"]
 mod test_support;

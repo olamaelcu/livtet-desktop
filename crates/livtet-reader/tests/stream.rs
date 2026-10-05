@@ -1,5 +1,6 @@
 //! Integration tests: build an in-memory EPUB and stream it as a Readium
 //! Web Publication.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 #[path = "../../livtet-epub/src/test_support.rs"]
 mod test_support;

@@ -1,5 +1,6 @@
 //! Integration tests: synthesize PDFs with `pdf_oxide`'s writer, stamp an Info
 //! dictionary onto them, and assert extraction.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use livtet_pdf::{PdfError, PublicationDate, Role};
 use pdf_oxide::editor::{DocumentEditor, DocumentInfo, EditableDocument};

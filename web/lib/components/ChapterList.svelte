@@ -42,7 +42,7 @@ $: current = chapterAt(chapters, currentPosition)
 
 <style>
   .scroller {
-    height: 60vh;
+    height: 28vh;
     overflow-y: auto;
   }
   .section {

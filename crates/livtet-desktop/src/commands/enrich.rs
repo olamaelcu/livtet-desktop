@@ -57,56 +57,47 @@ fn compute_merge(
     let mut conflicts = BTreeMap::new();
     let found: Vec<String> = enrichment.found.iter().map(|id| id.value.clone()).collect();
 
-    if current.title_sort.is_none() && enrichment.title_sort.is_some() {
-        added.insert(
-            "title_sort".to_string(),
-            enrichment.title_sort.clone().unwrap(),
-        );
+    if let (None, Some(src)) = (&current.title_sort, &enrichment.title_sort) {
+        added.insert("title_sort".to_string(), src.clone());
     }
 
-    if current.publisher.is_none() && enrichment.publisher.is_some() {
-        added.insert(
-            "publisher".to_string(),
-            enrichment.publisher.clone().unwrap(),
-        );
-    } else if enrichment.publisher.is_some() && current.publisher.is_some() {
-        let cur = current.publisher.as_ref().unwrap();
-        let src = enrichment.publisher.as_ref().unwrap();
-        if cur != src {
+    match (&current.publisher, &enrichment.publisher) {
+        (None, Some(src)) => {
+            added.insert("publisher".to_string(), src.clone());
+        }
+        (Some(cur), Some(src)) if cur != src => {
             conflicts.insert(
                 "publisher".to_string(),
                 format!("current: \"{}\", source: \"{}\"", cur, src),
             );
         }
+        _ => {}
     }
 
-    if current.description.is_none() && enrichment.description.is_some() {
-        added.insert(
-            "description".to_string(),
-            enrichment.description.clone().unwrap(),
-        );
-    } else if enrichment.description.is_some() && current.description.is_some() {
-        let cur = current.description.as_ref().unwrap();
-        let src = enrichment.description.as_ref().unwrap();
-        if cur != src {
+    match (&current.description, &enrichment.description) {
+        (None, Some(src)) => {
+            added.insert("description".to_string(), src.clone());
+        }
+        (Some(cur), Some(src)) if cur != src => {
             conflicts.insert(
                 "description".to_string(),
                 format!("current: \"{}\", source: \"{}\"", cur, src),
             );
         }
+        _ => {}
     }
 
-    if current.language.is_none() && enrichment.language.is_some() {
-        added.insert("language".to_string(), enrichment.language.clone().unwrap());
-    } else if enrichment.language.is_some() && current.language.is_some() {
-        let cur = current.language.as_ref().unwrap();
-        let src = enrichment.language.as_ref().unwrap();
-        if cur != src {
+    match (&current.language, &enrichment.language) {
+        (None, Some(src)) => {
+            added.insert("language".to_string(), src.clone());
+        }
+        (Some(cur), Some(src)) if cur != src => {
             conflicts.insert(
                 "language".to_string(),
                 format!("current: \"{}\", source: \"{}\"", cur, src),
             );
         }
+        _ => {}
     }
 
     match (&current.published, &enrichment.published) {

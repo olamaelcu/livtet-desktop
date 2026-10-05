@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use livtet_importer::{ImporterClass, ImporterHandle};
 use stanchion_lua::mlua::{Lua, Result};
 use stanchion_lua::{LuaObject, load_class};

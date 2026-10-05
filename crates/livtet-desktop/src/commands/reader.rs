@@ -519,7 +519,7 @@ async fn open_audiobook_reader(
     )
     .title(title)
     .inner_size(800.0, 800.0)
-    .min_inner_size(569.0, 600.0)
+    .min_inner_size(547.0, 600.0)
     .build()
     .map_err(|error| ReaderError::new("window", error))?;
     Ok(())

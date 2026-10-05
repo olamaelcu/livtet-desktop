@@ -8,7 +8,7 @@ use camino::Utf8PathBuf;
 
 use tauri_specta::{Builder, collect_commands};
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bindings_path =
         Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../web/lib/bindings.ts");
     // `bindings.ts` is gitignored and may not exist in a fresh worktree yet;
@@ -66,9 +66,9 @@ fn main() {
         livtet_desktop_lib::commands::sync::sync_server_stop,
     ]);
 
-    specta_builder
-        .export(specta_typescript::Typescript::default(), &bindings_path)
-        .expect("failed to export Specta bindings");
+    let lang_opts = specta_typescript::Typescript::default();
+    specta_builder.export(lang_opts, &bindings_path)?;
 
     println!("bindings.ts written to disk at {bindings_path:?}");
+    Ok(())
 }

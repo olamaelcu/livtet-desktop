@@ -100,6 +100,7 @@ impl InMemorySecretStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 impl SecretStore for InMemorySecretStore {
     fn get(&self, id: &str) -> Result<Option<CatalogSecret>, SecretError> {
         Ok(self

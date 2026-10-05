@@ -184,6 +184,8 @@ fn mime_for(path: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     fn host_binary() -> PathBuf {

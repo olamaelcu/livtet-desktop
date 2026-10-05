@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use base64::{Engine, engine::general_purpose::STANDARD};
 use livtet_importer::{Importer, PdfImporter};
 use pdf_oxide::editor::{DocumentEditor, DocumentInfo, EditableDocument};

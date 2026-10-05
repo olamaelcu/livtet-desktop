@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::io::Write;
 
 use base64::{Engine, engine::general_purpose::STANDARD};

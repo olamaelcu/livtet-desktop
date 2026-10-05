@@ -91,7 +91,7 @@ function handleCoverSize(event: Event) {
     flex-wrap: wrap;
     align-items: center;
     gap: var(--wa-space-xs);
-    padding: var(--wa-space-xs) var(--wa-space-m) 0;
+    padding: var(--wa-space-xs) var(--wa-space-m);
   }
 
   .cover-slider {

@@ -1,3 +1,5 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use livtet_importer::{ImporterContributor, ImporterCover, ImporterMeta, ImporterPublicationDate};
 use serde_json::{Value, json};
 

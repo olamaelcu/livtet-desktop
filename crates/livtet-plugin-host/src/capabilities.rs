@@ -32,8 +32,12 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
     let sqlite_paths = Arc::new(canonicalize_all(sqlite_paths));
     registry.with_setup(move |host| {
         host.capability("xml", |lua, _grant| {
-            let lua_state = lua.lua_state().expect("Lua runtime available");
-            let lua = lua_state.lock().expect("Lua mutex not poisoned");
+            let lua_state = lua.lua_state().ok_or_else(|| {
+                stanchion_abi::Error::Config("Lua runtime unavailable".to_string())
+            })?;
+            let lua = lua_state.lock().map_err(|err| {
+                stanchion_abi::Error::Config(format!("Lua mutex poisoned: {err}"))
+            })?;
             let module = build_xml_module(&lua)
                 .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
             Ok(stanchion_abi::value::lua::lua_to_abi(
@@ -44,8 +48,12 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
 
         let sqlite_paths = Arc::clone(&sqlite_paths);
         host.capability("sqlite", move |lua, _grant| {
-            let lua_state = lua.lua_state().expect("Lua runtime available");
-            let lua = lua_state.lock().expect("Lua mutex not poisoned");
+            let lua_state = lua.lua_state().ok_or_else(|| {
+                stanchion_abi::Error::Config("Lua runtime unavailable".to_string())
+            })?;
+            let lua = lua_state.lock().map_err(|err| {
+                stanchion_abi::Error::Config(format!("Lua mutex poisoned: {err}"))
+            })?;
             let module = build_sqlite_module(&lua, Arc::clone(&sqlite_paths))
                 .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
             Ok(stanchion_abi::value::lua::lua_to_abi(
@@ -54,8 +62,12 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
             ))
         });
         host.capability("json", |lua, _grant| {
-            let lua_state = lua.lua_state().expect("Lua runtime available");
-            let lua = lua_state.lock().expect("Lua mutex not poisoned");
+            let lua_state = lua.lua_state().ok_or_else(|| {
+                stanchion_abi::Error::Config("Lua runtime unavailable".to_string())
+            })?;
+            let lua = lua_state.lock().map_err(|err| {
+                stanchion_abi::Error::Config(format!("Lua mutex poisoned: {err}"))
+            })?;
             let module = lua
                 .create_table()
                 .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;
@@ -75,8 +87,12 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
             ))
         });
         host.capability("base64", |lua, _grant| {
-            let lua_state = lua.lua_state().expect("Lua runtime available");
-            let lua = lua_state.lock().expect("Lua mutex not poisoned");
+            let lua_state = lua.lua_state().ok_or_else(|| {
+                stanchion_abi::Error::Config("Lua runtime unavailable".to_string())
+            })?;
+            let lua = lua_state.lock().map_err(|err| {
+                stanchion_abi::Error::Config(format!("Lua mutex poisoned: {err}"))
+            })?;
             let module = lua
                 .create_table()
                 .map_err(|err| stanchion_abi::Error::Config(err.to_string()))?;

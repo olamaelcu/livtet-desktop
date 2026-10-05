@@ -3,6 +3,7 @@
 //! Run with e.g.
 //! `LIVTET_AUDIOBOOK_FIXTURE=~/Documents/Books/book.m4b cargo test -p livtet-audio -- --ignored`.
 //! Assertions are structural so any tagged `.m4b`/`.m4a` works as the fixture.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
 
