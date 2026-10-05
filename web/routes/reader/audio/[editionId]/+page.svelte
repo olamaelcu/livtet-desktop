@@ -2,10 +2,11 @@
 import { createQuery } from '@tanstack/svelte-query'
 import { toast } from 'svelte-sonner'
 import { page } from '$app/state'
-import ActionButton from '$lib/components/ActionButton.svelte'
+import AudioPlayer from '$lib/components/AudioPlayer.svelte'
+import ChapterList from '$lib/components/ChapterList.svelte'
+import PlayerProgress from '$lib/components/PlayerProgress.svelte'
 import { readerKeys } from '$lib/query/keys'
 import {
-  chapterAt,
   formatTimestamp,
   loadListeningProgress,
   loadReaderPublication,
@@ -38,10 +39,9 @@ const duration = $derived(publication?.duration_seconds ?? 0)
 let audio = $state<HTMLAudioElement | undefined>()
 let position = $state(0)
 let rate = $state(1)
-let resumed = $state(false)
+let isPlaying = $derived(!audio?.paused)
 let lastSaved = $state(0)
-
-const currentChapter = $derived(chapterAt(chapters, position))
+let resumed = $state(false)
 
 async function persist(force = false): Promise<void> {
   if (!editionId) return
@@ -74,15 +74,36 @@ function onLoadedMetadata(): void {
 
 function seekTo(seconds: number): void {
   if (!audio) return
-  audio.currentTime = Math.min(Math.max(0, seconds), audio.duration || duration)
-  position = audio.currentTime
-  void audio.play().catch(() => toast.error('Could not start playback'))
+  const max = audio.duration || duration
+  const newTime = Math.min(Math.max(0, seconds), max)
+  audio.currentTime = newTime
+  position = newTime
 }
 
-function chooseRate(event: Event): void {
-  const value = Number((event.target as HTMLSelectElement).value)
-  rate = RATES.includes(value) ? value : 1
+function onSeek(event: CustomEvent<{ position: number }>): void {
+  if (!audio) return
+  audio.currentTime = event.detail.position
+  position = event.detail.position
+}
+
+function onVolumeChange(event: CustomEvent<{ volume: number }>): void {
+  if (!audio) return
+  audio.volume = event.detail.volume
+}
+
+function onRateChange(event: CustomEvent<{ rate: number }>): void {
+  rate = event.detail.rate
   if (audio) audio.playbackRate = rate
+}
+
+function onTogglePlay(): void {
+  if (audio) {
+    if (audio.paused) {
+      audio.play().catch(() => toast.error('Could not start playback'))
+    } else {
+      audio.pause()
+    }
+  }
 }
 
 $effect(() => {
@@ -91,6 +112,19 @@ $effect(() => {
   return () => window.removeEventListener('pagehide', persistOnHide)
 })
 </script>
+
+<!-- Hidden audio element for native playback engine -->
+<audio
+  bind:this={audio}
+  class="wa-player-audio"
+  src={publication?.audio_url}
+  preload="metadata"
+  ontimeupdate={onTimeUpdate}
+  onloadedmetadata={onLoadedMetadata}
+  onpause={() => void persist(true)}
+  onended={() => void persist(true)}
+  onratechange={() => void (rate = audio!.playbackRate)}
+></audio>
 
 <div class="reader">
   {#if publicationQuery.isPending}
@@ -102,72 +136,47 @@ $effect(() => {
   {:else}
     <header class="header">
       <h2 class="title">{publication.title ?? 'Untitled'}</h2>
-      <p class="muted">
-        {formatTimestamp(position)} / {formatTimestamp(duration)}
-      </p>
     </header>
 
-    <audio
-      bind:this={audio}
-      class="player"
-      src={publication.audio_url}
-      controls
-      preload="metadata"
-      ontimeupdate={onTimeUpdate}
-      onloadedmetadata={onLoadedMetadata}
-      onpause={() => void persist(true)}
-      onended={() => void persist(true)}
-    ></audio>
+    <!-- Custom player UI -->
+    <div class="custom-audio-player">
+      <PlayerProgress
+        {position}
+        {duration}
+        formatTime={formatTimestamp}
+        on:seek={onSeek}
+      />
 
-    <div class="controls">
-      <ActionButton onclick={() => seekTo(position - SKIP_SECONDS)}>
-        <wa-icon name="rotate-ccw"></wa-icon>
-        {SKIP_SECONDS}s
-      </ActionButton>
-      <ActionButton onclick={() => seekTo(position + SKIP_SECONDS)}>
-        <wa-icon name="rotate-cw"></wa-icon>
-        {SKIP_SECONDS}s
-      </ActionButton>
-      <wa-select
-        size="s"
-        class="rate"
-        aria-label="Playback speed"
-        value={String(rate)}
-        onchange={chooseRate}
-      >
-        {#each RATES as option (option)}
-          <wa-option value={String(option)}>{option}×</wa-option>
-        {/each}
-      </wa-select>
+      <!-- Controls & Volume -->
+      <AudioPlayer
+        {audio}
+        {position}
+        {duration}
+        {rate}
+        {isPlaying}
+        on:seek={onSeek}
+        on:volumeChange={onVolumeChange}
+        on:rateChange={onRateChange}
+        on:togglePlay={onTogglePlay}
+      />
     </div>
 
-     {#if chapters.length > 0}
-       <section class="section">
-         <h3 class="section-title">Chapters</h3>
-         <table class="chapters-table">
-           <thead>
-             <tr>
-               <th class="th-index">#</th>
-               <th class="th-title">Title</th>
-               <th class="th-time">Time</th>
-             </tr>
-           </thead>
-           <tbody>
-             {#each chapters as chapter, index (chapter.audio_start)}
-               <tr class:current={index === currentChapter} onclick={() => seekTo(chapter.audio_start)}>
-                 <td class="td-index">{index + 1}</td>
-                 <td class="td-title"><div class="chapter-name-wrap">{chapter.name}</div></td>
-                 <td class="td-time">{formatTimestamp(chapter.audio_start)} – {formatTimestamp(chapter.audio_end)}</td>
-               </tr>
-             {/each}
-           </tbody>
-         </table>
-       </section>
-    {/if}
+    <!-- Chapters -->
+    <ChapterList
+      {chapters}
+      currentPosition={position}
+      onChapterSelect={(startPosition) => {
+        if (audio) seekTo(startPosition)
+      }}
+    />
   {/if}
 </div>
 
 <style>
+  .wa-player-audio {
+    display: none;
+  }
+
   .reader {
     display: flex;
     flex-direction: column;
@@ -176,75 +185,31 @@ $effect(() => {
     margin: 0 auto;
     padding: var(--wa-space-l);
   }
+
   .header {
     display: flex;
     flex-direction: column;
     gap: var(--wa-space-s);
   }
+
   .title {
     margin: 0;
     font-size: 1.25rem;
   }
+
   .muted {
     color: var(--wa-color-text-quiet);
   }
+
   .error {
     color: var(--wa-color-danger-fill-loud);
   }
-  .player {
-    width: 100%;
-  }
-  .controls {
-    display: flex;
-    align-items: center;
-    gap: var(--wa-space-s);
-  }
-  .rate {
-    min-width: 6rem;
-  }
-  .section {
+
+  .custom-audio-player {
     display: flex;
     flex-direction: column;
     gap: var(--wa-space-s);
   }
-  .section-title {
-    margin: var(--wa-space-s) 0;
-    font-size: 1rem;
-  }
-  .chapters-table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: var(--wa-space-s);
-  }
-  .chapters-table th,
-  .chapters-table td {
-    padding: var(--wa-space-xxs) var(--wa-space-s);
-    border: 1px solid var(--wa-color-divider);
-  }
-  .chapters-table th {
-    font-size: 0.75rem;
-    color: var(--wa-color-text-muted);
-    text-align: left;
-    background: var(--wa-color-bg-subtle);
-  }
-  .chapters-table td {
-    font-size: 0.875rem;
-  }
-  .chapters-table tr {
-    cursor: pointer;
-  }
-  .chapters-table tr:hover {
-    background: var(--wa-color-bg-hover);
-  }
-   .chapters-table tr.current {
-    background: var(--wa-color-brand-fill-quiet);
-  }
-  .chapter-name-wrap {
-    display: block;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 30ch;
-    margin: 0 auto;
-  }
+
+
 </style>

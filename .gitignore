@@ -31,3 +31,4 @@ docs/superpowers/*
 test-results/
 
 .superpowers/
+.claude
