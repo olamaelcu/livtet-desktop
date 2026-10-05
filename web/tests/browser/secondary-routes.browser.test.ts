@@ -37,7 +37,12 @@ test('the reader frame never scrolls and the growing region is bounded by the wi
   expect(frame.scrollHeight).toBe(frame.clientHeight)
   expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
   const viewport = container.querySelector<HTMLElement>('[data-scroll-region]') as HTMLElement
-  // Bounded: the 3000px content does not stretch it past the frame.
+  // Bounded: the fixture's 3000px in-flow child does not stretch the viewport
+  // past the frame. This guards Pane's `flex: 1 1 0` growth of
+  // [data-scroll-region] — removing that attribute turns this red. It does NOT
+  // guard Pane's `min-height: 0`: the fixture viewport's own `overflow: hidden`
+  // already forces an automatic min-height of 0, so that rule stays covered only
+  // by the real page, which sets min-height: 0 on .viewport itself.
   expect(viewport.clientHeight).toBeGreaterThan(0)
   expect(viewport.clientHeight).toBeLessThan(frame.clientHeight)
 })
