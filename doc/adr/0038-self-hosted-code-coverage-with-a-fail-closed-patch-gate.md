@@ -114,6 +114,11 @@ of preflight assertions hold.
   `scripts/**/*.mjs`. The code holding the gate being subject to the gate
   is the point, not an oversight.
 
+  That glob also brings `scripts/stage-pdfjs.mjs` into scope, which has no
+  tests and reports 0% across 13 lines. It is left in rather than
+  special-cased: it is real code, and a future change to it having to meet
+  the gate is the correct outcome, not a side effect to suppress.
+
 `crates/livtet-desktop` is largely Tauri IPC glue that is not unit-testable
 and will read low. The number is a map, not a grade.
 
@@ -148,7 +153,15 @@ nobody can read.
 The script is `.mjs` so the vitest `unit` project can test it. **Unit tests
 for it are mandatory**, not optional: untested CI glue that fails silently
 is precisely the risk this ADR exists to contain, and the gate's own logic
-must not be the one unmeasured thing in the repository.
+must not be the one unmeasured thing in the repository. It carries 33 tests
+and reports 100% line coverage.
+
+Its wiring to the real filesystem, git and argv sits behind a
+`/* v8 ignore */` marker. Exercising that layer would amount to asserting
+that node and git work, and leaving it measured put the file at 65% — below
+its own gate, meaning the gate would have blocked the change that introduced
+it. The marker sits at the exact lines it applies to rather than in a config
+file, so the exclusion is visible to anyone reading the code it excuses.
 
 ### Gate and reporting
 
@@ -159,10 +172,21 @@ accepts multiple reports, so there is no merge step to get wrong — with
 `--fail-under=85`. It exits 1 below the threshold and 0 above it, so the
 gate fails the build on its own exit status with no wrapper logic.
 
+The compare branch is overridable through `COVERAGE_COMPARE_BRANCH`, because
+this repository's only remote is named `github`, not `origin`: CI's checkout
+provides `origin/main`, which is the default, while the local equivalent is
+`github/main`. Without the override the preflight refuses on every local
+run — correctly, since an unresolved merge base is assertion 4.
+
 CI disables the taskwarrior tools through `MISE_DISABLE_TOOLS`. That list
 matches exact tool names, so it does not catch this pin; confirmed by the
 taskwarrior entries vanishing from `mise ls` under that variable while
 `pipx:diff-cover` remains.
+
+The `coverage-exempt` label described below is **not yet implemented**; it
+is deferred, so an 85% gate currently has no sanctioned override. The first
+blocked change has two honest options: more tests, or an explicit threshold
+decision. Commenting out the gate is not one of them.
 
 The threshold applies to **all** measured file types, `.svelte` included.
 85% is deliberately above current practice: the measured baseline below
@@ -271,8 +295,19 @@ A new `coverage` job in `ci.yml` running parallel to `lint` and `test`,
 with `fetch-depth: 0`, `rustup component add llvm-tools-preview`, its own
 `Swatinem/rust-cache` key since instrumented artifacts differ from the test
 job's, the existing apt prerequisites block, Playwright chromium for the
-browser project, then `mise run coverage:gate` and an `if: always()` HTML
-artifact upload. `coverage` is added to the `CI Summary` job's `needs`.
+browser project, then `mise run coverage:gate`, the `diff-cover` markdown
+report appended to `$GITHUB_STEP_SUMMARY`, and an `if: always()` artifact
+upload. `coverage` is added to the `CI Summary` job's `needs`.
+
+The job is restricted to `pull_request`. On a push to main the merge base is
+HEAD, so the diff is empty and the job would spend a full instrumented Rust
+build scoring nothing. A skipped job does not trip `CI Summary`, which tests
+for `failure` and `cancelled`.
+
+The summary step runs under `if: always()` and distinguishes the two
+outcomes: a scored report, or a note that the preflight refused before
+scoring. A gate that refused must not look, in the summary, like one that
+passed.
 
 ### Incidental fixes
 

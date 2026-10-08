@@ -1,3 +1,9 @@
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
+import process from 'node:process'
+import { pathToFileURL } from 'node:url'
+
 /**
  * Rewrite lcov `SF:` records to repository-root-relative POSIX paths.
  *
@@ -145,3 +151,129 @@ export function preflight({ reports, mergeBase, fileExists, changedFiles = [], t
 
   return { sourceFiles, measurable }
 }
+
+/**
+ * The two reports the gate consumes, and where their normalized copies go.
+ *
+ * `minRecords` is a catastrophic-emptiness floor, not a coverage target: it
+ * exists so a producer that ran and emitted nothing cannot be mistaken for a
+ * repository with no code. Current counts are 54 and 64.
+ */
+export const REPORTS = [
+  {
+    name: 'rust',
+    path: 'target/coverage/rust.lcov',
+    normalizedPath: 'target/coverage/rust.norm.lcov',
+    minRecords: 30,
+  },
+  {
+    name: 'frontend',
+    path: 'coverage/lcov.info',
+    normalizedPath: 'target/coverage/web.norm.lcov',
+    minRecords: 40,
+  },
+]
+
+/**
+ * Normalize both reports, assert the join is sound, and hand diff-cover the
+ * paths to score. Throws on the first failed assertion.
+ *
+ * @param {object} io
+ * @param {string} io.repoRoot
+ * @param {typeof REPORTS} io.reports
+ * @param {(path: string) => string} io.readFile
+ * @param {(path: string, text: string) => void} io.writeFile
+ * @param {(path: string) => boolean} io.fileExists
+ * @param {() => string} io.mergeBase
+ * @param {() => string[]} io.changedFiles
+ * @returns {{normalizedPaths: string[], sourceFiles: string[], measurable: string[]}}
+ */
+export function prepareGate(io) {
+  const normalized = io.reports.map((report) => {
+    const text = normalizeLcov(io.readFile(report.path), io.repoRoot)
+    io.writeFile(report.normalizedPath, text)
+    return { ...report, text }
+  })
+
+  const { sourceFiles, measurable } = preflight({
+    reports: normalized,
+    mergeBase: io.mergeBase(),
+    fileExists: io.fileExists,
+    changedFiles: io.changedFiles(),
+  })
+
+  return {
+    normalizedPaths: normalized.map((report) => report.normalizedPath),
+    sourceFiles,
+    measurable,
+  }
+}
+
+/* ------------------------------------------------------------------ CLI -- */
+
+/* Wiring to the real filesystem, git and argv. Excluded from coverage: there
+ * is no way to exercise it that would not amount to asserting that node and
+ * git work. Everything above this line is tested, and is what the five
+ * assertions actually live in. */
+/* v8 ignore start */
+
+/**
+ * Dependencies wired to the real filesystem and git.
+ *
+ * The compare branch is configurable because this repository's remote is
+ * named `github`, not `origin`: CI's checkout provides `origin/main`, while
+ * locally the equivalent ref is `github/main`.
+ *
+ * @returns {Parameters<typeof prepareGate>[0]}
+ */
+function realIo() {
+  const compareBranch = process.env.COVERAGE_COMPARE_BRANCH ?? 'origin/main'
+  const git = (/** @type {string[]} */ args) =>
+    execFileSync('git', args, { encoding: 'utf8' }).trim()
+  const repoRoot = git(['rev-parse', '--show-toplevel'])
+
+  /** Empty string rather than a throw, so assertion 4 reports it. */
+  const mergeBase = () => {
+    try {
+      // stderr is discarded: an unresolvable ref is handled below, and git's
+      // own 'fatal:' line reads as an unhandled error when it is not one.
+      return execFileSync('git', ['merge-base', compareBranch, 'HEAD'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim()
+    } catch {
+      return ''
+    }
+  }
+
+  return {
+    repoRoot,
+    reports: REPORTS,
+    readFile: (path) => readFileSync(path, 'utf8'),
+    writeFile: (path, text) => {
+      mkdirSync(dirname(path), { recursive: true })
+      writeFileSync(path, text)
+    },
+    fileExists: (path) => existsSync(path),
+    mergeBase,
+    changedFiles: () => {
+      const base = mergeBase()
+      if (!base) return []
+      return git(['diff', '--name-only', base, 'HEAD']).split('\n').filter(Boolean)
+    },
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    const { normalizedPaths, sourceFiles, measurable } = prepareGate(realIo())
+    console.log(
+      `${REFUSAL.replace(':', '')} passed: ${sourceFiles.length} source files, ` +
+        `${measurable.length} measurable change(s) -> ${normalizedPaths.join(' ')}`,
+    )
+  } catch (/** @type {any} */ error) {
+    console.error(error.message)
+    process.exit(1)
+  }
+}
+/* v8 ignore stop */

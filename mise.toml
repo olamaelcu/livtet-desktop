@@ -82,3 +82,18 @@ run = [
   # frontend config excludes web/tests/** for the same reason (ADR 38).
   "cargo llvm-cov --workspace --all-targets --ignore-filename-regex '(test_support|generate-bindings)\\.rs$' --lcov --output-path target/coverage/rust.lcov",
 ]
+
+[tasks.coverage]
+description = "Both coverage reports (Rust + frontend), HTML in coverage/"
+depends = ["coverage:rust", "coverage:web"]
+
+[tasks."coverage:gate"]
+description = "Normalize, run the fail-closed preflight, then score patch coverage"
+depends = ["coverage"]
+run = [
+  # Refuses to proceed unless the lcov-to-diff join is sound (ADR 38).
+  "node scripts/normalize-lcov.mjs",
+  # This repository's remote is `github`, not `origin`; CI's checkout
+  # provides origin/main, so that is the default and locals override it.
+  "diff-cover target/coverage/rust.norm.lcov target/coverage/web.norm.lcov --compare-branch=${COVERAGE_COMPARE_BRANCH:-origin/main} --fail-under=85 --markdown-report target/coverage/patch.md --html-report target/coverage/patch.html",
+]

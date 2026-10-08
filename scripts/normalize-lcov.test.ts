@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'vitest'
-import { normalizeLcov, parseSourceFiles, preflight, selectMeasurable } from './normalize-lcov.mjs'
+import {
+  normalizeLcov,
+  parseSourceFiles,
+  preflight,
+  prepareGate,
+  selectMeasurable,
+} from './normalize-lcov.mjs'
 
 /** A report that satisfies every assertion, for tests that vary one thing. */
 const soundReport = {
@@ -153,5 +159,58 @@ describe('preflight: assertion 5, the silent-pass guard', () => {
     const changedFiles = ['web/lib/a.ts', 'web/lib/b.ts']
 
     expect(() => preflight({ ...soundInputs, changedFiles })).toThrow(/web\/lib\/b\.ts/)
+  })
+})
+
+/** An io double whose reports satisfy every assertion. */
+function fakeIo(overrides: Record<string, unknown> = {}) {
+  const written = new Map<string, string>()
+  const contents: Record<string, string> = {
+    'rust.lcov': 'SF:/repo/crates/a/src/lib.rs\nDA:1,1\nend_of_record\n',
+    'web.lcov': 'SF:web/lib/search.ts\nDA:1,1\nend_of_record\n',
+  }
+  return {
+    written,
+    repoRoot: '/repo',
+    reports: [
+      { name: 'rust', path: 'rust.lcov', normalizedPath: 'out/rust.norm.lcov', minRecords: 1 },
+      { name: 'frontend', path: 'web.lcov', normalizedPath: 'out/web.norm.lcov', minRecords: 1 },
+    ],
+    readFile: (path: string) => contents[path],
+    writeFile: (path: string, text: string) => void written.set(path, text),
+    fileExists: () => true,
+    mergeBase: () => '0f1e2d3',
+    changedFiles: () => [],
+    ...overrides,
+  }
+}
+
+describe('prepareGate', () => {
+  test('writes a normalized copy of each report', () => {
+    const io = fakeIo()
+
+    prepareGate(io)
+
+    expect(io.written.get('out/rust.norm.lcov')).toContain('SF:crates/a/src/lib.rs')
+    expect(io.written.get('out/web.norm.lcov')).toContain('SF:web/lib/search.ts')
+  })
+
+  test('returns the normalized paths for diff-cover to consume', () => {
+    expect(prepareGate(fakeIo()).normalizedPaths).toEqual([
+      'out/rust.norm.lcov',
+      'out/web.norm.lcov',
+    ])
+  })
+
+  test('refuses when a changed measurable file appears in no report', () => {
+    const io = fakeIo({ changedFiles: () => ['web/lib/missing.ts'] })
+
+    expect(() => prepareGate(io)).toThrow(/web\/lib\/missing\.ts changed and is measurable/)
+  })
+
+  test('refuses when the merge base is unresolved', () => {
+    const io = fakeIo({ mergeBase: () => '' })
+
+    expect(() => prepareGate(io)).toThrow(/merge base did not resolve/)
   })
 })
