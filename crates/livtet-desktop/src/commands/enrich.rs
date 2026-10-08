@@ -225,3 +225,151 @@ pub async fn enrich_library(
         "bulk enrich library is planned for a future release",
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    /// `Enrichment` has no `Default`, so tests start from an empty one and set
+    /// only the field under test.
+    fn empty() -> Enrichment {
+        Enrichment {
+            title: None,
+            title_sort: None,
+            contributors: Vec::new(),
+            publisher: None,
+            language: None,
+            published: None,
+            description: None,
+            subjects: Vec::new(),
+            cover: None,
+            found: Vec::new(),
+        }
+    }
+
+    fn date(year: i32, month: Option<u8>, day: Option<u8>) -> ImporterPublicationDate {
+        ImporterPublicationDate { year, month, day }
+    }
+
+    #[test]
+    fn format_date_renders_year_month_day() {
+        assert_eq!(format_date(&date(2024, Some(3), Some(7))), "2024-03-07");
+    }
+
+    #[test]
+    fn format_date_omits_absent_day() {
+        assert_eq!(format_date(&date(2024, Some(3), None)), "2024-03");
+    }
+
+    #[test]
+    fn format_date_renders_year_alone() {
+        assert_eq!(format_date(&date(2024, None, None)), "2024");
+    }
+
+    #[test]
+    fn merge_adds_a_field_absent_from_current() {
+        let enrichment = Enrichment {
+            publisher: Some("Verso".to_string()),
+            ..empty()
+        };
+
+        let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
+
+        assert_eq!(preview.added.get("publisher").map(String::as_str), Some("Verso"));
+        assert!(preview.conflicts.is_empty());
+    }
+
+    #[test]
+    fn merge_reports_a_conflict_when_both_sides_differ() {
+        let current = EditionFields {
+            publisher: Some("Verso".to_string()),
+            ..Default::default()
+        };
+        let enrichment = Enrichment {
+            publisher: Some("Pluto".to_string()),
+            ..empty()
+        };
+
+        let preview = compute_merge(&current, &enrichment, "union");
+
+        assert!(preview.added.is_empty());
+        assert_eq!(
+            preview.conflicts.get("publisher").map(String::as_str),
+            Some("current: \"Verso\", source: \"Pluto\"")
+        );
+    }
+
+    #[test]
+    fn merge_unions_list_valued_fields_without_duplicating() {
+        let current = EditionFields {
+            subjects: vec!["politics".to_string()],
+            ..Default::default()
+        };
+        let enrichment = Enrichment {
+            subjects: vec!["politics".to_string(), "history".to_string()],
+            ..empty()
+        };
+
+        let preview = compute_merge(&current, &enrichment, "union");
+
+        assert_eq!(preview.unioned.get("subjects"), Some(&vec!["history".to_string()]));
+    }
+
+    #[test]
+    fn merge_collects_found_identifiers() {
+        let enrichment = Enrichment {
+            found: vec![Identifier {
+                kind: "olid".to_string(),
+                value: "OL123M".to_string(),
+            }],
+            ..empty()
+        };
+
+        let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
+
+        assert_eq!(preview.found, vec!["OL123M".to_string()]);
+    }
+
+    /// The `mode` parameter is bound as `_mode` and never read, so every mode
+    /// produces the same preview. Pinned so the dead parameter is visible
+    /// rather than assumed to work.
+    #[test]
+    fn merge_ignores_its_mode_argument() {
+        let current = EditionFields {
+            publisher: Some("Verso".to_string()),
+            ..Default::default()
+        };
+        let enrichment = Enrichment {
+            publisher: Some("Pluto".to_string()),
+            subjects: vec!["history".to_string()],
+            ..empty()
+        };
+
+        let union = compute_merge(&current, &enrichment, "union");
+        let replace = compute_merge(&current, &enrichment, "replace");
+
+        assert_eq!(union.added, replace.added);
+        assert_eq!(union.unioned, replace.unioned);
+        assert_eq!(union.conflicts, replace.conflicts);
+    }
+
+    /// Unlike publisher, description and language, `title_sort` has only an
+    /// "added" branch: a differing title_sort is silently dropped.
+    #[test]
+    fn merge_never_reports_a_title_sort_conflict() {
+        let current = EditionFields {
+            title_sort: Some("Capital".to_string()),
+            ..Default::default()
+        };
+        let enrichment = Enrichment {
+            title_sort: Some("Kapital, Das".to_string()),
+            ..empty()
+        };
+
+        let preview = compute_merge(&current, &enrichment, "union");
+
+        assert!(preview.added.is_empty());
+        assert!(preview.conflicts.is_empty());
+    }
+}
