@@ -5,6 +5,7 @@
 adr-tools = "latest"
 taskwarrior = "3.4.2"
 "pipx:taskwarrior-mcp" = "0.2.0"
+"pipx:diff-cover" = "10.6"
 pnpm = "10"
 "cargo:cargo-machete" = "0.7"
 "cargo:cargo-llvm-cov" = "0.9"
@@ -79,5 +80,5 @@ run = [
   "mkdir -p target/coverage",
   # test_support.rs files are test scaffolding, not product code -- the
   # frontend config excludes web/tests/** for the same reason (ADR 38).
-  "cargo llvm-cov --workspace --all-targets --ignore-filename-regex 'test_support\\.rs$' --lcov --output-path target/coverage/rust.lcov",
+  "cargo llvm-cov --workspace --all-targets --ignore-filename-regex '(test_support|generate-bindings)\\.rs$' --lcov --output-path target/coverage/rust.lcov",
 ]
