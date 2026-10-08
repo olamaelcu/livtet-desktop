@@ -292,3 +292,57 @@ pub struct SyncConflict {
     pub merged_payload: Option<String>,
     pub detected_at: String,
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use serde_json::json;
+
+    /// A minimal DTO: `parse` is generic, so its contract is the same whatever
+    /// the caller asks for.
+    #[derive(Debug, PartialEq, Eq, Deserialize)]
+    struct Probe {
+        name: String,
+        count: i32,
+    }
+
+    #[test]
+    fn parse_deserializes_a_matching_shape() {
+        let parsed: Probe = parse(json!({ "name": "alpha", "count": 3 })).unwrap();
+
+        assert_eq!(
+            parsed,
+            Probe {
+                name: "alpha".to_string(),
+                count: 3
+            }
+        );
+    }
+
+    #[test]
+    fn parse_maps_a_mismatch_to_a_protocol_error() {
+        let error = parse::<Probe>(json!({ "name": "alpha" })).unwrap_err();
+
+        assert!(
+            matches!(error, SyncError::Protocol { .. }),
+            "expected a protocol error, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn ok_is_true_for_a_success_envelope() {
+        assert!(ok(&json!({ "ok": true })));
+    }
+
+    /// Anything that is not an explicit `{"ok": true}` reads as failure: a
+    /// missing key, a wrong type, or a non-object all default to false rather
+    /// than being treated as success.
+    #[test]
+    fn ok_is_false_for_anything_else() {
+        assert!(!ok(&json!({ "ok": false })));
+        assert!(!ok(&json!({})));
+        assert!(!ok(&json!({ "ok": "yes" })));
+        assert!(!ok(&json!(null)));
+    }
+}
