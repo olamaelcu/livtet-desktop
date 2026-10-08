@@ -103,7 +103,16 @@ of preflight assertions hold.
   builds and report merging for a flakier number. Excluded from reports:
   `web/lib/bindings.ts` (generated from Rust enums, already force-ignored
   by Biome per ADR 6), `web/tests/**`, `e2e/**`, `.svelte-kit/**`,
-  `scripts/**`, `build/**`, and `crates/*/build.rs`.
+  `build/**`, `test_support.rs`, and
+  `crates/livtet-desktop/src/bin/generate-bindings.rs` (a build-time dev
+  tool, not shipped product).
+
+  Two corrections to an earlier draft of this list. `crates/*/build.rs`
+  needs no exclusion: cargo-llvm-cov never reports build scripts, verified
+  against a real report. And `scripts/**` is **not** excluded — the gate
+  script is deliberately measured, so `coverage.include` covers
+  `scripts/**/*.mjs`. The code holding the gate being subject to the gate
+  is the point, not an oversight.
 
 `crates/livtet-desktop` is largely Tauri IPC glue that is not unit-testable
 and will read low. The number is a map, not a grade.
@@ -143,10 +152,17 @@ must not be the one unmeasured thing in the repository.
 
 ### Gate and reporting
 
-`diff-cover` 10.6 consumes both lcov files directly — it accepts multiple
-reports, so there is no merge step to get wrong — with
+`diff-cover` 10.6, pinned as `"pipx:diff-cover"` following the
+`pipx:taskwarrior-mcp` precedent, consumes both lcov files directly — it
+accepts multiple reports, so there is no merge step to get wrong — with
 `--compare-branch=origin/main` for merge-base semantics and
-`--fail-under=85`.
+`--fail-under=85`. It exits 1 below the threshold and 0 above it, so the
+gate fails the build on its own exit status with no wrapper logic.
+
+CI disables the taskwarrior tools through `MISE_DISABLE_TOOLS`. That list
+matches exact tool names, so it does not catch this pin; confirmed by the
+taskwarrior entries vanishing from `mise ls` under that variable while
+`pipx:diff-cover` remains.
 
 The threshold applies to **all** measured file types, `.svelte` included.
 85% is deliberately above current practice: the measured baseline below
@@ -217,6 +233,23 @@ Note that `diff-cover` scores changed lines, not whole files, so these
 file-level figures overstate the gate's day-to-day difficulty: a change of
 twenty lines to a file sitting at 73% passes at 85% if seventeen of those
 twenty lines are covered.
+
+### What the gate would have said
+
+Run against a real historical range — 44 changed source files, 842 diff
+lines, spanning the PDF reader work — `diff-cover` reports **76% patch
+coverage**, with 202 lines missing. Against the 85% threshold that change
+would have been blocked.
+
+The shortfalls are concentrated where the baselines predict: `enrich.rs`
+and `capabilities.rs` at 0%, `reader.rs` at 73.9%, the PDF reader route at
+74.3%, and several route components at 0%. Two frontend modules
+(`reader/pdf.ts`, `reader/read.ts`) came in at 100%.
+
+This is the clearest available evidence about the threshold: work of this
+shape and size does not currently clear 85% without additional tests. That
+is the intended pressure, recorded here so it is not mistaken for a
+malfunction the first time it happens.
 
 Visibility is `diff-cover --markdown-report` appended to
 `$GITHUB_STEP_SUMMARY` (the pattern `cq.yml` uses) plus `--html-report`
