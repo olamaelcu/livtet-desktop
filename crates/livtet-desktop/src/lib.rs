@@ -128,7 +128,6 @@ async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     Ok(())
 }
 
-
 #[tracing::instrument(skip_all, level = "info")]
 async fn setup_database(
     database_path: Utf8PathBuf,
@@ -149,8 +148,6 @@ async fn setup_database(
 
     Ok(db)
 }
-
-
 
 #[tracing::instrument(err, skip_all, level = "info")]
 async fn setup_plugin_host(
@@ -317,7 +314,6 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
 
     Ok(())
 }
-
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

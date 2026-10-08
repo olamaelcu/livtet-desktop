@@ -276,7 +276,10 @@ mod tests {
 
         let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
 
-        assert_eq!(preview.added.get("publisher").map(String::as_str), Some("Verso"));
+        assert_eq!(
+            preview.added.get("publisher").map(String::as_str),
+            Some("Verso")
+        );
         assert!(preview.conflicts.is_empty());
     }
 
@@ -313,7 +316,10 @@ mod tests {
 
         let preview = compute_merge(&current, &enrichment, "union");
 
-        assert_eq!(preview.unioned.get("subjects"), Some(&vec!["history".to_string()]));
+        assert_eq!(
+            preview.unioned.get("subjects"),
+            Some(&vec!["history".to_string()])
+        );
     }
 
     #[test]
