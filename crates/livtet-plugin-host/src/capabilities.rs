@@ -263,3 +263,125 @@ fn sql_value_to_lua(
         }
     })
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+    use rusqlite::types::{Value, ValueRef};
+
+    #[test]
+    fn lua_nil_becomes_sql_null() {
+        assert_eq!(lua_value_to_sql(&mlua::Value::Nil).unwrap(), Value::Null);
+    }
+
+    #[test]
+    fn lua_boolean_integer_number_and_string_convert() {
+        let lua = mlua::Lua::new();
+
+        assert_eq!(
+            lua_value_to_sql(&mlua::Value::Boolean(true)).unwrap(),
+            Value::Integer(1)
+        );
+        assert_eq!(
+            lua_value_to_sql(&mlua::Value::Boolean(false)).unwrap(),
+            Value::Integer(0)
+        );
+        assert_eq!(
+            lua_value_to_sql(&mlua::Value::Integer(7)).unwrap(),
+            Value::Integer(7)
+        );
+        assert_eq!(
+            lua_value_to_sql(&mlua::Value::Number(1.5)).unwrap(),
+            Value::Real(1.5)
+        );
+        let text = mlua::Value::String(lua.create_string("hello").unwrap());
+        assert_eq!(
+            lua_value_to_sql(&text).unwrap(),
+            Value::Text("hello".to_string())
+        );
+    }
+
+    /// A Lua type with no SQL equivalent must be refused, not coerced to NULL:
+    /// binding a function as a query parameter is a plugin bug worth surfacing.
+    #[test]
+    fn unsupported_lua_value_is_an_error() {
+        let lua = mlua::Lua::new();
+        let func = mlua::Value::Function(lua.create_function(|_, ()| Ok(())).unwrap());
+
+        let error = lua_value_to_sql(&func).unwrap_err();
+
+        assert!(
+            error.contains("unsupported bind value"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn absent_params_convert_to_an_empty_vec() {
+        assert_eq!(lua_params_to_sql(None).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn param_table_converts_in_index_order() {
+        let lua = mlua::Lua::new();
+        let table = lua.create_table().unwrap();
+        table.set(1, "first").unwrap();
+        table.set(2, 2_i64).unwrap();
+        table.set(3, true).unwrap();
+
+        let params = lua_params_to_sql(Some(&table)).unwrap();
+
+        assert_eq!(
+            params,
+            vec![
+                Value::Text("first".to_string()),
+                Value::Integer(2),
+                Value::Integer(1),
+            ]
+        );
+    }
+
+    #[test]
+    fn sql_values_round_trip_back_to_lua() {
+        let lua = mlua::Lua::new();
+
+        assert!(matches!(
+            sql_value_to_lua(&lua, ValueRef::Null).unwrap(),
+            mlua::Value::Nil
+        ));
+        assert!(matches!(
+            sql_value_to_lua(&lua, ValueRef::Integer(9)).unwrap(),
+            mlua::Value::Integer(9)
+        ));
+        assert!(matches!(
+            sql_value_to_lua(&lua, ValueRef::Real(2.5)).unwrap(),
+            mlua::Value::Number(n) if (n - 2.5).abs() < f64::EPSILON
+        ));
+
+        let text = sql_value_to_lua(&lua, ValueRef::Text(b"howdy")).unwrap();
+        let mlua::Value::String(text) = text else {
+            panic!("expected a Lua string, got {text:?}");
+        };
+        assert_eq!(text.to_str().unwrap().to_owned(), "howdy");
+
+        // A blob arrives as a Lua string carrying the raw bytes.
+        let blob = sql_value_to_lua(&lua, ValueRef::Blob(&[0xff, 0x00])).unwrap();
+        assert!(matches!(blob, mlua::Value::String(_)));
+    }
+
+    /// Paths that cannot be resolved are dropped rather than passed through, so
+    /// an unreadable grant silently narrows the allow-list instead of widening
+    /// it. Uses this crate's own manifest as a path guaranteed to exist.
+    #[test]
+    fn canonicalize_all_keeps_real_paths_and_drops_the_rest() {
+        let real = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let missing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("no-such-file-9f3a.toml");
+
+        let resolved = canonicalize_all(vec![real.clone(), missing]);
+
+        assert_eq!(resolved.len(), 1, "the missing path should be dropped");
+        assert!(resolved[0].is_absolute());
+        assert!(resolved[0].ends_with("Cargo.toml"));
+    }
+}
