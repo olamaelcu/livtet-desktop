@@ -17,7 +17,7 @@ export default defineConfig({
       // vitest 4 removed `coverage.all`: without `include`, only files imported
       // during the run get reported. The coverage gate's preflight (ADR 38)
       // relies on untested files still showing up, so this list is load-bearing.
-      include: ['web/lib/**/*.ts', 'web/**/*.svelte'],
+      include: ['web/lib/**/*.ts', 'web/**/*.svelte', 'scripts/**/*.mjs'],
       exclude: ['web/lib/bindings.ts', 'web/tests/**', '**/*.test.ts'],
     },
     projects: [
@@ -26,7 +26,7 @@ export default defineConfig({
         resolve: { alias: aliases },
         test: {
           name: 'unit',
-          include: ['web/lib/**/*.test.ts'],
+          include: ['web/lib/**/*.test.ts', 'scripts/**/*.test.ts'],
           environment: 'node',
         },
       },
