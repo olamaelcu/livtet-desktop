@@ -60,6 +60,16 @@ of preflight assertions hold.
   `cargo-llvm-cov` covers them only on nightly; `mise test` continues to
   run `cargo test --doc` separately as an uncovered check.
 
+  The task creates `target/coverage` itself: `cargo-llvm-cov` does not
+  create its output directory and fails report generation if it is absent.
+  `test_support.rs` files are dropped via `--ignore-filename-regex`, since
+  they are test scaffolding rather than product code — the same reason the
+  frontend config excludes `web/tests/**`. No dependency exclusion is
+  needed: every record falls inside the repository root, so the
+  git-sourced dependencies are already absent, and integration tests under
+  `crates/*/tests/` are compiled by `--all-targets` but never reported as
+  source.
+
 * **Frontend** — `@vitest/coverage-v8` pinned to **4.1.11**. The current
   latest is 5.0.3, which is incompatible with the repository's vitest
   4.1.10. Vitest's own packages pin each other to an exact patch, not
@@ -172,10 +182,36 @@ Two findings from this run shape the rest of the work:
   reconciles exactly — 53 `.svelte` on disk, less 13 excluded test fixtures,
   equals the 40 reported — confirming nothing is silently absent.
 
-* **Frontend lcov `SF:` records are already repo-root-relative**
-  (`web/lib/notifications.svelte.ts`), so path normalization is likely a
-  no-op on the frontend side. Whether `cargo-llvm-cov` agrees is the
-  remaining unknown in the normalize step.
+* **The two producers disagree on path form.** Frontend lcov `SF:` records
+  are already repo-root-relative (`web/lib/notifications.svelte.ts`), while
+  `cargo-llvm-cov` emits absolute paths
+  (`/home/.../crates/livtet-mobi/src/cover.rs`). Normalization is therefore
+  real but one-sided: strip the repository root prefix from the Rust
+  records and leave the frontend records untouched. Assertion 3 is what
+  catches it if either producer's form ever changes.
+
+### Rust baseline
+
+Measured at commit `b80a614`, workspace-wide, `test_support.rs` excluded:
+
+| Crate | Line coverage |
+|---|---|
+| `livtet-importer-types` | 97.9% (94/96) |
+| `livtet-epub` | 94.0% (1404/1494) |
+| `livtet-mobi` | 92.7% (522/563) |
+| `livtet-audio` | 90.2% (230/255) |
+| `livtet-reader` | 85.4% (309/362) |
+| `livtet-pdf` | 82.5% (241/292) |
+| `livtet-importer` | 77.1% (290/376) |
+| `livtet-desktop` | 65.5% (4727/7222) |
+| `livtet-plugin-host` | 0.0% (0/314) |
+| `livtet-sync-daemon` | 0.0% (0/30) |
+| **Workspace** | **71.0% (7817/11004)** |
+
+The format-parsing crates sit at or above the 85% gate already.
+`livtet-desktop` at 65.5% is markedly better than this ADR originally
+predicted for Tauri IPC glue, so the expectation that it would "read low"
+is withdrawn.
 
 Note that `diff-cover` scores changed lines, not whole files, so these
 file-level figures overstate the gate's day-to-day difficulty: a change of
@@ -271,6 +307,12 @@ by coverage include globs.
   the `coverage-exempt` label more load-bearing than it appears. The first
   implementation step therefore measured the real starting numbers before
   the threshold was fixed; see **Measured baseline** above.
+* **`livtet-plugin-host` and `livtet-sync-daemon` have no tests at all**
+  (0/314 and 0/30 lines). They are the Rust counterpart to the untested
+  route components: any change to either faces an 85% patch gate with no
+  existing test infrastructure to build on. Standing up a first test for
+  each is the cheapest way to avoid the exemption label becoming routine
+  for sidecar work.
 * Coverage percentage is a proxy, not a measure of test quality. It is not
   to be read as one.
 
