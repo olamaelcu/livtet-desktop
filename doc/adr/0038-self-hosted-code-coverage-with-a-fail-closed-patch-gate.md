@@ -62,7 +62,9 @@ of preflight assertions hold.
 
 * **Frontend** — `@vitest/coverage-v8` pinned to **4.1.11**. The current
   latest is 5.0.3, which is incompatible with the repository's vitest
-  4.1.10; the major versions must match. Coverage is configured once at
+  4.1.10. Vitest's own packages pin each other to an exact patch, not
+  merely a matching major, so the whole family — `vitest`,
+  `@vitest/coverage-v8`, `@vitest/browser-playwright` — moves together. Coverage is configured once at
   the root of `vitest.config.ts` so a single `vitest run --coverage`
   aggregates the `unit` and `browser` projects. Reporters: `lcovonly`,
   `html`, `text-summary`.
@@ -134,14 +136,51 @@ must not be the one unmeasured thing in the repository.
 `diff-cover` 10.6 consumes both lcov files directly — it accepts multiple
 reports, so there is no merge step to get wrong — with
 `--compare-branch=origin/main` for merge-base semantics and
-`--fail-under=80`.
+`--fail-under=85`.
 
 The threshold applies to **all** measured file types, `.svelte` included.
-With seven component tests against 53 `.svelte` files this gate will bite
-early, so it ships with a deliberate escape hatch: a `coverage-exempt` pull
-request label skips the gate and writes a prominent line into the step
-summary naming the exemption. An override that leaves a trace is what keeps
-people off the override that does not — commenting out the gate.
+85% is deliberately above current practice: the measured baseline below
+puts this repository's existing component tests at 73–90% on the files they
+target, and that range is treated as a floor to improve on rather than a
+bar to match. The gate will therefore bite early and often, so it ships
+with a deliberate escape hatch: a `coverage-exempt` pull request label
+skips the gate and writes a prominent line into the step summary naming the
+exemption. An override that leaves a trace is what keeps people off the
+override that does not — commenting out the gate.
+
+### Measured baseline
+
+Frontend coverage was stood up first, before the gate existed, to replace
+projections with numbers. Measured at commit `75c59d0`, 160 tests across 25
+files:
+
+| Scope | Files | Line coverage |
+|---|---|---|
+| `web/lib/**/*.ts` | 24 | 72.5% (303/418) |
+| `web/**/*.svelte` | 40 | 28.6% (302/1055) |
+| Overall | 64 | 41.1% (605/1473) |
+
+Among components with at least ten coverable lines, those that have browser
+tests scored: `NavRail` 100%, `LibraryToolbar` 90.0%, `PluginList` 80.6%,
+`reader/pdf/[editionId]/+page` 76.8%, `AddBookDrawer` 73.4%. The remaining
+fifteen substantial components are at 0%.
+
+Two findings from this run shape the rest of the work:
+
+* **`coverage.include` works as assertion 5 requires.** 23 of 40 components
+  report with zero lines hit, so untested files do appear. The file count
+  reconciles exactly — 53 `.svelte` on disk, less 13 excluded test fixtures,
+  equals the 40 reported — confirming nothing is silently absent.
+
+* **Frontend lcov `SF:` records are already repo-root-relative**
+  (`web/lib/notifications.svelte.ts`), so path normalization is likely a
+  no-op on the frontend side. Whether `cargo-llvm-cov` agrees is the
+  remaining unknown in the normalize step.
+
+Note that `diff-cover` scores changed lines, not whole files, so these
+file-level figures overstate the gate's day-to-day difficulty: a change of
+twenty lines to a file sitting at 73% passes at 85% if seventeen of those
+twenty lines are covered.
 
 Visibility is `diff-cover --markdown-report` appended to
 `$GITHUB_STEP_SUMMARY` (the pattern `cq.yml` uses) plus `--html-report`
@@ -207,9 +246,12 @@ by coverage include globs.
   noticeable.
 * Assertion 5's tolerance list is maintenance: an unmeasurable file not yet
   listed fails the build. This is deliberate — the alternative is silence.
-* An 80% patch gate including `.svelte` will block route work until
-  component tests catch up. The `coverage-exempt` label is the sanctioned
-  relief valve.
+* An 85% patch gate including `.svelte` is above what four of this
+  repository's five currently-tested components achieve at file level, so
+  it will block route work until component tests get more thorough than the
+  present norm. This is intended, not incidental. The `coverage-exempt`
+  label is the sanctioned relief valve and should be expected to see real
+  use in the early weeks.
 
 ### Risks to mitigate
 
@@ -227,8 +269,8 @@ by coverage include globs.
   misses the gate. It will still make `.svelte` percentages in the HTML
   report look far worse than the hand-written code warrants, and it makes
   the `coverage-exempt` label more load-bearing than it appears. The first
-  implementation step therefore measures one component and records the real
-  starting numbers before the 80% threshold is relied upon.
+  implementation step therefore measured the real starting numbers before
+  the threshold was fixed; see **Measured baseline** above.
 * Coverage percentage is a proxy, not a measure of test quality. It is not
   to be read as one.
 
