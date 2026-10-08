@@ -49,7 +49,7 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: tauri -> target
+          workspaces: . -> target
 
       - name: Install Tauri Linux prerequisites
         run: |
@@ -107,7 +107,7 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: tauri -> target
+          workspaces: . -> target
 
       - name: Install Tauri Linux prerequisites
         run: |
@@ -156,12 +156,11 @@ jobs:
     if: always()
 
     steps:
-      - name: Success
-        if: needs.all.result == 'success'
-        run: echo "✅ All checks passed"
-
       - name: Failures
-        if: needs.any.result == 'failure'
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: |
           echo "::error::One or more jobs failed"
           exit 1
+
+      - name: Success
+        run: echo "✅ All checks passed"
