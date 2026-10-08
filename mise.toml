@@ -7,6 +7,7 @@ taskwarrior = "3.4.2"
 "pipx:taskwarrior-mcp" = "0.2.0"
 pnpm = "10"
 "cargo:cargo-machete" = "0.7"
+"cargo:cargo-llvm-cov" = "0.9"
 "github:corca-ai/nose" = "v0.20.0"
 "npm:@hypothesi/tauri-mcp-cli" = "0.10.0"
 
@@ -70,3 +71,13 @@ depends = ["secrets-export-env"]
 [tasks."coverage:web"]
 description = "Frontend coverage (vitest unit + browser) → coverage/lcov.info"
 run = "pnpm test:coverage"
+
+[tasks."coverage:rust"]
+description = "Rust coverage (workspace) → target/coverage/rust.lcov"
+run = [
+  # cargo-llvm-cov will not create the output directory itself.
+  "mkdir -p target/coverage",
+  # test_support.rs files are test scaffolding, not product code -- the
+  # frontend config excludes web/tests/** for the same reason (ADR 38).
+  "cargo llvm-cov --workspace --all-targets --ignore-filename-regex 'test_support\\.rs$' --lcov --output-path target/coverage/rust.lcov",
+]
