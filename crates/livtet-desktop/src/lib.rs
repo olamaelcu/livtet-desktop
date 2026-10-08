@@ -1,11 +1,15 @@
 pub mod commands;
 mod error;
+mod http;
+mod paths;
+mod plugin_host;
 mod roles;
 mod secrets;
 pub mod sync;
 mod types;
 
 pub use error::{PluginError, SearchIndexError};
+pub use paths::Paths;
 pub use types::{AppState, ArcMut};
 
 use std::cell::Cell;
@@ -14,6 +18,9 @@ use std::io::Write;
 use std::sync::{Arc, Mutex};
 
 use camino::Utf8PathBuf;
+
+use crate::http::reader_status;
+use crate::plugin_host::resolve_plugin_host;
 use miette::IntoDiagnostic;
 use tauri::{App, Manager};
 use tauri_specta::{Builder, collect_commands};
@@ -121,33 +128,6 @@ async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     Ok(())
 }
 
-#[derive(Debug, Clone)]
-pub struct Paths {
-    pub database_path: Utf8PathBuf,
-    pub logs_dir: Utf8PathBuf,
-    pub search_index_path: Utf8PathBuf,
-    pub covers_dir: Utf8PathBuf,
-    pub books_dir: Utf8PathBuf,
-    pub plugins_dir: Utf8PathBuf,
-}
-
-impl Paths {
-    pub fn new(app_dir: &Utf8PathBuf) -> Self {
-        let data_dir = app_dir.join("data");
-        let search_index = app_dir.join("search");
-        let logs = app_dir.join("logs");
-        let plugins_dir = app_dir.join("plugins");
-
-        Self {
-            covers_dir: data_dir.join("covers"),
-            books_dir: data_dir.join("books"),
-            database_path: data_dir,
-            logs_dir: logs,
-            search_index_path: search_index,
-            plugins_dir,
-        }
-    }
-}
 
 #[tracing::instrument(skip_all, level = "info")]
 async fn setup_database(
@@ -170,31 +150,7 @@ async fn setup_database(
     Ok(db)
 }
 
-const PLUGIN_HOST_BIN: &str = if cfg!(windows) {
-    "livtet-plugin-host.exe"
-} else {
-    "livtet-plugin-host"
-};
 
-/// Resolves the plugin host binary: an explicit override first, then next to the
-/// application binary (dev and bundled installs), then the application data dir.
-fn resolve_plugin_host(app_dir: &Utf8PathBuf) -> Utf8PathBuf {
-    if let Some(path) = std::env::var_os("LIVTET_PLUGIN_HOST") {
-        return Utf8PathBuf::from(path.to_string_lossy().into_owned());
-    }
-
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(dir) = exe.parent()
-    {
-        let candidate = dir.join(PLUGIN_HOST_BIN);
-        if candidate.is_file() {
-            return Utf8PathBuf::from_path_buf(candidate)
-                .unwrap_or_else(|path| Utf8PathBuf::from(path.to_string_lossy().into_owned()));
-        }
-    }
-
-    app_dir.join(PLUGIN_HOST_BIN)
-}
 
 #[tracing::instrument(err, skip_all, level = "info")]
 async fn setup_plugin_host(
@@ -362,13 +318,6 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     Ok(())
 }
 
-/// Empty `reader` protocol response for a status with no body (400/404/500).
-fn reader_status(status: tauri::http::StatusCode) -> tauri::http::Response<Vec<u8>> {
-    tauri::http::Response::builder()
-        .status(status)
-        .body(Vec::new())
-        .unwrap_or_else(|e| panic!("reader status is a valid response: {e}"))
-}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
