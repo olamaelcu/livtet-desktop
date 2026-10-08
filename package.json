@@ -17,6 +17,7 @@
     "test:watch": "vitest",
     "test:unit": "vitest run --project unit",
     "test:browser": "vitest run --project browser",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test --config e2e/playwright.config.ts",
     "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
     "test:e2e:browser": "playwright test --config e2e/playwright.config.ts --project=browser-only",
@@ -58,13 +59,14 @@
     "@tanstack/svelte-query-devtools": "^6.2.4",
     "@tauri-apps/cli": "^2",
     "@types/node": "*",
-    "@vitest/browser-playwright": "^4.1.10",
+    "@vitest/browser-playwright": "^4.1.11",
+    "@vitest/coverage-v8": "^4.1.11",
     "playwright": "^1.62.1",
     "svelte": "^5.56.3",
     "svelte-check": "^4.6.0",
     "typescript": "~6.0.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.11",
     "vitest-browser-svelte": "^3.0.0"
   }
 }

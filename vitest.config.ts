@@ -10,6 +10,16 @@ const aliases = {
 export default defineConfig({
   resolve: { alias: aliases },
   test: {
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: 'coverage',
+      reporter: ['text-summary', 'html', 'lcovonly'],
+      // vitest 4 removed `coverage.all`: without `include`, only files imported
+      // during the run get reported. The coverage gate's preflight (ADR 38)
+      // relies on untested files still showing up, so this list is load-bearing.
+      include: ['web/lib/**/*.ts', 'web/**/*.svelte'],
+      exclude: ['web/lib/bindings.ts', 'web/tests/**', '**/*.test.ts'],
+    },
     projects: [
       {
         plugins: [svelte()],

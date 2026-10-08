@@ -66,3 +66,7 @@ depends = ["lint", "test"]
 description = "Detect copy-paste duplication (15+ lines)"
 run = "nose query . --mode syntax 'lines>15' --format json > check-dupes.json || true"
 depends = ["secrets-export-env"]
+
+[tasks."coverage:web"]
+description = "Frontend coverage (vitest unit + browser) → coverage/lcov.info"
+run = "pnpm test:coverage"
