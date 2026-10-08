@@ -18,7 +18,13 @@ export default defineConfig({
       // during the run get reported. The coverage gate's preflight (ADR 38)
       // relies on untested files still showing up, so this list is load-bearing.
       include: ['web/lib/**/*.ts', 'web/**/*.svelte', 'scripts/**/*.mjs'],
-      exclude: ['web/lib/bindings.ts', 'web/tests/**', '**/*.test.ts'],
+      exclude: [
+        'web/lib/bindings.ts',
+        'web/tests/**',
+        '**/*.test.ts',
+        // Build staging: side-effect wiring around pdfjs-dist, not logic.
+        'scripts/stage-pdfjs.mjs',
+      ],
     },
     projects: [
       {

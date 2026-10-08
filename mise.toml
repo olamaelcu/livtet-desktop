@@ -80,7 +80,7 @@ run = [
   "mkdir -p target/coverage",
   # test_support.rs files are test scaffolding, not product code -- the
   # frontend config excludes web/tests/** for the same reason (ADR 38).
-  "cargo llvm-cov --workspace --all-targets --ignore-filename-regex '(test_support|generate-bindings)\\.rs$|livtet-desktop/src/lib\\.rs$' --lcov --output-path target/coverage/rust.lcov",
+  "cargo llvm-cov --workspace --all-targets --ignore-filename-regex '(test_support|generate-bindings|main)\\.rs$|livtet-desktop/src/lib\\.rs$' --lcov --output-path target/coverage/rust.lcov",
 ]
 
 [tasks.coverage]

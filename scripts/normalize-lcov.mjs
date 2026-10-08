@@ -60,6 +60,9 @@ const NOT_MEASURED = [
   /^web\/tests\//, // browser specs and their component fixtures
   /^e2e\//, // playwright specs, out of scope by ADR 38
   /^web\/lib\/bindings\.ts$/, // generated from Rust enums on each debug build
+  /(^|\/)main\.rs$/, // binary entrypoints: process wiring, excluded from the reports
+  /^crates\/livtet-desktop\/src\/lib\.rs$/, // app bootstrap, excluded from the reports
+  /^scripts\/stage-pdfjs\.mjs$/, // build staging script, excluded from the reports
 ]
 
 /**

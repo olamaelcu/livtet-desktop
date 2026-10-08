@@ -119,7 +119,9 @@ describe('selectMeasurable', () => {
   })
 
   test('drops a path named in the tolerance list', () => {
-    const path = 'crates/livtet-sync-daemon/src/main.rs'
+    // A path that is measurable and stays so; sidecar main.rs files became
+    // unmeasurable once they were excluded from the reports.
+    const path = 'crates/livtet-desktop/src/commands/sync.rs'
 
     expect(selectMeasurable([path])).toEqual([path])
     expect(selectMeasurable([path], { tolerated: [path] })).toEqual([])
@@ -212,5 +214,29 @@ describe('prepareGate', () => {
     const io = fakeIo({ mergeBase: () => '' })
 
     expect(() => prepareGate(io)).toThrow(/merge base did not resolve/)
+  })
+})
+
+describe('selectMeasurable: paths excluded from the reports', () => {
+  // These are excluded from the coverage reports themselves, so they must also
+  // be unmeasurable here: a file absent from every report while still matching
+  // MEASURED would trip preflight assertion 5 on any change to it.
+  test.each([
+    ['crates/livtet-plugin-host/src/main.rs', 'binary entrypoint'],
+    ['crates/livtet-sync-daemon/src/main.rs', 'binary entrypoint'],
+    ['crates/livtet-desktop/src/main.rs', 'binary entrypoint'],
+    ['crates/livtet-desktop/src/lib.rs', 'app bootstrap, excluded in Task 3'],
+    ['scripts/stage-pdfjs.mjs', 'build staging script'],
+  ])('treats %s as unmeasurable (%s)', (path) => {
+    expect(selectMeasurable([path])).toEqual([])
+  })
+
+  // The exclusions must not over-reach: these share a shape with the above.
+  test.each([
+    ['crates/livtet-importer/src/lib.rs', 'a measured crate lib.rs'],
+    ['crates/livtet-epub/src/lib.rs', 'a measured crate lib.rs'],
+    ['scripts/normalize-lcov.mjs', 'the gate script, deliberately measured'],
+  ])('still treats %s as measurable (%s)', (path) => {
+    expect(selectMeasurable([path])).toEqual([path])
   })
 })
