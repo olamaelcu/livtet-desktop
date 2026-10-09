@@ -1,6 +1,6 @@
 <script lang="ts">
 import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
-import LibraryPage from '../../../routes/library/+page.svelte'
+import LibraryPage from '$routes/library/+page.svelte'
 
 // The route reads its query client from context and drives an infinite query
 // plus a filter-options query. A fresh client per mount keeps the cache from

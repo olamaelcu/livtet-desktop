@@ -4,7 +4,7 @@
 // definitions are registered by the tests that import this fixture, because the
 // scroll contract lives on wa-tab-group's own body part.
 import AppFrame from '$lib/layout/AppFrame.svelte'
-import SettingsLayout from '../../../routes/settings/SettingsLayout.svelte'
+import SettingsLayout from '$routes/settings/SettingsLayout.svelte'
 </script>
 
 <AppFrame>

@@ -2,7 +2,7 @@
 import AppFrame from '$lib/layout/AppFrame.svelte'
 import LibraryToolbar from '$lib/library/LibraryToolbar.svelte'
 import { sentinel } from '$lib/library/sentinel'
-import LibraryLayout from '../../../routes/library/LibraryLayout.svelte'
+import LibraryLayout from '$routes/library/LibraryLayout.svelte'
 
 interface Props {
   empty?: boolean
