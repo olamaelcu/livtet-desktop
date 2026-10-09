@@ -1,7 +1,7 @@
 <script lang="ts">
 // Mirrors the pub reader's structure: its own header, then a growing viewport
 // that carries data-scroll-region (Pane grows it; the EPUB iframe scrolls inside).
-import AppFrame from '../../../lib/layout/AppFrame.svelte'
+import AppFrame from '$lib/layout/AppFrame.svelte'
 import ReaderLayout from '../../../routes/reader/ReaderLayout.svelte'
 </script>
 

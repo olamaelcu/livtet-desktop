@@ -1,6 +1,6 @@
 <script lang="ts">
-import Dock from '../../../lib/layout/Dock.svelte'
-import Pane from '../../../lib/layout/Pane.svelte'
+import Dock from '$lib/layout/Dock.svelte'
+import Pane from '$lib/layout/Pane.svelte'
 </script>
 
 <div style="padding: 80px">

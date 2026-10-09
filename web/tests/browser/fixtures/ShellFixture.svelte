@@ -1,5 +1,5 @@
 <script lang="ts">
-import RouteShell from '../../../lib/layout/RouteShell.svelte'
+import RouteShell from '$lib/layout/RouteShell.svelte'
 </script>
 
 <RouteShell>

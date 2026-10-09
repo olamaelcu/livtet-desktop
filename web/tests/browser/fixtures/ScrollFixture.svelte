@@ -1,6 +1,6 @@
 <script lang="ts">
-import Pane from '../../../lib/layout/Pane.svelte'
-import ScrollRegion from '../../../lib/layout/ScrollRegion.svelte'
+import Pane from '$lib/layout/Pane.svelte'
+import ScrollRegion from '$lib/layout/ScrollRegion.svelte'
 
 let { onscroll }: { onscroll?: () => void } = $props()
 </script>

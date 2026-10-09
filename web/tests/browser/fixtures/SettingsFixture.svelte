@@ -3,7 +3,7 @@
 // Only the panels are stand-ins (the real ones talk to Tauri). The wa-tab-*
 // definitions are registered by the tests that import this fixture, because the
 // scroll contract lives on wa-tab-group's own body part.
-import AppFrame from '../../../lib/layout/AppFrame.svelte'
+import AppFrame from '$lib/layout/AppFrame.svelte'
 import SettingsLayout from '../../../routes/settings/SettingsLayout.svelte'
 </script>
 

@@ -1,6 +1,6 @@
 <script lang="ts">
-import AppFrame from '../../../lib/layout/AppFrame.svelte'
-import ListLayout from '../../../lib/layout/ListLayout.svelte'
+import AppFrame from '$lib/layout/AppFrame.svelte'
+import ListLayout from '$lib/layout/ListLayout.svelte'
 </script>
 
 <AppFrame>

@@ -1,6 +1,6 @@
 <script lang="ts">
-import NavRail from '../../../lib/layout/NavRail.svelte'
-import { NAV_ITEMS } from '../../../lib/layout/navItems'
+import NavRail from '$lib/layout/NavRail.svelte'
+import { NAV_ITEMS } from '$lib/layout/navItems'
 
 let { width }: { width: string } = $props()
 </script>

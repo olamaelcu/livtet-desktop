@@ -1,5 +1,5 @@
 <script lang="ts">
-import AppFrame from '../../../lib/layout/AppFrame.svelte'
+import AppFrame from '$lib/layout/AppFrame.svelte'
 import CatalogDetailLayout from '../../../routes/catalog/[catalogId]/CatalogDetailLayout.svelte'
 </script>
 
