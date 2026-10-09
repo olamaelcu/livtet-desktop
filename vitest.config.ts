@@ -40,8 +40,17 @@ export default defineConfig({
         plugins: [svelte()],
         resolve: {
           alias: {
-            // Component tests run without a router; stub the page store.
+            // Component tests run without a router; stub what routes read
+            // from it. The `$app` alias below points into .svelte-kit, which
+            // is not generated for this project, so each used module needs its
+            // own stub.
             '$app/state': new URL('./web/tests/browser/stubs/app-state.ts', import.meta.url)
+              .pathname,
+            '$app/navigation': new URL(
+              './web/tests/browser/stubs/app-navigation.ts',
+              import.meta.url,
+            ).pathname,
+            '$app/paths': new URL('./web/tests/browser/stubs/app-paths.ts', import.meta.url)
               .pathname,
             ...aliases,
           },
