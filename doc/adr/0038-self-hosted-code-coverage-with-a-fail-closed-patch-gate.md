@@ -115,9 +115,17 @@ of preflight assertions hold.
   is the point, not an oversight.
 
   That glob also brings `scripts/stage-pdfjs.mjs` into scope, which has no
-  tests and reports 0% across 13 lines. It is left in rather than
-  special-cased: it is real code, and a future change to it having to meet
-  the gate is the correct outcome, not a side effect to suppress.
+  tests and reports 0% across 13 lines.
+
+  **Reversed.** An earlier revision of this decision kept it measured, on the
+  grounds that it is real code and a future change having to meet the gate is
+  the correct outcome. It is now excluded. The script is a single `main()` of
+  `rm`/`mkdir`/`cp` whose only logic is the `ASSET_DIRS` list, and testing it
+  needs filesystem doubles for no behaviour worth pinning. Against that: at 13
+  lines and 0%, any change to it fails an 85% patch gate that has no override,
+  so the earlier position priced a one-line edit at writing a filesystem test
+  harness. The reversal is recorded rather than quietly applied because the
+  argument against it was this document's own.
 
 `crates/livtet-desktop` is largely Tauri IPC glue that is not unit-testable
 and will read low. The number is a map, not a grade.
@@ -146,9 +154,26 @@ and then hard-errors unless all of the following hold:
    empty-looking frontend report as a hard error (assertion 2) rather than
    as a repository with no frontend code.
 
+6. No file in either report is one this script treats as unmeasurable. This
+   is assertion 5's mirror, and it guards the opposite direction: a file
+   excluded from the gate while coverage data exists for it is being scored
+   out silently. Without it, the exclusion list could rot into exactly the
+   hole this ADR exists to prevent.
+
 Assertion 5 needs a tolerance list for files that legitimately cannot be
 measured. That list lives in the script as named constants, not as a regex
-nobody can read.
+nobody can read, and assertion 6 is what keeps it honest as the code changes.
+
+Two classes sit on it beyond the config-excluded files. First,
+`generate-bindings.rs`, which the `coverage:rust` task excludes — it was named
+in this document's exclusion list but missing from the script's, so a change to
+it would have failed assertion 5 on a correct pull request. Second,
+**declaration-only files**: `cargo-llvm-cov` emits no record at all for a file
+with no instrumentable regions, so assertion 5 can never be satisfied for one.
+`livtet-desktop/src/types.rs`, `commands/mod.rs` and four crates' `error.rs`
+are in that state. They are named individually rather than matched by pattern,
+because the condition is content-dependent: `livtet-desktop`'s and
+`livtet-pdf`'s `error.rs` carry real code and are measured.
 
 The script is `.mjs` so the vitest `unit` project can test it. **Unit tests
 for it are mandatory**, not optional: untested CI glue that fails silently
@@ -156,12 +181,15 @@ is precisely the risk this ADR exists to contain, and the gate's own logic
 must not be the one unmeasured thing in the repository. It carries 33 tests
 and reports 100% line coverage.
 
-Its wiring to the real filesystem, git and argv sits behind a
-`/* v8 ignore */` marker. Exercising that layer would amount to asserting
-that node and git work, and leaving it measured put the file at 65% — below
-its own gate, meaning the gate would have blocked the change that introduced
-it. The marker sits at the exact lines it applies to rather than in a config
-file, so the exclusion is visible to anyone reading the code it excuses.
+Only its argv entry point sits behind a `/* v8 ignore */` marker. An earlier
+revision ignored the whole IO layer, which reported a flattering 100% while
+hiding 22% of the file — including `mergeBase`'s failure path, the gate's kill
+switch: a version returning a resolvable ref instead of an empty string there
+would disarm assertion 4, empty the changed-file list, satisfy assertion 5
+vacuously, and leave `diff-cover` scoring an empty diff at 100%. The gate would
+pass every change with no test objecting. `realIo` is therefore exported and
+takes its compare branch as a parameter, and that failure path is tested. The
+file reports 91.5%: a lower number over more real code.
 
 ### Gate and reporting
 

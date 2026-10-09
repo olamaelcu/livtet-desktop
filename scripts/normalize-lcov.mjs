@@ -63,6 +63,20 @@ const NOT_MEASURED = [
   /(^|\/)main\.rs$/, // binary entrypoints: process wiring, excluded from the reports
   /^crates\/livtet-desktop\/src\/lib\.rs$/, // app bootstrap, excluded from the reports
   /^scripts\/stage-pdfjs\.mjs$/, // build staging script, excluded from the reports
+  /(^|\/)generate-bindings\.rs$/, // build-time dev tool, excluded by the coverage:rust task
+
+  // Declaration-only files. cargo-llvm-cov emits no record at all for a file
+  // with no instrumentable regions, so assertion 5 can never be satisfied for
+  // them. Named individually rather than matched by pattern: error.rs is
+  // content-dependent — livtet-desktop's and livtet-pdf's carry real code and
+  // ARE measured. Assertion 6 below fails the build if any of these starts
+  // producing coverage data, so the list cannot rot into a silent hole.
+  /^crates\/livtet-desktop\/src\/types\.rs$/, // type declarations
+  /^crates\/livtet-desktop\/src\/commands\/mod\.rs$/, // module re-exports
+  /^crates\/livtet-audio\/src\/error\.rs$/, // thiserror derives
+  /^crates\/livtet-epub\/src\/error\.rs$/, // thiserror derives
+  /^crates\/livtet-mobi\/src\/error\.rs$/, // thiserror derives
+  /^crates\/livtet-reader\/src\/error\.rs$/, // thiserror derives
 ]
 
 /**
@@ -136,6 +150,20 @@ export function preflight({ reports, mergeBase, fileExists, changedFiles = [], t
   if (!mergeBase) {
     throw new Error(
       `${REFUSAL} merge base did not resolve; the checkout needs fetch-depth 0 for a three-dot diff`,
+    )
+  }
+
+  // Assertion 6. The mirror of assertion 5, guarding the dangerous direction:
+  // a file excluded here while coverage data exists for it is being scored out
+  // of the gate silently. This is what keeps the exclusion list above honest as
+  // the code it describes changes.
+  const staleExclusions = sourceFiles.filter((path) => selectMeasurable([path]).length === 0)
+  if (staleExclusions.length > 0) {
+    const report = reports.find((candidate) =>
+      parseSourceFiles(candidate.text).includes(staleExclusions[0]),
+    )
+    throw new Error(
+      `${REFUSAL} ${staleExclusions[0]} appears in report "${report?.name ?? 'unknown'}" but is excluded here; the exclusion has gone stale and must be removed`,
     )
   }
 
@@ -214,12 +242,6 @@ export function prepareGate(io) {
 
 /* ------------------------------------------------------------------ CLI -- */
 
-/* Wiring to the real filesystem, git and argv. Excluded from coverage: there
- * is no way to exercise it that would not amount to asserting that node and
- * git work. Everything above this line is tested, and is what the five
- * assertions actually live in. */
-/* v8 ignore start */
-
 /**
  * Dependencies wired to the real filesystem and git.
  *
@@ -227,10 +249,19 @@ export function prepareGate(io) {
  * named `github`, not `origin`: CI's checkout provides `origin/main`, while
  * locally the equivalent ref is `github/main`.
  *
+ * Exported and parameterised so its failure handling is testable. That matters
+ * more than the rest of this file: `mergeBase` returning something resolvable
+ * instead of `''` on failure would disarm assertion 4, empty `changedFiles`,
+ * satisfy assertion 5 vacuously, and leave diff-cover scoring an empty diff at
+ * 100% — the gate would pass every change. Only the argv entry point below is
+ * excluded from coverage.
+ *
+ * @param {{compareBranch?: string}} [options]
  * @returns {Parameters<typeof prepareGate>[0]}
  */
-function realIo() {
-  const compareBranch = process.env.COVERAGE_COMPARE_BRANCH ?? 'origin/main'
+export function realIo(options = {}) {
+  const compareBranch =
+    options.compareBranch ?? process.env.COVERAGE_COMPARE_BRANCH ?? 'origin/main'
   const git = (/** @type {string[]} */ args) =>
     execFileSync('git', args, { encoding: 'utf8' }).trim()
   const repoRoot = git(['rev-parse', '--show-toplevel'])
@@ -267,6 +298,9 @@ function realIo() {
   }
 }
 
+/* The argv entry point: the one part that genuinely cannot be exercised
+ * without being the command line. */
+/* v8 ignore start */
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
     const { normalizedPaths, sourceFiles, measurable } = prepareGate(realIo())

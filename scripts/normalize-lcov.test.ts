@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   normalizeLcov,
+  realIo,
   parseSourceFiles,
   preflight,
   prepareGate,
@@ -238,5 +239,70 @@ describe('selectMeasurable: paths excluded from the reports', () => {
     ['scripts/normalize-lcov.mjs', 'the gate script, deliberately measured'],
   ])('still treats %s as measurable (%s)', (path) => {
     expect(selectMeasurable([path])).toEqual([path])
+  })
+})
+
+describe('selectMeasurable: files the instrumenter never records', () => {
+  test.each([
+    ['crates/livtet-desktop/src/bin/generate-bindings.rs', 'excluded by the coverage:rust task'],
+    ['crates/livtet-desktop/src/types.rs', 'type declarations, no executable code'],
+    ['crates/livtet-desktop/src/commands/mod.rs', 'module re-exports only'],
+    ['crates/livtet-audio/src/error.rs', 'thiserror derives, no executable code'],
+    ['crates/livtet-epub/src/error.rs', 'thiserror derives, no executable code'],
+    ['crates/livtet-mobi/src/error.rs', 'thiserror derives, no executable code'],
+    ['crates/livtet-reader/src/error.rs', 'thiserror derives, no executable code'],
+  ])('treats %s as unmeasurable (%s)', (path) => {
+    expect(selectMeasurable([path])).toEqual([])
+  })
+
+  // error.rs is content-dependent, not name-dependent: these two carry real
+  // code and are measured, so the exclusion must name files, not a pattern.
+  test.each([
+    ['crates/livtet-desktop/src/error.rs', 'carries executable code'],
+    ['crates/livtet-pdf/src/error.rs', 'carries executable code'],
+  ])('still treats %s as measurable (%s)', (path) => {
+    expect(selectMeasurable([path])).toEqual([path])
+  })
+})
+
+describe('preflight: assertion 6, exclusions that have gone stale', () => {
+  // A file excluded here but present in a report is the dangerous direction:
+  // it is being scored out of the gate while coverage data exists for it.
+  test('rejects a report containing a file this script treats as unmeasurable', () => {
+    const reports = [
+      {
+        name: 'rust',
+        text: 'SF:crates/livtet-plugin-host/src/main.rs\nDA:1,1\nend_of_record\n',
+        minRecords: 1,
+      },
+    ]
+
+    expect(() => preflight({ ...soundInputs, reports })).toThrow(
+      /crates\/livtet-plugin-host\/src\/main\.rs appears in report "rust" but is excluded here/,
+    )
+  })
+
+  test('accepts a report whose files are all measurable', () => {
+    expect(() => preflight(soundInputs)).not.toThrow()
+  })
+})
+
+describe('realIo: the gate’s fail-closed wiring', () => {
+  const UNRESOLVABLE = 'definitely-not-a-ref-9f3a7c'
+
+  // This is the gate's kill switch. If mergeBase ever returns a resolvable ref
+  // on failure instead of '', assertion 4 never fires, changedFiles goes empty,
+  // assertion 5 passes trivially, and diff-cover scores an empty diff at 100% —
+  // the gate would pass every PR with no test noticing.
+  test('mergeBase returns an empty string when the compare branch does not resolve', () => {
+    expect(realIo({ compareBranch: UNRESOLVABLE }).mergeBase()).toBe('')
+  })
+
+  test('changedFiles is empty when the merge base does not resolve', () => {
+    expect(realIo({ compareBranch: UNRESOLVABLE }).changedFiles()).toEqual([])
+  })
+
+  test('mergeBase resolves a real ref to a commit sha', () => {
+    expect(realIo({ compareBranch: 'HEAD' }).mergeBase()).toMatch(/^[0-9a-f]{40}$/)
   })
 })
