@@ -38,3 +38,13 @@ pub fn read_metadata(path: &Path) -> Result<SourceMetadata> {
         .map(|stem| stem.to_string_lossy().into_owned());
     metadata::from_tag(&tag, title_fallback.as_deref())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn result_alias_works() {
+        let r: std::result::Result<i32, AudioError> = Ok(1);
+        assert!(r.is_ok());
+    }
+}

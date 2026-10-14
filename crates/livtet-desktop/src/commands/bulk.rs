@@ -114,6 +114,9 @@ mod tests {
             reason: "x".into(),
         };
     }
+
+    #[test]
+    fn pure_csv_row_joins() { assert!(super::csv_row(&["a","b"]).contains(',')); }
 }
 
 struct DeletionPlan {

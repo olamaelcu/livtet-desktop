@@ -64,47 +64,14 @@ impl SyncHandle {
                 "0",
             ]);
 
-        let (mut rx, child) = command.spawn().map_err(SyncError::unavailable)?;
+        let (rx, child) = command.spawn().map_err(SyncError::unavailable)?;
 
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
 
         let reader_app = app.clone();
         let reader_pending = Arc::clone(&pending);
-        let _reader = tauri::async_runtime::spawn(async move {
-            while let Some(event) = rx.recv().await {
-                match event {
-                    CommandEvent::Stdout(bytes) => {
-                        let line = String::from_utf8_lossy(&bytes);
-                        let line = line.trim();
-                        if line.is_empty() {
-                            continue;
-                        }
-                        handle_line(&reader_app, &reader_pending, line);
-                    }
-                    CommandEvent::Stderr(bytes) => {
-                        let line = String::from_utf8_lossy(&bytes);
-                        let line = line.trim();
-                        if !line.is_empty() {
-                            tracing::warn!(target: "livtet_sync_daemon", "{line}");
-                        }
-                    }
-                    CommandEvent::Error(error) => {
-                        tracing::warn!(error = %error, "sync daemon stream error");
-                    }
-                    CommandEvent::Terminated(payload) => {
-                        tracing::warn!(
-                            code = ?payload.code,
-                            signal = ?payload.signal,
-                            "sync daemon terminated"
-                        );
-                        fail_pending(&reader_pending, "sync daemon terminated");
-                        break;
-                    }
-                    // `CommandEvent` is `#[non_exhaustive]`.
-                    _ => {}
-                }
-            }
-        });
+        // Separate the reader loop so tests can inject a fake stream.
+        start_reader(reader_app, reader_pending, rx);
 
         Ok(Self {
             child: AsyncMutex::new(child),
@@ -116,8 +83,8 @@ impl SyncHandle {
     /// Send a JSON-RPC request and await its correlated response.
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, SyncError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let (tx, rx) = oneshot::channel();
 
+        let (tx, rx) = oneshot::channel();
         {
             let mut registry = self
                 .pending
@@ -159,8 +126,57 @@ impl SyncHandle {
     }
 }
 
+/// Start the output-draining reader task.
+///
+/// Extracted so tests can pass a fake stream without spawning a real child
+/// process. Uses `tokio::spawn` internally; the returned handle is intentionally
+/// dropped to let the task run independently.
+pub(crate) fn start_reader(
+    app: AppHandle,
+    pending: Pending,
+    mut rx: tokio::sync::mpsc::Receiver<CommandEvent>,
+) {
+    let _ = tauri::async_runtime::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                CommandEvent::Stdout(bytes) => {
+                    let line = String::from_utf8_lossy(&bytes);
+                    let line = line.trim();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    handle_line(&app, &pending, line);
+                }
+                CommandEvent::Stderr(bytes) => {
+                    let line = String::from_utf8_lossy(&bytes);
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        tracing::warn!(target: "livtet_sync_daemon", "{line}");
+                    }
+                }
+                CommandEvent::Error(error) => {
+                    tracing::warn!(error = %error, "sync daemon stream error");
+                }
+                CommandEvent::Terminated(payload) => {
+                    tracing::warn!(
+                        code = ?payload.code,
+                        signal = ?payload.signal,
+                        "sync daemon terminated"
+                    );
+                    fail_pending(&pending, "sync daemon terminated");
+                    break;
+                }
+                // `CommandEvent` is `#[non_exhaustive]`.
+                _ => {}
+            }
+        }
+    });
+}
+
 /// Decode one NDJSON line, routing responses to their waiter and notifications
 /// onto the Tauri event bus.
+///
+/// Pure logic that can be tested with a real `AppHandle` mock.
 fn handle_line(app: &AppHandle, pending: &Pending, line: &str) {
     match rpc::parse_message(line) {
         Ok(RpcMessage::Response(response)) => {
@@ -191,7 +207,8 @@ fn handle_line(app: &AppHandle, pending: &Pending, line: &str) {
 }
 
 /// Map a daemon notification method onto a `sync://…` Tauri event.
-fn route_notification(app: &AppHandle, notification: &rpc::RpcNotification) {
+#[cfg_attr(test, allow(dead_code))]
+fn route_notification(app: &AppHandle, notification: &livtet_sync_server::rpc::RpcNotification) {
     let event = match notification.method.as_str() {
         rpc::method::NOTIFY_PAIRING_REQUESTED => "sync://pairing-requested",
         rpc::method::NOTIFY_REQUEST_RECEIVED => "sync://request",
@@ -217,5 +234,26 @@ fn fail_pending(pending: &Pending, message: &str) {
         .unwrap_or_default();
     for (_, sender) in drained {
         let _ = sender.send(Err(message.to_string()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use tokio::sync::oneshot;
+    use tauri::{AppHandle, Emitter};
+    use livtet_sync_server::rpc::{self, RpcNotification};
+    use serde_json::json;
+
+    use super::{handle_line, route_notification, fail_pending, Pending};
+
+    #[test]
+    fn test_fail_pending_drains_registry() {
+        let (tx, _rx) = oneshot::channel::<Result<serde_json::Value, String>>();
+        let pending: Pending = Arc::new(Mutex::new([(1u64, tx)].into_iter().collect()));
+        fail_pending(&pending, "test termination");
+        assert!(pending.lock().unwrap().is_empty());
     }
 }

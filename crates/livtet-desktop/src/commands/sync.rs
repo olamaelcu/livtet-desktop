@@ -345,4 +345,11 @@ mod tests {
         assert!(!ok(&json!({ "ok": "yes" })));
         assert!(!ok(&json!(null)));
     }
+
+    #[test]
+    fn parse_ok_true_and_false() {
+        use super::ok;
+        assert!(ok(&serde_json::json!({"ok": true})));
+        assert!(!ok(&serde_json::json!({"ok": false})));
+    }
 }

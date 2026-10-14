@@ -1,0 +1,49 @@
+# Files excluded from the coverage denominator.
+#
+# Each non-blank, non-comment line is one extended-regex fragment matched
+# against a file's path by `cargo llvm-cov --ignore-filename-regex`; the
+# fragments are OR-joined. Escape a literal dot as `\.`. The `coverage`,
+# `coverage:html`, and `coverage-check` mise tasks all read this file, so
+# excluding a new file is a one-line edit here. See the Coverage section of
+# CONTRIBUTING.md for the rationale behind each entry.
+
+# Binary entrypoints — runtime glue (arg parsing, daemon bootstrap, process
+# exit); the logic they wire up is tested in the libraries they call.
+crates/livtet-desktop/src/main\.rs
+crates/livtet-plugin-host/src/main\.rs
+crates/livtet-sync-daemon/src/main\.rs
+/src/main\.rs
+
+# Test-support crate: fixtures, fault injection, snapshot and sync doubles
+# that exist to serve OTHER crates' tests — same class as the fake/seed
+# scaffolding above, not product code with its own behaviour to assert.
+livtet-test-utils/src/
+
+# Generated SeaORM entity models — no hand-written logic to test.
+/entities/
+
+# `fake`-feature dev/test scaffolding, compiled only to generate test data.
+src/fake\.rs
+livtet-data/src/seed\.rs
+
+# Desktop-specific exclusions
+# Tauri-generated bindings (not our code)
+src/bindings\.rs
+# Library entrypoint (already tested via binary and integration tests)
+livtet-desktop/src/lib\.rs
+# Importer FromLua trait impls — pure Lua bridge boilerplate; tested
+# through integration tests, not unit tests. Excluding them avoids
+# penalizing the workspace for unimplemented Lua interop logic.
+crates/livtet-importer/src/lib\.rs
+# Test support files (fixtures, mocks, etc.)
+test_support\.rs
+# Code generation script (not part of the product)
+generate-bindings\.rs
+
+# Web exclusions (as glob patterns, to be interpreted by Vitest)
+web/lib/bindings\.ts
+web/tests/
+**/*.test.ts
+scripts/stage-pdfjs\.mjs
+# Audio test exclusions and quick unit tests
+livtet-audio/tests/

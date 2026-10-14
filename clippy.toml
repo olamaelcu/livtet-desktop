@@ -1,0 +1,38 @@
+# Disallowed types / methods — mirroring ../core to enforce crate choices
+# already made by the workspace's dependencies (time, camino, fs-err).
+
+[[disallowed-types]]
+path = "chrono::Utc"
+reason = "Use `time::OffsetDateTime` from the `time` crate instead"
+
+[[disallowed-types]]
+path = "chrono::DateTime"
+reason = "Use `time::OffsetDateTime` from the `time` crate instead"
+
+[[disallowed-types]]
+path = "chrono::Duration"
+reason = "Use `time::Duration` from the `time` crate instead"
+
+[[disallowed-types]]
+path = "std::path::Path"
+reason = "Use camino::Utf8Path instead"
+
+[[disallowed-types]]
+path = "std::path::PathBuf"
+reason = "Use camino::Utf8PathBuf instead"
+
+[[disallowed-methods]]
+path = "std::fs::create_dir_all"
+reason = "Use fs_err::fs::create_dir_all (via 'use fs_err as fs') instead of std::fs"
+
+[[disallowed-methods]]
+path = "std::fs::write"
+reason = "Use fs_err::fs::write instead of std::fs"
+
+[[disallowed-methods]]
+path = "std::fs::read"
+reason = "Use fs_err::fs::read instead of std::fs"
+
+[[disallowed-methods]]
+path = "tokio::fs::create_dir_all"
+reason = "Use fs_err::tokio::create_dir_all instead of tokio::fs"

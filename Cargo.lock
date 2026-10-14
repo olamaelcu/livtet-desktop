@@ -4315,6 +4315,7 @@ dependencies = [
  "stanchion",
  "stanchion-abi",
  "stanchion-lua",
+ "tempfile",
 ]
 
 [[package]]

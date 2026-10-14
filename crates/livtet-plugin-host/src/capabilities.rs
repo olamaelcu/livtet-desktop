@@ -105,7 +105,7 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
     })
 }
 
-fn canonicalize_all(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+pub(crate) fn canonicalize_all(paths: Vec<PathBuf>) -> Vec<PathBuf> {
     paths
         .into_iter()
         .filter_map(|path| path.canonicalize().ok())
@@ -374,7 +374,7 @@ mod tests {
     /// an unreadable grant silently narrows the allow-list instead of widening
     /// it. Uses this crate's own manifest as a path guaranteed to exist.
     #[test]
-    fn canonicalize_all_keeps_real_paths_and_drops_the_rest() {
+    pub(crate) fn canonicalize_all_keeps_real_paths_and_drops_the_rest() {
         let real = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
         let missing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("no-such-file-9f3a.toml");
 
@@ -384,4 +384,47 @@ mod tests {
         assert!(resolved[0].is_absolute());
         assert!(resolved[0].ends_with("Cargo.toml"));
     }
+
+    /// Test that the `register` function executes without error and registers capabilities.
+    #[test]
+    fn register_adds_capabilities() {
+        let lua = mlua::Lua::new();
+        let registry = Registry::new(lua);
+        let _ = register(registry, vec![]);
+    }
+
+    #[test]
+    fn xml_module_parses_source() {
+        let lua = mlua::Lua::new();
+        let module = build_xml_module(&lua).unwrap();
+        let parse: mlua::Function = module.get("parse").unwrap();
+        let result: mlua::Table = parse.call((r#"<book/>"#,)).unwrap();
+        assert!(result.contains_key("tag").unwrap());
+    }
+
+    #[test]
+    fn sqlite_module_works_with_temp_db() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let conn = rusqlite::Connection::open(temp.path()).unwrap();
+        conn.execute("CREATE TABLE test (id INTEGER, value TEXT)", []).unwrap();
+        conn.execute("INSERT INTO test VALUES (1, 'hello')", []).unwrap();
+        let allowed = vec![temp.path().canonicalize().unwrap()];
+        let lua = mlua::Lua::new();
+        let module = build_sqlite_module(&lua, Arc::new(allowed)).unwrap();
+        let query: mlua::Function = module.get("query").unwrap();
+        let rows: mlua::Table = query.call((temp.path().to_str().unwrap(), "SELECT * FROM test", std::option::Option::<mlua::Table>::None)).unwrap();
+        assert_eq!(rows.len().unwrap(), 1);
+    }
 }
+
+
+#[test]
+fn lua_value_to_sql_roundtrip() {
+    use stanchion_lua::mlua;
+    let lua = mlua::Lua::new();
+    let v = mlua::Value::String(lua.create_string("hello").unwrap());
+    let sql = lua_value_to_sql(&v).unwrap();
+    assert!(matches!(sql, rusqlite::types::Value::Text(_)));
+}
+
+

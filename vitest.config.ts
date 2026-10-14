@@ -1,6 +1,7 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
+import { readFileSync } from 'node:fs'
 
 const aliases = {
   $lib: new URL('./web/lib', import.meta.url).pathname,
@@ -9,6 +10,13 @@ const aliases = {
   $routes: new URL('./web/routes', import.meta.url).pathname,
   $app: new URL('./.svelte-kit/runtime/app', import.meta.url).pathname,
 }
+
+// Read web exclusion globs from coverage-ignore.txt (single source of truth).
+// Lines starting with `#` or blank are ignored. Globs are matched against
+// file paths, not module specifiers — see the comment in coverage-ignore.txt.
+const webExcludes = readFileSync(new URL('./coverage-ignore.txt', import.meta.url), 'utf-8')
+  .split('\n')
+  .filter(line => !line.trim().startsWith('#') && line.trim() !== '')
 
 export default defineConfig({
   resolve: { alias: aliases },
@@ -31,13 +39,7 @@ export default defineConfig({
         'web/routes/**/*.svelte',
         'scripts/**/*.mjs',
       ],
-      exclude: [
-        'web/lib/bindings.ts',
-        'web/tests/**',
-        '**/*.test.ts',
-        // Build staging: side-effect wiring around pdfjs-dist, not logic.
-        'scripts/stage-pdfjs.mjs',
-      ],
+      exclude: webExcludes,
     },
     projects: [
       {

@@ -68,6 +68,40 @@ Live HTTP search tests (Hardcover, Google Books, OpenLibrary) are marked
 `#[ignore]` so CI doesn't hit external APIs. Opt in with `cargo test --
 --ignored` when you have API keys.
 
+## Coverage
+
+`mise run coverage:rust` measures line/region coverage with `cargo-llvm-cov`.
+The instrumented build uses `target/llvm-cov-target` (separate from the normal
+`cargo` cache so a coverage run doesn't invalidate it). Reports go to
+`target/llvm-cov/`; `mise run coverage:clean` deletes both directories and
+rebuilds, to avoid stale objects from deleted/renamed files polluting numbers.
+
+**The floor is 90% workspace-wide line coverage.** `mise run coverage-check`
+fails below it. The floor is deliberately workspace-wide rather than per-crate
+(same rationale as `core`): some crates are dominated by process lifecycle
+— `livtet-desktop/src/lib.rs`'s bootstrap, command wiring — where the harness
+to reach them costs more than it returns.
+
+Excluded from the denominator (see `coverage-ignore.txt`):
+- Test scaffolding (`test_support.rs`, `generate-bindings.rs`, `main.rs` files)
+- Generated bindings (`src/bindings.rs`, `web/lib/bindings.ts`)
+- Build staging (`scripts/stage-pdfjs.mjs`)
+- Test fixtures (`web/tests/**`, `**/*.test.ts`)
+
+**Quoting a number?** Use `mise run coverage-clean`. Deleting or renaming source
+file objects linger in `target/llvm-cov-target`; `cargo llvm-cov clean` won't
+remove them (that directory has no `CACHEDIR.TAG`), so `coverage-clean`
+deletes it outright.
+
+### Mutation testing
+
+`mise run mutants` (once `mutants` is installed) injects bugs into `livtet-types`
+and reports which the suite misses. Coverage tells you a line ran; mutation tells
+you a test would catch it breaking. Scope other crates with `cargo mutants -p <crate>`;
+annotate genuinely untestable code with `#[mutants::skip]`. Shared settings live
+in `.cargo/mutants.toml` (excludes generated/test code, gives DB-backed tests
+timeout headroom).
+
 ## Pull request process
 
 1. Branch from `main`.

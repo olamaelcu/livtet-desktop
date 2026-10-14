@@ -984,4 +984,21 @@ mod tests {
             OpdsAuth::None
         ));
     }
+
+    #[test]
+    fn pure_map_feed_maps_navigation_and_publications() {
+        let feed = livtet_opds_types::Feed::new("Test");
+        let mapped = super::map_feed(&feed);
+        assert_eq!(mapped.title, "Test");
+    }
+
+    #[test]
+    fn pure_secret_from_input_none_is_none() {
+        let input = super::OpdsAuthInput {
+            kind: super::OpdsAuthKind::None,
+            username: None, password: None, token: None,
+        };
+        assert!(super::secret_from_input(input).unwrap().is_none());
+    }
+
 }

@@ -74,17 +74,40 @@ description = "Frontend coverage (vitest unit + browser) → coverage/lcov.info"
 run = "pnpm test:coverage"
 
 [tasks."coverage:rust"]
-description = "Rust coverage (workspace) → target/coverage/rust.lcov"
+description = "Rust coverage (workspace) → target/llvm-cov/rust.lcov"
 run = [
-  # cargo-llvm-cov will not create the output directory itself.
-  "mkdir -p target/coverage",
-  # test_support.rs files are test scaffolding, not product code -- the
-  # frontend config excludes web/tests/** for the same reason (ADR 38).
-  "cargo llvm-cov --workspace --all-targets --ignore-filename-regex '(test_support|generate-bindings|main)\\.rs$|livtet-desktop/src/lib\\.rs$' --lcov --output-path target/coverage/rust.lcov",
+  # cargo llvm-cov uses its own instrumented build dir (target/llvm-cov-target)
+  # separate from the normal cargo cache, so a coverage run doesn't invalidate it.
+  # Deleting that dir after each run prevents stale objects from deleted/renamed
+  # source files from polluting future reports.
+  "mkdir -p target/llvm-cov",
+  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov --workspace --all-targets --no-report --ignore-filename-regex \"($regex)\"",
+  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov report --lcov --output-path target/llvm-cov/rust.lcov --ignore-filename-regex \"($regex)\"",
+]
+
+[tasks."coverage:clean"]
+description = "Clean separate coverage build directory. Deleting target/llvm-cov-target prevents stale objects from deleted/renamed source from polluting future reports (same rationale as core)."
+run = [
+  "rm -rf target/llvm-cov-target target/llvm-cov",
+  "mise run coverage:rust",
+]
+
+[tasks."coverage:html"]
+description = "Generate browsable HTML coverage report from the separate build dir"
+depends = ["coverage:rust"]
+run = [
+  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov report --html --ignore-filename-regex \"($regex)\"",
+]
+
+[tasks."coverage:check"]
+description = "Fail when workspace line coverage drops below 90%. Floor is workspace-wide (not per-crate) — mirrors core's rationale (some crates are dominated by process lifecycle). See coverage-ignore.txt for what is excluded."
+depends = ["coverage:rust"]
+run = [
+  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov report --summary-only --fail-under-lines 90 --ignore-filename-regex \"($regex)\"",
 ]
 
 [tasks.coverage]
-description = "Both coverage reports (Rust + frontend), HTML in coverage/"
+description = "Both coverage reports (Rust + frontend), reports in target/llvm-cov/"
 depends = ["coverage:rust", "coverage:web"]
 
 [tasks."coverage:gate"]
@@ -93,7 +116,8 @@ depends = ["coverage"]
 run = [
   # Refuses to proceed unless the lcov-to-diff join is sound (ADR 38).
   "node scripts/normalize-lcov.mjs",
+  # Reports live in target/llvm-cov/ (separate build dir, matching core convention).
   # This repository's remote is `github`, not `origin`; CI's checkout
   # provides origin/main, so that is the default and locals override it.
-  "diff-cover target/coverage/rust.norm.lcov target/coverage/web.norm.lcov --compare-branch=${COVERAGE_COMPARE_BRANCH:-origin/main} --fail-under=85 --markdown-report target/coverage/patch.md --html-report target/coverage/patch.html",
+  "diff-cover target/llvm-cov/rust.norm.lcov target/llvm-cov/web.norm.lcov --compare-branch=${COVERAGE_COMPARE_BRANCH:-origin/main} --fail-under=85 --markdown-report target/llvm-cov/patch.md --html-report target/llvm-cov/patch.html",
 ]
