@@ -4,8 +4,7 @@
 #[path = "../src/test_support.rs"]
 mod test_support;
 
-use std::path::Path;
-
+use camino::{Utf8Path, Utf8PathBuf};
 use livtet_epub::{Contributor, Cover, EpubError, Role, SourceMetadata, read_metadata};
 use test_support::{EpubBuilder, package, package3};
 
@@ -18,12 +17,15 @@ fn meta_for(metadata_body: &str) -> SourceMetadata {
     try_body(metadata_body).expect("valid EPUB")
 }
 
+/// Borrow a tempfile as UTF-8 for [`read_metadata`].
+fn upath(file: &tempfile::NamedTempFile) -> &Utf8Path {
+    Utf8Path::new(file.path().to_str().unwrap())
+}
+
 fn try_body(metadata_body: &str) -> livtet_epub::Result<SourceMetadata> {
-    read_metadata(
-        EpubBuilder::new(package3(metadata_body, "", ""))
-            .tempfile()
-            .path(),
-    )
+    read_metadata(upath(
+        &EpubBuilder::new(package3(metadata_body, "", "")).tempfile(),
+    ))
 }
 
 fn assert_roles(creators: &[Contributor], expected: &[Role]) {
@@ -35,7 +37,7 @@ fn cover_for(metadata_body: &str, manifest_extra: &str, guide: &str, file: &[u8]
     let epub = EpubBuilder::new(package3(metadata_body, manifest_extra, guide))
         .file("OEBPS/cover.jpg", file.to_vec())
         .file("OEBPS/cover.png", file.to_vec());
-    read_metadata(epub.tempfile().path()).unwrap().cover
+    read_metadata(upath(&epub.tempfile())).unwrap().cover
 }
 
 /// Metadata carrying no ISBN at all: only a UUID identifier.
@@ -65,7 +67,7 @@ fn assert_uuid_only_identifier(metadata: &SourceMetadata) {
 /// extract its metadata.
 fn epub_with_chapter(metadata: &str, chapter: impl Into<Vec<u8>>) -> SourceMetadata {
     let epub = EpubBuilder::new(package3(metadata, "", "")).file("OEBPS/chapter.xhtml", chapter);
-    read_metadata(epub.tempfile().path()).unwrap()
+    read_metadata(upath(&epub.tempfile())).unwrap()
 }
 
 /// A minimal OPF metadata body carrying `identifier` as the sole
@@ -111,7 +113,7 @@ fn extracts_full_record_mirroring_real_book() {
 
     let epub =
         EpubBuilder::new(package3(metadata, manifest, "")).file("OEBPS/cover.jpg", JPEG.to_vec());
-    let m = read_metadata(epub.tempfile().path()).unwrap();
+    let m = read_metadata(upath(&epub.tempfile())).unwrap();
 
     assert_eq!(m.title.0, "Positive Obsession");
     assert_eq!(m.title_sort, None);
@@ -355,7 +357,7 @@ fn reads_bare_and_opf_role_attributes() {
     <dc:creator role="ILL">Illustrator Two</dc:creator>
     "##;
     let opf = package("2.0", metadata, "", "");
-    let m = read_metadata(EpubBuilder::new(opf).tempfile().path()).unwrap();
+    let m = read_metadata(upath(&EpubBuilder::new(opf).tempfile())).unwrap();
     assert_roles(&m.creators, &[Role::Author, Role::Illustrator]);
 }
 
@@ -419,8 +421,8 @@ fn read_metadata_fails_closed() {
 #[test]
 fn non_epub_input_is_rejected() {
     let file = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(file.path(), b"this is not an epub").unwrap();
-    let error = read_metadata(file.path()).unwrap_err();
+    fs_err::write(file.path(), b"this is not an epub").unwrap();
+    let error = read_metadata(upath(&file)).unwrap_err();
     assert!(matches!(error, EpubError::Zip(_)), "got {error:?}");
 }
 
@@ -577,14 +579,14 @@ fn deeply_nested_opf_fails_without_crashing() {
     for _ in 0..100_000 {
         opf.push_str("<a>");
     }
-    let error = read_metadata(EpubBuilder::new(opf).tempfile().path()).unwrap_err();
+    let error = read_metadata(upath(&EpubBuilder::new(opf).tempfile())).unwrap_err();
     assert!(matches!(error, EpubError::Xml(_)), "got {error:?}");
 }
 
 #[test]
 fn reads_utf16_opf() {
     let epub = EpubBuilder::new(package3(realish_metadata(), "", "")).opf_utf16();
-    let m = read_metadata(epub.tempfile().path()).unwrap();
+    let m = read_metadata(upath(&epub.tempfile())).unwrap();
     assert_eq!(m.title.0, "Positive Obsession");
     assert_eq!(m.creators[0].name, "Susana M. Morris");
 }
@@ -605,7 +607,7 @@ fn tolerates_stray_ampersand_in_opf() {
 #[test]
 fn reads_archive_with_stripped_central_directory() {
     let epub = EpubBuilder::new(package3(realish_metadata(), "", "")).strip_central_directory();
-    let m = read_metadata(epub.tempfile().path()).unwrap();
+    let m = read_metadata(upath(&epub.tempfile())).unwrap();
     assert_eq!(m.isbns.len(), 2);
     assert_eq!(m.creators.len(), 1);
 }
@@ -616,7 +618,7 @@ fn reads_real_positive_obsession_when_available() {
     let Some(path) = std::env::var_os("LIVTET_REAL_EPUB") else {
         return;
     };
-    let m = read_metadata(Path::new(&path)).unwrap();
+    let m = read_metadata(Utf8Path::new(path.to_str().unwrap())).unwrap();
     assert_eq!(m.creators.len(), 1);
     assert_eq!(m.creators[0].name, "Susana M. Morris");
     assert_eq!(m.creators[0].role, Role::Author);
@@ -635,12 +637,13 @@ fn parses_every_epub_in_books_dir() {
     let mut scanned = 0;
     let mut failures = Vec::new();
     for entry in std::fs::read_dir(&dir).expect("read LIVTET_BOOKS_DIR") {
-        let path = entry.expect("directory entry").path();
-        if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("epub") {
+        let path = Utf8PathBuf::from_path_buf(entry.expect("directory entry").path())
+            .expect("utf8 LIVTET_BOOKS_DIR entry");
+        if !path.is_file() || path.extension() != Some("epub") {
             continue;
         }
         scanned += 1;
-        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        let name = path.file_name().unwrap().to_owned();
         match read_metadata(&path) {
             Ok(metadata) => eprintln!(
                 "OK   {name}: title={:?} isbns={} other_identifiers={}",
@@ -688,7 +691,7 @@ fn metadata_with_encryption(encryption: impl Into<String>) -> SourceMetadata {
     let epub = EpubBuilder::new(package3(minimal_metadata(), EPUB3_JPEG_COVER_ITEM, ""))
         .file("OEBPS/cover.jpg", JPEG.to_vec())
         .encryption(encryption);
-    read_metadata(epub.tempfile().path()).unwrap()
+    read_metadata(upath(&epub.tempfile())).unwrap()
 }
 
 /// The cover produced by [`metadata_with_encryption`].

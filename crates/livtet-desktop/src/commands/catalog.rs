@@ -308,7 +308,7 @@ async fn identifiers_for_edition(
 /// file; `exists()` follows symlinks, so a dangling link reads `Missing`.
 fn file_status_for(file_path: Option<&str>) -> Option<FileStatus> {
     file_path.map(|path| {
-        if std::path::Path::new(path).exists() {
+        if camino::Utf8Path::new(path).exists() {
             FileStatus::Ok
         } else {
             FileStatus::Missing
@@ -651,7 +651,7 @@ mod tests {
         // A real file behind the path reads reachable.
         let dir = tempfile::tempdir().expect("temp dir");
         let real = dir.path().join("the-book.epub");
-        std::fs::write(&real, b"book bytes").expect("write temp book");
+        fs_err::write(&real, b"book bytes").expect("write temp book");
         set_inventory_file_path(
             &db,
             seed.edition_id,

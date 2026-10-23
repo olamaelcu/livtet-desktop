@@ -11,6 +11,8 @@ publish = false
 livtet-importer-types.workspace = true
 livtet-types.workspace = true
 thiserror = "2"
+camino = "1.2"
+fs-err = "3.3"
 
 [dev-dependencies]
 tempfile = "3"

@@ -68,10 +68,12 @@ pub(crate) fn merge(
 
 /// Title resolution: XMP `dc:title` first, then the Info `/Title`.
 fn extract_title(info: &DocumentInfo, xmp: Option<&XmpMetadata>) -> Result<Title, PdfError> {
-    let raw = xmp
+    let value = xmp
         .and_then(|xmp| xmp.dc_title.as_deref())
-        .or(info.title.as_deref());
-    let value = raw.map(collapse).unwrap_or_default();
+        .map(collapse)
+        .filter(|title| !title.is_empty())
+        .or_else(|| info.title.as_deref().map(collapse))
+        .unwrap_or_default();
     if value.is_empty() {
         return Err(PdfError::MissingRequired("title"));
     }
@@ -258,8 +260,131 @@ fn collapse(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_pdf_date;
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::{DocumentInfo, PdfError, XmpMetadata, merge, parse_pdf_date};
     use livtet_importer_types::PublicationDate;
+
+    const ISBN: &str = "9780306406157";
+
+    fn info(title: &str, author: &str) -> DocumentInfo {
+        DocumentInfo {
+            title: Some(title.to_string()),
+            author: Some(author.to_string()),
+            ..DocumentInfo::default()
+        }
+    }
+
+    #[test]
+    fn xmp_wins_over_info_for_title_creators_and_date() {
+        let info = DocumentInfo {
+            creation_date: Some("D:19990101".to_string()),
+            ..info("Info Title", "Info Author")
+        };
+        let xmp = XmpMetadata {
+            dc_title: Some("  Xmp \n Title ".to_string()),
+            dc_creator: vec![
+                "Ann  Lee".to_string(),
+                " Ann Lee ".to_string(),
+                "   ".to_string(),
+                "Bo Kim".to_string(),
+            ],
+            dc_language: Some(" en ".to_string()),
+            dc_description: Some("   ".to_string()),
+            xmp_create_date: Some("2020-01-02".to_string()),
+            ..XmpMetadata::default()
+        };
+
+        let merged = merge(info, Some(xmp), None).unwrap();
+
+        assert_eq!(merged.title.0, "Xmp Title");
+        let names: Vec<&str> = merged.creators.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["Ann Lee", "Bo Kim"],
+            "collapsed, de-duplicated, blanks dropped"
+        );
+        assert_eq!(merged.language.map(|l| l.0).as_deref(), Some("en"));
+        assert_eq!(merged.description, None, "a blank description is absent");
+        assert_eq!(merged.published, date(2020, Some(1), Some(2)));
+    }
+
+    #[test]
+    fn blank_xmp_creators_fall_back_to_info_author() {
+        let xmp = XmpMetadata {
+            dc_creator: vec!["  ".to_string()],
+            ..XmpMetadata::default()
+        };
+        let merged = merge(info("T", "Cy Dee & Eve Fox"), Some(xmp), None).unwrap();
+        let names: Vec<&str> = merged.creators.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["Cy Dee", "Eve Fox"]);
+    }
+
+    #[test]
+    fn unparseable_xmp_date_falls_back_to_info_creation_date() {
+        let info = DocumentInfo {
+            creation_date: Some("D:20110304".to_string()),
+            ..info("T", "A")
+        };
+        let xmp = XmpMetadata {
+            xmp_create_date: Some("someday".to_string()),
+            ..XmpMetadata::default()
+        };
+        let merged = merge(info, Some(xmp), None).unwrap();
+        assert_eq!(merged.published, date(2011, Some(3), Some(4)));
+    }
+
+    #[test]
+    fn identifiers_and_subjects_are_swept_from_info_and_xmp() {
+        let info = DocumentInfo {
+            keywords: Some(format!("{ISBN}, foo, ,")),
+            subject: Some(format!("bar,{ISBN}")),
+            ..info("T", "A")
+        };
+        let mut xmp = XmpMetadata {
+            pdf_keywords: Some(ISBN.to_string()),
+            dc_subject: vec!["baz, foo".to_string()],
+            ..XmpMetadata::default()
+        };
+        xmp.custom
+            .insert("doi".to_string(), "doi:10.1/x".to_string());
+
+        let merged = merge(info, Some(xmp), None).unwrap();
+
+        let isbns: Vec<&str> = merged.isbns.iter().map(|isbn| isbn.as_str()).collect();
+        assert_eq!(isbns, [ISBN], "the ISBN is recovered once across carriers");
+        let others: Vec<&str> = merged
+            .other_identifiers
+            .iter()
+            .map(|id| id.0.as_str())
+            .collect();
+        assert_eq!(others, ["foo", "bar", "baz", "doi:10.1/x"]);
+        let subjects: Vec<&str> = merged.subjects.iter().map(|s| s.0.as_str()).collect();
+        assert_eq!(subjects, ["baz", "foo", "bar"], "XMP first, ISBNs excluded");
+    }
+
+    #[test]
+    fn blank_xmp_title_falls_back_to_info_title() {
+        let xmp = XmpMetadata {
+            dc_title: Some("   ".to_string()),
+            ..XmpMetadata::default()
+        };
+        let merged = merge(info("Info Title", "A"), Some(xmp), None).unwrap();
+        assert_eq!(merged.title.0, "Info Title");
+    }
+
+    #[test]
+    fn blank_title_everywhere_fails_closed() {
+        let error = merge(info("  ", "A"), None, None).unwrap_err();
+        assert!(
+            matches!(error, PdfError::MissingRequired("title")),
+            "{error:?}"
+        );
+    }
+
+    #[test]
+    fn year_zero_compact_date_is_rejected() {
+        assert_eq!(parse_pdf_date("D:00000101"), None);
+    }
 
     fn date(year: i32, month: Option<u8>, day: Option<u8>) -> Option<PublicationDate> {
         Some(PublicationDate { year, month, day })

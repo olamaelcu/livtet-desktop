@@ -153,4 +153,78 @@ mod tests {
         let json = serde_json::to_string(&bearer).unwrap();
         assert_eq!(json, r#"{"kind":"bearer","token":"t"}"#);
     }
+
+    /// Exercises [`KeyringSecretStore`] against `keyring_core`'s in-process
+    /// mock store, never the user's real keyring. One test owns the global
+    /// default store so nothing races on it.
+    ///
+    /// `keyring` v1 gates every `Entry::new` on a one-time platform store
+    /// init. Where that fails (headless CI without a Secret Service), every
+    /// call must fail closed with `Unavailable`; otherwise the mock replaces
+    /// the platform store and the full contract is checked.
+    #[test]
+    fn keyring_store_contract() {
+        let store = KeyringSecretStore;
+        let id = "01KEYRINGCONTRACTTEST";
+        let secret = CatalogSecret::Bearer {
+            token: "tok".into(),
+        };
+
+        if keyring::Entry::store_status().is_err() {
+            assert!(matches!(store.get(id), Err(SecretError::Unavailable(_))));
+            assert!(matches!(
+                store.set(id, &secret),
+                Err(SecretError::Unavailable(_))
+            ));
+            assert!(matches!(store.delete(id), Err(SecretError::Unavailable(_))));
+            return;
+        }
+
+        keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
+        let raw = keyring_core::Entry::new(KEYRING_SERVICE, id).unwrap();
+        let mock: &keyring_core::mock::Cred = raw.as_any().downcast_ref().unwrap();
+        let fail_next = || {
+            mock.set_error(keyring_core::Error::Invalid(
+                "mock".into(),
+                "store failure".into(),
+            ));
+        };
+
+        // Missing entries read as absent and delete idempotently.
+        assert_eq!(store.get(id).unwrap(), None);
+        store.delete(id).unwrap();
+
+        // Round trip through the JSON value stored under the service name.
+        store.set(id, &secret).unwrap();
+        assert_eq!(
+            raw.get_password().unwrap(),
+            r#"{"kind":"bearer","token":"tok"}"#
+        );
+        assert_eq!(store.get(id).unwrap(), Some(secret.clone()));
+
+        // Store failures other than "no entry" fail closed, never as absent.
+        fail_next();
+        assert!(matches!(store.get(id), Err(SecretError::Unavailable(_))));
+        fail_next();
+        assert!(matches!(
+            store.set(id, &secret),
+            Err(SecretError::Unavailable(_))
+        ));
+        fail_next();
+        assert!(matches!(store.delete(id), Err(SecretError::Unavailable(_))));
+        assert_eq!(
+            store.get(id).unwrap(),
+            Some(secret),
+            "a failed delete leaves the secret in place"
+        );
+
+        // A non-JSON value is reported as malformed, not as a missing secret.
+        raw.set_password("not json").unwrap();
+        assert!(matches!(store.get(id), Err(SecretError::Malformed(_))));
+
+        store.delete(id).unwrap();
+        assert_eq!(store.get(id).unwrap(), None);
+
+        keyring_core::unset_default_store();
+    }
 }

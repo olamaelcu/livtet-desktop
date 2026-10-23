@@ -1,9 +1,8 @@
 //! Locating the plugin host sidecar binary.
 
 use std::ffi::OsStr;
-use std::path::Path;
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 const PLUGIN_HOST_BIN: &str = if cfg!(windows) {
     "livtet-plugin-host.exe"
@@ -19,7 +18,8 @@ const PLUGIN_HOST_BIN: &str = if cfg!(windows) {
 pub(crate) fn resolve_plugin_host(app_dir: &Utf8PathBuf) -> Utf8PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
-        .and_then(|exe| exe.parent().map(Path::to_path_buf));
+        .and_then(|exe| Utf8PathBuf::from_path_buf(exe).ok())
+        .and_then(|exe| exe.parent().map(Utf8Path::to_path_buf));
 
     resolve_plugin_host_with(
         std::env::var_os("LIVTET_PLUGIN_HOST").as_deref(),
@@ -36,7 +36,7 @@ pub(crate) fn resolve_plugin_host(app_dir: &Utf8PathBuf) -> Utf8PathBuf {
 /// can observe a reallocated `environ`.
 fn resolve_plugin_host_with(
     override_path: Option<&OsStr>,
-    exe_dir: Option<&Path>,
+    exe_dir: Option<&Utf8Path>,
     app_dir: &Utf8PathBuf,
 ) -> Utf8PathBuf {
     if let Some(path) = override_path {
@@ -46,8 +46,7 @@ fn resolve_plugin_host_with(
     if let Some(dir) = exe_dir {
         let candidate = dir.join(PLUGIN_HOST_BIN);
         if candidate.is_file() {
-            return Utf8PathBuf::from_path_buf(candidate)
-                .unwrap_or_else(|path| Utf8PathBuf::from(path.to_string_lossy().into_owned()));
+            return candidate;
         }
     }
 
@@ -66,7 +65,7 @@ mod tests {
     /// `commands::plugins` call `tempfile::tempdir()`, which reads TMPDIR.
     fn resolve(
         override_path: Option<&str>,
-        exe_dir: Option<&std::path::Path>,
+        exe_dir: Option<&Utf8Path>,
         app_dir: &str,
     ) -> Utf8PathBuf {
         let owned = override_path.map(OsString::from);
@@ -76,9 +75,13 @@ mod tests {
     #[test]
     fn an_override_wins_over_every_other_source() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join(PLUGIN_HOST_BIN), b"#!/bin/sh\n").unwrap();
+        fs_err::write(dir.path().join(PLUGIN_HOST_BIN), b"#!/bin/sh\n").unwrap();
 
-        let resolved = resolve(Some("/opt/custom/host"), Some(dir.path()), "/app");
+        let resolved = resolve(
+            Some("/opt/custom/host"),
+            Some(Utf8Path::new(dir.path().to_str().unwrap())),
+            "/app",
+        );
 
         assert_eq!(resolved, Utf8PathBuf::from("/opt/custom/host"));
     }
@@ -98,9 +101,13 @@ mod tests {
     fn a_sibling_of_the_executable_is_preferred_when_present() {
         let dir = tempfile::tempdir().unwrap();
         let sibling = dir.path().join(PLUGIN_HOST_BIN);
-        std::fs::write(&sibling, b"#!/bin/sh\n").unwrap();
+        fs_err::write(&sibling, b"#!/bin/sh\n").unwrap();
 
-        let resolved = resolve(None, Some(dir.path()), "/app");
+        let resolved = resolve(
+            None,
+            Some(Utf8Path::new(dir.path().to_str().unwrap())),
+            "/app",
+        );
 
         assert_eq!(resolved.as_std_path(), sibling);
     }
@@ -111,7 +118,11 @@ mod tests {
     fn falls_back_to_the_app_dir_when_no_sibling_exists() {
         let empty = tempfile::tempdir().unwrap();
 
-        let resolved = resolve(None, Some(empty.path()), "/app");
+        let resolved = resolve(
+            None,
+            Some(Utf8Path::new(empty.path().to_str().unwrap())),
+            "/app",
+        );
 
         assert_eq!(resolved, Utf8PathBuf::from("/app").join(PLUGIN_HOST_BIN));
     }

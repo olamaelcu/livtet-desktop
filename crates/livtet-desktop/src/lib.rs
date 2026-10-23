@@ -38,7 +38,7 @@ use tracing_subscriber::fmt;
 #[derive(thiserror::Error, miette::Diagnostic, Debug)]
 pub enum Error {
     #[error("Could not obtain the UTF-8 version of this path {0:?}")]
-    PathResolution(std::path::PathBuf),
+    PathResolution(camino::Utf8PathBuf),
 }
 
 static LOG_FILE_GUARD: Mutex<Option<WorkerGuard>> = Mutex::new(None);
@@ -171,7 +171,7 @@ async fn setup_plugin_host(
     let host_config = app_dir.join("host.toml");
     if !host_config.exists() {
         let config = "[capabilities]\nallow = [\"log\", \"xml\", \"sqlite\"]\ncallbacks = [\"fs_read\", \"http\"]\n\n[signatures]\nrequired = false\n";
-        std::fs::write(&host_config, config).into_diagnostic()?;
+        fs_err::write(&host_config, config).into_diagnostic()?;
     }
 
     let plugin_host_path = resolve_plugin_host(app_dir);
@@ -315,6 +315,9 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     Ok(())
 }
 
+// `tauri::generate_context!` expands to code using `std::path::PathBuf`;
+// the allow is scoped here because the macro body cannot be edited.
+#[allow(clippy::disallowed_types)]
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
@@ -373,7 +376,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_decorum::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(victauri_plugin::init())
         .invoke_handler(specta_builder.invoke_handler())
         .register_asynchronous_uri_scheme_protocol("reader", |ctx, request, responder| {
             let path = request.uri().path().to_string();

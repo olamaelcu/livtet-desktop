@@ -1,7 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { playwright } from '@vitest/browser-playwright'
 import { defineConfig } from 'vitest/config'
-import { readFileSync } from 'node:fs'
 
 const aliases = {
   $lib: new URL('./web/lib', import.meta.url).pathname,
@@ -16,7 +16,7 @@ const aliases = {
 // file paths, not module specifiers — see the comment in coverage-ignore.txt.
 const webExcludes = readFileSync(new URL('./coverage-ignore.txt', import.meta.url), 'utf-8')
   .split('\n')
-  .filter(line => !line.trim().startsWith('#') && line.trim() !== '')
+  .filter((line) => !line.trim().startsWith('#') && line.trim() !== '')
 
 export default defineConfig({
   resolve: { alias: aliases },
@@ -44,7 +44,29 @@ export default defineConfig({
     projects: [
       {
         plugins: [svelte()],
-        resolve: { alias: aliases },
+        resolve: {
+          // Unit tests hit `$app/*` through modules like `searchTarget`; the
+          // same router stubs as the browser/ssr projects apply.
+          alias: [
+            {
+              find: '$app/state',
+              replacement: new URL('./web/tests/browser/stubs/app-state.ts', import.meta.url)
+                .pathname,
+            },
+            {
+              find: '$app/navigation',
+              replacement: new URL('./web/tests/browser/stubs/app-navigation.ts', import.meta.url)
+                .pathname,
+            },
+            {
+              find: '$app/paths',
+              replacement: new URL('./web/tests/browser/stubs/app-paths.ts', import.meta.url)
+                .pathname,
+            },
+            { find: '$lib', replacement: aliases.$lib },
+            { find: '$routes', replacement: aliases.$routes },
+          ],
+        },
         test: {
           name: 'unit',
           include: ['web/lib/**/*.test.ts', 'scripts/**/*.test.ts'],
@@ -54,21 +76,33 @@ export default defineConfig({
       {
         plugins: [svelte()],
         resolve: {
-          alias: {
+          // Array form: first match wins. The `$app/*` stubs must precede the
+          // root `$app` mapping (a `.svelte-kit` dir that is not generated
+          // for this project), which would otherwise prefix-match and shadow
+          // them once Vitest 5 merges the root aliases in. Only `$app/state`,
+          // `$app/navigation` and `$app/paths` are imported anywhere; the
+          // bare `$app` mapping is deliberately omitted here.
+          alias: [
             // Component tests run without a router; stub what routes read
-            // from it. The `$app` alias below points into .svelte-kit, which
-            // is not generated for this project, so each used module needs its
-            // own stub.
-            '$app/state': new URL('./web/tests/browser/stubs/app-state.ts', import.meta.url)
-              .pathname,
-            '$app/navigation': new URL(
-              './web/tests/browser/stubs/app-navigation.ts',
-              import.meta.url,
-            ).pathname,
-            '$app/paths': new URL('./web/tests/browser/stubs/app-paths.ts', import.meta.url)
-              .pathname,
-            ...aliases,
-          },
+            // from it.
+            {
+              find: '$app/state',
+              replacement: new URL('./web/tests/browser/stubs/app-state.ts', import.meta.url)
+                .pathname,
+            },
+            {
+              find: '$app/navigation',
+              replacement: new URL('./web/tests/browser/stubs/app-navigation.ts', import.meta.url)
+                .pathname,
+            },
+            {
+              find: '$app/paths',
+              replacement: new URL('./web/tests/browser/stubs/app-paths.ts', import.meta.url)
+                .pathname,
+            },
+            { find: '$lib', replacement: aliases.$lib },
+            { find: '$routes', replacement: aliases.$routes },
+          ],
         },
         test: {
           name: 'browser',
@@ -78,6 +112,39 @@ export default defineConfig({
             provider: playwright(),
             instances: [{ browser: 'chromium' }],
           },
+        },
+      },
+      {
+        plugins: [svelte()],
+        resolve: {
+          // SSR specs render routes without a router or a browser: the same
+          // `$app/*` stubs as the browser project, in the same first-match
+          // order. Spec files live under `web/tests/ssr/`, which neither the
+          // `unit` nor the `browser` project includes.
+          alias: [
+            {
+              find: '$app/state',
+              replacement: new URL('./web/tests/browser/stubs/app-state.ts', import.meta.url)
+                .pathname,
+            },
+            {
+              find: '$app/navigation',
+              replacement: new URL('./web/tests/browser/stubs/app-navigation.ts', import.meta.url)
+                .pathname,
+            },
+            {
+              find: '$app/paths',
+              replacement: new URL('./web/tests/browser/stubs/app-paths.ts', import.meta.url)
+                .pathname,
+            },
+            { find: '$lib', replacement: aliases.$lib },
+            { find: '$routes', replacement: aliases.$routes },
+          ],
+        },
+        test: {
+          name: 'ssr',
+          include: ['web/tests/ssr/**/*.ssr.test.ts'],
+          environment: 'node',
         },
       },
     ],

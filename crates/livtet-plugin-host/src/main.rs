@@ -60,14 +60,7 @@ fn run() -> Result<(), String> {
     // Add Livtet's in-host module capabilities (xml, sqlite) on top of the remote
     // host's log + forwarded callbacks. Relies on `with_setup` being additive.
     // `sqlite` may only open the database paths granted via `--sqlite`.
-    registry = capabilities::register(
-        registry,
-        options
-            .sqlite
-            .iter()
-            .map(|up| up.as_path().to_path_buf().into_std_path_buf())
-            .collect::<Vec<_>>(),
-    );
+    registry = capabilities::register(registry, options.sqlite);
 
     // Load up front so the caller's first call is fast and a broken plugin root
     // surfaces before any request arrives.

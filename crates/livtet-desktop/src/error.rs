@@ -253,26 +253,44 @@ mod tests {
 
     #[test]
     fn epub_unknown_edition_and_unsupported_format() {
-        assert!(matches!(EpubError::unknown_edition("x"), EpubError::UnknownEdition { .. }));
-        assert!(matches!(EpubError::unsupported_format("epub3"), EpubError::UnsupportedFormat { .. }));
+        assert!(matches!(
+            EpubError::unknown_edition("x"),
+            EpubError::UnknownEdition { .. }
+        ));
+        assert!(matches!(
+            EpubError::unsupported_format("epub3"),
+            EpubError::UnsupportedFormat { .. }
+        ));
     }
 
     #[test]
     fn plugin_errors_construct() {
         assert!(matches!(PluginError::host("h"), PluginError::Host { .. }));
-        assert!(matches!(PluginError::unavailable("u"), PluginError::Unavailable { .. }));
+        assert!(matches!(
+            PluginError::unavailable("u"),
+            PluginError::Unavailable { .. }
+        ));
     }
 
     #[test]
     fn sync_errors_construct() {
-        assert!(matches!(SyncError::unavailable("u"), SyncError::Unavailable { .. }));
+        assert!(matches!(
+            SyncError::unavailable("u"),
+            SyncError::Unavailable { .. }
+        ));
         assert!(matches!(SyncError::rpc("r"), SyncError::Rpc { .. }));
-        assert!(matches!(SyncError::protocol("p"), SyncError::Protocol { .. }));
+        assert!(matches!(
+            SyncError::protocol("p"),
+            SyncError::Protocol { .. }
+        ));
     }
 
     #[test]
     fn opds_invalid_input_and_feed() {
-        assert!(matches!(OpdsError::invalid_input("bad"), OpdsError::InvalidInput { .. }));
+        assert!(matches!(
+            OpdsError::invalid_input("bad"),
+            OpdsError::InvalidInput { .. }
+        ));
         assert!(matches!(OpdsError::feed("f"), OpdsError::Feed { .. }));
     }
 }

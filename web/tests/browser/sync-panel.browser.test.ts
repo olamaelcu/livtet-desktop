@@ -64,6 +64,16 @@ beforeEach(() => {
       case 'sync_conflicts_list':
       case 'sync_requests_recent':
         return []
+      case 'sync_pairing_begin':
+        return { token: 'tok-1', uri: 'livtet://pair/tok-1', expires_at: 'soon' }
+      case 'sync_pairing_approve':
+        return { device_id: 'device-abc', session_token: 'sess-1' }
+      case 'sync_pairing_reject':
+      case 'sync_devices_revoke':
+      case 'sync_conflicts_resolve':
+      case 'sync_server_start':
+      case 'sync_server_stop':
+        return true
       default:
         throw new Error(`unexpected command: ${command}`)
     }
@@ -113,6 +123,113 @@ test('reports the daemon as unavailable when both queries are refused', async ()
   // The facts table is the other arm of the same branch, so it must be absent
   // rather than merely empty.
   expect(facts(container)).toBeNull()
+})
+
+function panelButton(container: HTMLElement, label: string): HTMLElement {
+  const found = [...container.querySelectorAll<HTMLElement>('wa-button')].find((button) =>
+    button.textContent?.includes(label),
+  )
+  expect(found, `a "${label}" button`).not.toBeUndefined()
+  return found as HTMLElement
+}
+
+test('pairing a device shows the ticket and toasts', async () => {
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => facts(container)).not.toBeNull()
+
+  panelButton(container, 'Pair a device').click()
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Pairing ticket created')
+  // The URI lives in `wa-input`/`wa-qr-code` properties, not text; the expiry
+  // line proves the ticket block rendered.
+  expect(container.textContent).toContain('Expires soon.')
+  expect(invoke).toHaveBeenCalledWith('sync_pairing_begin', expect.anything())
+})
+
+test('approving a pending pairing toasts and calls approve', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_pairing_list') {
+      return [
+        {
+          token: 'tok-9',
+          desktop_id: 'd',
+          listen_on: null,
+          status_id: null,
+          device_name: 'Phone',
+          device_type_id: 'mobile',
+          device_id: null,
+          created_at: 'now',
+          expires_at: 'later',
+        },
+      ]
+    }
+    if (command === 'sync_pairing_approve') {
+      return { device_id: 'device-abc', session_token: 'sess-1' }
+    }
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('Phone')
+
+  panelButton(container, 'Approve').click()
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Device paired')
+  expect(invoke).toHaveBeenCalledWith('sync_pairing_approve', expect.anything())
+})
+
+test('revoking a device toasts', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_devices_list') {
+      return [
+        {
+          device_id: 'device-abc',
+          name: 'Laptop',
+          listen_on: null,
+          device_type_id: null,
+          paired_at: 'yesterday',
+          last_sync_at: null,
+        },
+      ]
+    }
+    if (command === 'sync_devices_revoke') return true
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('Laptop')
+
+  panelButton(container, 'Revoke').click()
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Device revoked')
+})
+
+test('resolving a conflict toasts', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_conflicts_list') {
+      return [
+        {
+          id: 7,
+          entity_type: 'book',
+          entity_id: 'ed-1',
+          local_payload: 'a',
+          remote_payload: 'b',
+          resolved: false,
+          resolution: null,
+          merged_payload: null,
+          detected_at: 'today',
+        },
+      ]
+    }
+    if (command === 'sync_conflicts_resolve') return true
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('book ed-1')
+
+  panelButton(container, 'Resolve').click()
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Conflict resolved')
 })
 
 test('shows the server as stopped while the daemon is still reachable', async () => {

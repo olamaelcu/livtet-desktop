@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use camino::{Utf8Path, Utf8PathBuf};
 
 use serde::Serialize;
 use specta::Type;
@@ -52,11 +52,12 @@ pub struct RemotePlugin {
 /// the next call gets a fresh process. `RemoteRegistry` is not `Send`, so this
 /// runs on a blocking worker and only owned data crosses back into async land.
 fn list_via_host(
-    host: PathBuf,
-    config: PathBuf,
-    plugins_dir: PathBuf,
+    host: Utf8PathBuf,
+    config: Utf8PathBuf,
+    plugins_dir: Utf8PathBuf,
 ) -> Result<Vec<PluginSummary>, PluginError> {
-    let options = stanchion::remote::RemoteOptions::new(host)
+    // `RemoteOptions` takes std paths at this boundary.
+    let options = stanchion::remote::RemoteOptions::new(host.into_std_path_buf())
         .config(config)
         .plugins(&plugins_dir);
     let mut registry =
@@ -70,7 +71,7 @@ fn list_via_host(
 /// A second host launch is only worth paying for when there is something in the
 /// disabled root to parse; a missing root (nothing has ever been disabled) reads
 /// as empty rather than as an error.
-fn has_plugin_dirs(root: &Path) -> bool {
+fn has_plugin_dirs(root: &Utf8Path) -> bool {
     std::fs::read_dir(root).is_ok_and(|mut entries| {
         entries.any(|entry| entry.is_ok_and(|entry| entry.path().is_dir()))
     })
@@ -84,10 +85,10 @@ fn has_plugin_dirs(root: &Path) -> bool {
 /// still parses it — it is simply never loaded for work, since the root it sits
 /// in is not the one the app points the host at elsewhere.
 fn list_all_via_host(
-    host: PathBuf,
-    config: PathBuf,
-    plugins_dir: PathBuf,
-    disabled_dir: PathBuf,
+    host: Utf8PathBuf,
+    config: Utf8PathBuf,
+    plugins_dir: Utf8PathBuf,
+    disabled_dir: Utf8PathBuf,
 ) -> Result<Vec<PluginSummary>, PluginError> {
     let mut plugins = list_via_host(host.clone(), config.clone(), plugins_dir)?;
     if has_plugin_dirs(&disabled_dir) {
@@ -120,12 +121,12 @@ fn ensure_safe_name(name: &str) -> Result<(), PluginError> {
 /// branch where `std::fs::copy` *would* follow it and pull external bytes (e.g. a
 /// link to `/etc/passwd`) into the plugins directory. Refusing symlinks keeps an
 /// installed plugin's directory a faithful, self-contained copy of its source.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dst)?;
+fn copy_dir_recursive(src: &Utf8Path, dst: &Utf8Path) -> std::io::Result<()> {
+    fs_err::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
-        let target = dst.join(entry.file_name());
+        let target = dst.join(entry.file_name().to_string_lossy().as_ref());
         if file_type.is_symlink() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -135,7 +136,10 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
                 ),
             ));
         } else if file_type.is_dir() {
-            copy_dir_recursive(&entry.path(), &target)?;
+            let sub = Utf8PathBuf::from_path_buf(entry.path()).map_err(|_| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path")
+            })?;
+            copy_dir_recursive(&sub, &target)?;
         } else {
             std::fs::copy(entry.path(), &target)?;
         }
@@ -152,16 +156,13 @@ struct ManifestName {
 }
 
 /// Reads the declared plugin name from `<source>/plugin.toml`.
-fn read_plugin_name(source: &Path) -> Result<String, PluginError> {
+fn read_plugin_name(source: &Utf8Path) -> Result<String, PluginError> {
     let manifest_path = source.join("plugin.toml");
     let text = std::fs::read_to_string(&manifest_path).map_err(|err| {
-        PluginError::invalid(format!(
-            "not a plugin directory ({}): {err}",
-            manifest_path.display()
-        ))
+        PluginError::invalid(format!("not a plugin directory ({manifest_path}): {err}"))
     })?;
     let manifest: ManifestName = toml::from_str(&text)
-        .map_err(|err| PluginError::invalid(format!("{}: {err}", manifest_path.display())))?;
+        .map_err(|err| PluginError::invalid(format!("{manifest_path}: {err}")))?;
     Ok(manifest.name)
 }
 
@@ -171,23 +172,22 @@ fn read_plugin_name(source: &Path) -> Result<String, PluginError> {
 /// The name is read from the manifest and checked to be a safe path segment, and
 /// an existing install with the same name is refused rather than silently
 /// overwritten. Full manifest validation happens when the host loads the plugin.
-fn install_plugin_dir(plugins_dir: &Path, source: &Path) -> Result<String, PluginError> {
+fn install_plugin_dir(plugins_dir: &Utf8Path, source: &Utf8Path) -> Result<String, PluginError> {
     let name = read_plugin_name(source)?;
     ensure_safe_name(&name)?;
 
-    let dest = plugins_dir.join(&name);
+    let dest = plugins_dir.join(name.as_str());
     if dest.exists() {
         return Err(PluginError::invalid(format!(
             "a plugin named \"{name}\" is already installed"
         )));
     }
-    std::fs::create_dir_all(plugins_dir).map_err(PluginError::host)?;
+    fs_err::create_dir_all(plugins_dir).map_err(PluginError::host)?;
     if let Err(err) = copy_dir_recursive(source, &dest) {
         // A partial copy must not linger as a half-installed plugin.
         let _ = std::fs::remove_dir_all(&dest);
         return Err(PluginError::invalid(format!(
-            "could not copy plugin from {}: {err}",
-            source.display()
+            "could not copy plugin from {source}: {err}"
         )));
     }
     Ok(name)
@@ -196,7 +196,7 @@ fn install_plugin_dir(plugins_dir: &Path, source: &Path) -> Result<String, Plugi
 /// Removes an installed plugin's directory. Uninstalling is how a plugin's access
 /// is durably revoked: the host is launched per call, so it carries no state
 /// between calls to revoke against.
-fn remove_plugin_dir(plugins_dir: &Path, name: &str) -> Result<(), PluginError> {
+fn remove_plugin_dir(plugins_dir: &Utf8Path, name: &str) -> Result<(), PluginError> {
     ensure_safe_name(name)?;
     let dest = plugins_dir.join(name);
     if !dest.is_dir() {
@@ -215,8 +215,8 @@ fn remove_plugin_dir(plugins_dir: &Path, name: &str) -> Result<(), PluginError> 
 /// plugin silently does nothing. The error for a name in neither root is the same
 /// one [`remove_plugin_dir`] has always given.
 fn remove_plugin_from_roots(
-    plugins_dir: &Path,
-    disabled_dir: &Path,
+    plugins_dir: &Utf8Path,
+    disabled_dir: &Utf8Path,
     name: &str,
 ) -> Result<(), PluginError> {
     ensure_safe_name(name)?;
@@ -239,8 +239,8 @@ fn remove_plugin_from_roots(
 /// Idempotent: a plugin already in the requested root is left alone, so toggling
 /// a switch twice is not an error.
 fn move_plugin_between_roots(
-    plugins_dir: &Path,
-    disabled_dir: &Path,
+    plugins_dir: &Utf8Path,
+    disabled_dir: &Utf8Path,
     name: &str,
     enabled: bool,
 ) -> Result<(), PluginError> {
@@ -259,7 +259,7 @@ fn move_plugin_between_roots(
         )));
     }
     if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(PluginError::host)?;
+        fs_err::create_dir_all(parent).map_err(PluginError::host)?;
     }
     std::fs::rename(&from, &to).map_err(PluginError::host)?;
     Ok(())
@@ -270,10 +270,10 @@ fn move_plugin_between_roots(
 #[tauri::command]
 #[specta::specta]
 pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginSummary>, PluginError> {
-    let host = state.plugin_host_path.clone().into_std_path_buf();
-    let config = state.plugin_host_config.clone().into_std_path_buf();
-    let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
-    let disabled_dir = state.disabled_plugins_dir.clone().into_std_path_buf();
+    let host = state.plugin_host_path.clone();
+    let config = state.plugin_host_config.clone();
+    let plugins_dir = state.plugins_dir.clone();
+    let disabled_dir = state.disabled_plugins_dir.clone();
 
     tokio::task::spawn_blocking(move || list_all_via_host(host, config, plugins_dir, disabled_dir))
         .await
@@ -293,8 +293,8 @@ pub async fn set_plugin_enabled(
     name: String,
     enabled: bool,
 ) -> Result<(), PluginError> {
-    let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
-    let disabled_dir = state.disabled_plugins_dir.clone().into_std_path_buf();
+    let plugins_dir = state.plugins_dir.clone();
+    let disabled_dir = state.disabled_plugins_dir.clone();
 
     tokio::task::spawn_blocking(move || {
         move_plugin_between_roots(&plugins_dir, &disabled_dir, &name, enabled)
@@ -308,14 +308,14 @@ pub async fn set_plugin_enabled(
 /// plugin loading but not appearing — rolls the copy back, so the plugins
 /// directory is never left with a broken plugin.
 fn install_and_verify(
-    host: PathBuf,
-    config: PathBuf,
-    plugins_dir: PathBuf,
-    source: &Path,
+    host: Utf8PathBuf,
+    config: Utf8PathBuf,
+    plugins_dir: Utf8PathBuf,
+    source: &Utf8Path,
 ) -> Result<PluginSummary, PluginError> {
     let name = install_plugin_dir(&plugins_dir, source)?;
     let rollback = || {
-        let _ = std::fs::remove_dir_all(plugins_dir.join(&name));
+        let _ = std::fs::remove_dir_all(plugins_dir.join(name.as_str()));
     };
 
     let loaded = match list_via_host(host, config, plugins_dir.clone()) {
@@ -344,10 +344,10 @@ pub async fn add_plugin_from_path(
     state: State<'_, AppState>,
     source: String,
 ) -> Result<PluginSummary, PluginError> {
-    let host = state.plugin_host_path.clone().into_std_path_buf();
-    let config = state.plugin_host_config.clone().into_std_path_buf();
-    let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
-    let source = PathBuf::from(source);
+    let host = state.plugin_host_path.clone();
+    let config = state.plugin_host_config.clone();
+    let plugins_dir = state.plugins_dir.clone();
+    let source = Utf8PathBuf::from(source);
 
     tokio::task::spawn_blocking(move || install_and_verify(host, config, plugins_dir, &source))
         .await
@@ -359,8 +359,8 @@ pub async fn add_plugin_from_path(
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_plugin(state: State<'_, AppState>, name: String) -> Result<(), PluginError> {
-    let plugins_dir = state.plugins_dir.clone().into_std_path_buf();
-    let disabled_dir = state.disabled_plugins_dir.clone().into_std_path_buf();
+    let plugins_dir = state.plugins_dir.clone();
+    let disabled_dir = state.disabled_plugins_dir.clone();
     tokio::task::spawn_blocking(move || {
         remove_plugin_from_roots(&plugins_dir, &disabled_dir, &name)
     })
@@ -402,15 +402,18 @@ pub async fn install_remote_plugin(
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use std::fs;
-    use std::path::Path;
-
-    use std::path::PathBuf;
+    use camino::{Utf8Path, Utf8PathBuf};
+    use fs_err as fs;
 
     use super::{
         PluginError, install_and_verify, install_plugin_dir, list_all_via_host, list_via_host,
         move_plugin_between_roots, remove_plugin_dir, remove_plugin_from_roots,
     };
+
+    /// Join `name` onto a tempdir and borrow it as UTF-8.
+    fn dir(root: &tempfile::TempDir, name: &str) -> Utf8PathBuf {
+        Utf8PathBuf::from(root.path().to_str().unwrap()).join(name)
+    }
 
     /// A Lua importer the host can actually load, for host-backed tests.
     const LOADABLE_IMPORTER: &str = r#"
@@ -422,18 +425,19 @@ function Importer:read_metadata(path) return { title = "T" } end
 return Importer
 "#;
 
-    fn host_binary() -> PathBuf {
+    fn host_binary() -> Utf8PathBuf {
         let test_binary = std::env::current_exe().unwrap();
         let profile_dir = test_binary.parent().and_then(|path| path.parent()).unwrap();
-        profile_dir.join(if cfg!(windows) {
+        Utf8PathBuf::from_path_buf(profile_dir.join(if cfg!(windows) {
             "livtet-plugin-host.exe"
         } else {
             "livtet-plugin-host"
-        })
+        }))
+        .unwrap()
     }
 
-    fn write_host_config(dir: &Path) -> PathBuf {
-        let config = dir.join("host.toml");
+    fn write_host_config(root: &tempfile::TempDir) -> Utf8PathBuf {
+        let config = dir(root, "host.toml");
         fs::write(
             &config,
             "[capabilities]\nallow = [\"log\"]\ncallbacks = [\"fs_read\"]\n\n[signatures]\nrequired = false\n",
@@ -442,7 +446,7 @@ return Importer
         config
     }
 
-    fn write_loadable_plugin(plugins_dir: &Path, name: &str) -> PathBuf {
+    fn write_loadable_plugin(plugins_dir: &Utf8Path, name: &str) -> Utf8PathBuf {
         let plugin_dir = plugins_dir.join(name);
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
@@ -454,7 +458,7 @@ return Importer
         plugin_dir
     }
 
-    fn write_plugin(plugins_dir: &Path, name: &str) -> std::path::PathBuf {
+    fn write_plugin(plugins_dir: &Utf8Path, name: &str) -> Utf8PathBuf {
         let plugin_dir = plugins_dir.join(name);
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
@@ -471,8 +475,8 @@ return Importer
     #[test]
     fn install_names_destination_by_manifest_and_copies_files() {
         let root = tempfile::tempdir().unwrap();
-        let source = write_plugin(&root.path().join("src"), "txt-importer");
-        let plugins_dir = root.path().join("plugins");
+        let source = write_plugin(&dir(&root, "src"), "txt-importer");
+        let plugins_dir = dir(&root, "plugins");
 
         let name = install_plugin_dir(&plugins_dir, &source).expect("install succeeds");
 
@@ -484,8 +488,8 @@ return Importer
     #[test]
     fn install_refuses_a_duplicate_name() {
         let root = tempfile::tempdir().unwrap();
-        let source = write_plugin(&root.path().join("src"), "dup");
-        let plugins_dir = root.path().join("plugins");
+        let source = write_plugin(&dir(&root, "src"), "dup");
+        let plugins_dir = dir(&root, "plugins");
 
         install_plugin_dir(&plugins_dir, &source).expect("first install");
         let err = install_plugin_dir(&plugins_dir, &source).expect_err("second install fails");
@@ -495,9 +499,9 @@ return Importer
     #[test]
     fn install_rejects_a_source_without_a_manifest() {
         let root = tempfile::tempdir().unwrap();
-        let source = root.path().join("empty");
+        let source = dir(&root, "empty");
         fs::create_dir_all(&source).unwrap();
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
 
         let err = install_plugin_dir(&plugins_dir, &source).expect_err("no manifest fails");
         assert!(matches!(err, PluginError::Invalid { .. }), "got {err:?}");
@@ -506,8 +510,8 @@ return Importer
     #[test]
     fn remove_deletes_an_installed_plugin() {
         let root = tempfile::tempdir().unwrap();
-        let source = write_plugin(&root.path().join("src"), "gone");
-        let plugins_dir = root.path().join("plugins");
+        let source = write_plugin(&dir(&root, "src"), "gone");
+        let plugins_dir = dir(&root, "plugins");
         install_plugin_dir(&plugins_dir, &source).unwrap();
 
         remove_plugin_dir(&plugins_dir, "gone").expect("remove succeeds");
@@ -517,9 +521,9 @@ return Importer
     #[test]
     fn remove_rejects_path_traversal_and_deletes_nothing() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
         fs::create_dir_all(&plugins_dir).unwrap();
-        let sentinel = root.path().join("keep.txt");
+        let sentinel = dir(&root, "keep.txt");
         fs::write(&sentinel, b"keep").unwrap();
 
         for evil in ["..", "../keep.txt", "../..", "nested/child"] {
@@ -538,8 +542,8 @@ return Importer
     #[test]
     fn set_plugin_enabled_moves_between_roots() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
-        let disabled_dir = root.path().join("plugins-disabled");
+        let plugins_dir = dir(&root, "plugins");
+        let disabled_dir = dir(&root, "plugins-disabled");
         write_plugin(&plugins_dir, "movable");
 
         move_plugin_between_roots(&plugins_dir, &disabled_dir, "movable", false)
@@ -568,10 +572,10 @@ return Importer
     #[test]
     fn disabled_plugin_is_not_listed_as_enabled() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
-        let disabled_dir = root.path().join("plugins-disabled");
+        let plugins_dir = dir(&root, "plugins");
+        let disabled_dir = dir(&root, "plugins-disabled");
         write_loadable_plugin(&plugins_dir, "txt-importer");
-        let config = write_host_config(root.path());
+        let config = write_host_config(&root);
 
         move_plugin_between_roots(&plugins_dir, &disabled_dir, "txt-importer", false)
             .expect("disable succeeds");
@@ -588,11 +592,11 @@ return Importer
     #[test]
     fn list_plugins_includes_disabled_with_metadata() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
-        let disabled_dir = root.path().join("plugins-disabled");
+        let plugins_dir = dir(&root, "plugins");
+        let disabled_dir = dir(&root, "plugins-disabled");
         write_loadable_plugin(&plugins_dir, "stays-on");
         write_loadable_plugin(&plugins_dir, "turned-off");
-        let config = write_host_config(root.path());
+        let config = write_host_config(&root);
 
         move_plugin_between_roots(&plugins_dir, &disabled_dir, "turned-off", false)
             .expect("disable succeeds");
@@ -627,11 +631,11 @@ return Importer
     #[test]
     fn set_plugin_enabled_rejects_unsafe_names() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
-        let disabled_dir = root.path().join("plugins-disabled");
+        let plugins_dir = dir(&root, "plugins");
+        let disabled_dir = dir(&root, "plugins-disabled");
         fs::create_dir_all(&plugins_dir).unwrap();
         fs::create_dir_all(&disabled_dir).unwrap();
-        let sentinel = root.path().join("keep.txt");
+        let sentinel = dir(&root, "keep.txt");
         fs::write(&sentinel, b"keep").unwrap();
 
         for evil in [
@@ -662,8 +666,8 @@ return Importer
     #[test]
     fn set_plugin_enabled_is_idempotent() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
-        let disabled_dir = root.path().join("plugins-disabled");
+        let plugins_dir = dir(&root, "plugins");
+        let disabled_dir = dir(&root, "plugins-disabled");
         write_plugin(&plugins_dir, "steady");
 
         move_plugin_between_roots(&plugins_dir, &disabled_dir, "steady", true)
@@ -687,8 +691,8 @@ return Importer
     #[test]
     fn remove_plugin_deletes_from_either_root() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
-        let disabled_dir = root.path().join("plugins-disabled");
+        let plugins_dir = dir(&root, "plugins");
+        let disabled_dir = dir(&root, "plugins-disabled");
         write_plugin(&plugins_dir, "enabled-one");
         write_plugin(&disabled_dir, "disabled-one");
 
@@ -714,9 +718,9 @@ return Importer
     #[test]
     fn list_via_host_lists_an_installed_plugin() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
         write_loadable_plugin(&plugins_dir, "txt-importer");
-        let config = write_host_config(root.path());
+        let config = write_host_config(&root);
 
         let listed = list_via_host(host_binary(), config, plugins_dir)
             .expect("host lists the installed plugin");
@@ -731,10 +735,10 @@ return Importer
     #[test]
     fn install_and_verify_rolls_back_when_the_host_is_unreachable() {
         let root = tempfile::tempdir().unwrap();
-        let source = write_loadable_plugin(&root.path().join("src"), "rollback-me");
-        let plugins_dir = root.path().join("plugins");
-        let bogus_host = root.path().join("does-not-exist-host");
-        let config = write_host_config(root.path());
+        let source = write_loadable_plugin(&dir(&root, "src"), "rollback-me");
+        let plugins_dir = dir(&root, "plugins");
+        let bogus_host = dir(&root, "does-not-exist-host");
+        let config = write_host_config(&root);
 
         let err = install_and_verify(bogus_host, config, plugins_dir.clone(), &source)
             .expect_err("unreachable host fails the install");
@@ -749,11 +753,11 @@ return Importer
     #[test]
     fn install_rejects_a_symlink_in_the_source() {
         let root = tempfile::tempdir().unwrap();
-        let outside = root.path().join("secret.txt");
+        let outside = dir(&root, "secret.txt");
         fs::write(&outside, b"secret").unwrap();
-        let source = write_plugin(&root.path().join("src"), "sneaky");
+        let source = write_plugin(&dir(&root, "src"), "sneaky");
         std::os::unix::fs::symlink(&outside, source.join("link")).unwrap();
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
 
         let err = install_plugin_dir(&plugins_dir, &source).expect_err("symlink rejected");
         assert!(matches!(err, PluginError::Invalid { .. }), "got {err:?}");
@@ -769,7 +773,7 @@ return Importer
     #[test]
     fn xml_capability_lets_a_plugin_parse() {
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
         let plugin_dir = plugins_dir.join("xml-probe");
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
@@ -793,14 +797,14 @@ return Probe
         )
         .unwrap();
 
-        let config = root.path().join("host.toml");
+        let config = dir(&root, "host.toml");
         fs::write(
             &config,
             "[capabilities]\nallow = [\"xml\"]\n\n[signatures]\nrequired = false\n",
         )
         .unwrap();
 
-        let options = stanchion::remote::RemoteOptions::new(host_binary())
+        let options = stanchion::remote::RemoteOptions::new(host_binary().into_std_path_buf())
             .config(config)
             .plugins(&plugins_dir);
         let mut remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
@@ -822,7 +826,7 @@ return Probe
     #[test]
     fn sqlite_capability_queries_only_granted_databases() {
         let root = tempfile::tempdir().unwrap();
-        let db_path = root.path().join("books.db");
+        let db_path = dir(&root, "books.db");
         {
             let conn = rusqlite::Connection::open(&db_path).unwrap();
             conn.execute_batch(
@@ -831,10 +835,10 @@ return Probe
             )
             .unwrap();
         }
-        let other_db = root.path().join("secret.db");
+        let other_db = dir(&root, "secret.db");
         rusqlite::Connection::open(&other_db).unwrap();
 
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
         let plugin_dir = plugins_dir.join("sqlite-probe");
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
@@ -863,14 +867,14 @@ return P
         )
         .unwrap();
 
-        let config = root.path().join("host.toml");
+        let config = dir(&root, "host.toml");
         fs::write(
             &config,
             "[capabilities]\nallow = [\"sqlite\"]\n\n[signatures]\nrequired = false\n",
         )
         .unwrap();
 
-        let options = stanchion::remote::RemoteOptions::new(host_binary())
+        let options = stanchion::remote::RemoteOptions::new(host_binary().into_std_path_buf())
             .config(config)
             .plugins(&plugins_dir)
             .arg("--sqlite")
@@ -881,7 +885,7 @@ return P
             .call(
                 "sqlite-probe",
                 "titles",
-                [serde_json::json!(db_path.to_str().unwrap())],
+                [serde_json::json!(db_path.as_str())],
             )
             .expect("query the granted database");
         assert_eq!(titles, serde_json::json!("Dune,Neuromancer"));
@@ -890,7 +894,7 @@ return P
             .call(
                 "sqlite-probe",
                 "forbidden",
-                [serde_json::json!(other_db.to_str().unwrap())],
+                [serde_json::json!(other_db.as_str())],
             )
             .expect("call completes");
         assert_eq!(allowed, serde_json::json!(false), "non-granted db refused");
@@ -913,7 +917,7 @@ return P
         });
 
         let root = tempfile::tempdir().unwrap();
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = dir(&root, "plugins");
         let plugin_dir = plugins_dir.join("http-probe");
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
@@ -936,14 +940,14 @@ return P
         )
         .unwrap();
 
-        let config = root.path().join("host.toml");
+        let config = dir(&root, "host.toml");
         fs::write(
             &config,
             "[capabilities]\ncallbacks = [\"http\"]\n\n[signatures]\nrequired = false\n",
         )
         .unwrap();
 
-        let options = stanchion::remote::RemoteOptions::new(host_binary())
+        let options = stanchion::remote::RemoteOptions::new(host_binary().into_std_path_buf())
             .config(config)
             .plugins(&plugins_dir);
         let remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");

@@ -19,7 +19,8 @@ import { queryClient } from '../lib/query/client'
 
 let { children } = $props()
 
-const showDevtools = import.meta.env.DEV
+const showDevtools =
+  import.meta.env.DEV && import.meta.env.MODE !== 'test' && !import.meta.env.VITEST
 
 let paletteOpen = $state(false)
 

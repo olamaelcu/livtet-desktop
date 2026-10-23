@@ -4,6 +4,7 @@
 #[path = "../src/test_support.rs"]
 mod test_support;
 
+use camino::Utf8Path;
 use livtet_mobi::{MobiError, read_metadata};
 use test_support::{MobiBuilder, tempfile_with};
 
@@ -19,12 +20,17 @@ fn minimal() -> MobiBuilder {
         .exth(100, "Jane Doe")
 }
 
+/// Borrow a tempfile as UTF-8 for [`read_metadata`].
+fn upath(file: &tempfile::NamedTempFile) -> &Utf8Path {
+    Utf8Path::new(file.path().to_str().unwrap())
+}
+
 fn read(builder: &MobiBuilder) -> livtet_mobi::SourceMetadata {
-    read_metadata(builder.tempfile().path()).expect("valid MOBI")
+    read_metadata(upath(&builder.tempfile())).expect("valid MOBI")
 }
 
 fn read_err(builder: &MobiBuilder) -> MobiError {
-    read_metadata(builder.tempfile().path()).expect_err("must fail")
+    read_metadata(upath(&builder.tempfile())).expect_err("must fail")
 }
 
 fn isbns(meta: &livtet_mobi::SourceMetadata) -> Vec<&str> {
@@ -431,7 +437,7 @@ fn kfx_container_is_rejected() {
     let mut bytes = vec![0xEA, 0x44, 0x52, 0x4D, 0x49, 0x4F, 0x4E, 0xEE];
     bytes.extend_from_slice(&[0u8; 128]);
     let file = tempfile_with(&bytes);
-    let err = read_metadata(file.path()).expect_err("KFX must be rejected");
+    let err = read_metadata(upath(&file)).expect_err("KFX must be rejected");
     assert!(matches!(err, MobiError::UnsupportedContainer("kfx")));
 }
 
@@ -440,7 +446,7 @@ fn topaz_container_is_rejected() {
     let mut bytes = b"TPZ".to_vec();
     bytes.extend_from_slice(&[0u8; 128]);
     let file = tempfile_with(&bytes);
-    let err = read_metadata(file.path()).expect_err("Topaz must be rejected");
+    let err = read_metadata(upath(&file)).expect_err("Topaz must be rejected");
     assert!(matches!(err, MobiError::UnsupportedContainer("topaz")));
 }
 
@@ -472,7 +478,7 @@ fn truncated_record_table_is_malformed_not_panic() {
 #[test]
 fn empty_file_is_malformed_not_panic() {
     let file = tempfile_with(&[]);
-    let err = read_metadata(file.path()).expect_err("empty must fail");
+    let err = read_metadata(upath(&file)).expect_err("empty must fail");
     assert!(matches!(err, MobiError::Malformed(_)));
 }
 
@@ -570,7 +576,6 @@ fn pdb_nrec_not_palmdoc_count_owns_slicing() {
 
 #[test]
 fn unreadable_path_is_an_io_error() {
-    let err = read_metadata(std::path::Path::new("/nonexistent-dir/missing.mobi"))
-        .expect_err("must fail");
+    let err = read_metadata(Utf8Path::new("/nonexistent-dir/missing.mobi")).expect_err("must fail");
     assert!(matches!(err, MobiError::Io(_)));
 }

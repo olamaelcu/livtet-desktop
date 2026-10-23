@@ -102,6 +102,16 @@ test('the PDF route carries no navigation chrome', async () => {
   expect(container.querySelector('wa-button[href]')).toBeNull()
 })
 
+test('an unloadable PDF surfaces the failure message', async () => {
+  invoke.mockRejectedValue(new Error('connection reset'))
+  const { container } = await render(PdfReaderFixture)
+
+  await vi.waitFor(() => {
+    expect(container.querySelector('.error')).not.toBeNull()
+  })
+  expect(container.textContent).toContain('connection reset')
+})
+
 test('the PDF route has no height: 100% chain', () => {
   expect(pdfPage).not.toMatch(/height:\s*100%/)
   expect(pdfPage).toContain('<ReaderLayout>')

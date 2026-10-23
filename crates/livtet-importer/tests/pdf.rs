@@ -13,7 +13,7 @@ fn fixture_pdf() -> tempfile::NamedTempFile {
     }
     let bytes = builder.build().unwrap();
     let file = tempfile::Builder::new().suffix(".pdf").tempfile().unwrap();
-    std::fs::write(file.path(), bytes).unwrap();
+    fs_err::write(file.path(), bytes).unwrap();
 
     let mut info = DocumentInfo::new()
         .title("Positive Obsession")
@@ -75,7 +75,7 @@ fn pdf_importer_without_title_fails() {
     }
     let bytes = builder.build().unwrap();
     let file = tempfile::Builder::new().suffix(".pdf").tempfile().unwrap();
-    std::fs::write(file.path(), bytes).unwrap();
+    fs_err::write(file.path(), bytes).unwrap();
 
     let mut editor = DocumentEditor::open(file.path()).unwrap();
     editor

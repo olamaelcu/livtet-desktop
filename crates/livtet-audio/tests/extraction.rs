@@ -5,12 +5,12 @@
 //! Assertions are structural so any tagged `.m4b`/`.m4a` works as the fixture.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::path::PathBuf;
+use camino::Utf8PathBuf;
 
 #[test]
 #[ignore = "requires LIVTET_AUDIOBOOK_FIXTURE pointing at a local .m4b/.m4a file"]
 fn extracts_the_reference_audiobook() {
-    let path = PathBuf::from(
+    let path = Utf8PathBuf::from(
         std::env::var("LIVTET_AUDIOBOOK_FIXTURE")
             .expect("set LIVTET_AUDIOBOOK_FIXTURE to a local audiobook file"),
     );

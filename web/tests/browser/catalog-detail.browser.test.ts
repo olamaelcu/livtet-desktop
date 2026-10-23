@@ -89,7 +89,8 @@ test('surfaces a refused feed as an error rather than an empty catalog', async (
 
   const { container } = await render(CatalogDetailPageFixture)
 
-  await expect.poll(() => container.querySelector('wa-callout')).not.toBeNull()
+  // The feed query retries once before surfacing the error; allow for it.
+  await expect.poll(() => container.querySelector('wa-callout'), { timeout: 5_000 }).not.toBeNull()
   expect(container.querySelector('wa-callout')?.textContent?.trim()).toBe('catalog unreachable')
   expect(heading(container)).toBeNull()
 })
@@ -185,6 +186,53 @@ test('the search query is trimmed before it is sent', async () => {
   })
 })
 
+test('a feed with publications renders their cards', async () => {
+  onFeed = async () =>
+    feed('Standard Ebooks', {
+      publications: [
+        {
+          title: 'Moby Dick',
+          identifier: 'moby',
+          authors: ['Herman Melville'],
+          summary: 'A whale.',
+          cover_url: null,
+          language: 'English',
+          publisher: 'Standard Ebooks',
+          published: '2020',
+          acquisition_href: null,
+          acquisition_type: null,
+        },
+      ],
+    })
+  const { container } = await render(CatalogDetailPageFixture)
+
+  await expect.poll(() => container.textContent).toContain('Moby Dick')
+  expect(container.textContent).toContain('Herman Melville')
+  expect(container.textContent).toContain('English')
+})
+
+test('an empty feed says it has no publications', async () => {
+  onFeed = async () => feed('Standard Ebooks')
+  const { container } = await render(CatalogDetailPageFixture)
+
+  await expect.poll(() => container.textContent).toContain('no publications')
+})
+
+test('a paged feed offers the next page', async () => {
+  onFeed = async () => feed('Standard Ebooks', { next_href: 'page-2' })
+  const { container } = await render(CatalogDetailPageFixture)
+
+  await expect.poll(() => heading(container)).toBe('Standard Ebooks')
+  await expect.poll(() => container.textContent).toContain('Next page')
+  const next = [...container.querySelectorAll('wa-button')].find((button) =>
+    button.textContent?.includes('Next page'),
+  )
+  expect(next, 'a next-page button').not.toBeUndefined()
+  next?.click()
+
+  await expect.poll(() => invoke.mock.calls.some(([c]) => c === 'opds_page')).toBe(true)
+})
+
 test('searching offers a way back to the catalogue root', async () => {
   onFeed = async () => feed('Standard Ebooks', { has_search: true })
   const { container } = await render(CatalogDetailPageFixture)
@@ -216,7 +264,8 @@ test('a refused search shows an error rather than the browse feed', async () => 
 
   await submitSearch(container, 'dickens')
 
-  await expect.poll(() => container.querySelector('wa-callout')).not.toBeNull()
+  // The search query retries once before surfacing the error; allow for it.
+  await expect.poll(() => container.querySelector('wa-callout'), { timeout: 5_000 }).not.toBeNull()
   expect(container.querySelector('wa-callout')?.textContent?.trim()).toBe('search endpoint refused')
   expect(heading(container)).toBeNull()
 })

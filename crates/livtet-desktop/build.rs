@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use std::collections::HashMap;
-use std::path::Path;
 
+use camino::Utf8Path;
 use config::{Config, Environment};
 use serde::Deserialize;
 
@@ -11,7 +11,7 @@ struct Secrets {
     sentry_dsn: String,
 }
 
-fn parse_env_file(path: &Path) -> HashMap<String, String> {
+fn parse_env_file(path: &Utf8Path) -> HashMap<String, String> {
     let mut map = HashMap::new();
     let Ok(content) = std::fs::read_to_string(path) else {
         return map;
@@ -32,9 +32,9 @@ fn parse_env_file(path: &Path) -> HashMap<String, String> {
 }
 
 fn main() {
-    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.mise/secrets.env");
+    let env_path = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.mise/secrets.env");
 
-    println!("cargo:rerun-if-changed={}", env_path.display());
+    println!("cargo:rerun-if-changed={env_path}");
     println!("cargo:rerun-if-env-changed=GOOGLE_BOOKS_API_KEY");
     println!("cargo:rerun-if-env-changed=SENTRY_DSN");
 
@@ -43,7 +43,7 @@ fn main() {
             "error: '{}' is missing.\n\
              Run: 'mise run secrets-decrypt' && 'mise run secrets-export-env'\n
             ",
-            env_path.display()
+            env_path
         );
         std::process::exit(1);
     }
@@ -80,7 +80,7 @@ fn main() {
     // Build each helper binary and stage it for Tauri (`externalBin`) and for
     // dev runs. `livtet-sync-daemon` is the sync server (ADR-0012);
     // `livtet-plugin-host` runs Lua plugins out-of-process.
-    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest_dir = Utf8Path::new(env!("CARGO_MANIFEST_DIR"));
     let workspace_dir = manifest_dir
         .parent()
         .and_then(|path| path.parent())
@@ -120,8 +120,8 @@ fn main() {
 /// trailing `.exe` on Windows) next to the `externalBin` entry.
 fn stage_sidecar(
     package: &str,
-    workspace_dir: &Path,
-    manifest_dir: &Path,
+    workspace_dir: &Utf8Path,
+    manifest_dir: &Utf8Path,
     target_triple: &str,
     is_windows: bool,
     profile: &str,
@@ -129,7 +129,7 @@ fn stage_sidecar(
 ) {
     println!(
         "cargo:rerun-if-changed={}",
-        workspace_dir.join("crates").join(package).display()
+        workspace_dir.join("crates").join(package)
     );
 
     let sidecar_target = manifest_dir.join("target").join(package);
@@ -165,7 +165,7 @@ fn stage_sidecar(
     let built = sidecar_target.join(profile).join(exe_name(package));
 
     let binaries_dir = manifest_dir.join("binaries");
-    std::fs::create_dir_all(&binaries_dir).expect("create binaries dir");
+    fs_err::create_dir_all(&binaries_dir).expect("create binaries dir");
     let staged_name = if is_windows {
         format!("{package}-{target_triple}.exe")
     } else {
@@ -176,7 +176,7 @@ fn stage_sidecar(
 
     // Dev runs resolve the sidecar next to the application binary.
     if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        let mut profile_dir = Path::new(&out_dir).to_path_buf();
+        let mut profile_dir = Utf8Path::new(&out_dir).to_path_buf();
         for _ in 0..3 {
             if let Some(parent) = profile_dir.parent() {
                 profile_dir = parent.to_path_buf();

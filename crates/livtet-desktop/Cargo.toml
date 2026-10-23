@@ -21,16 +21,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 config = "0.15"
 serde = { version = "1", features = ["derive"] }
+camino = "1.2"
+fs-err = "3.3"
 
 [dependencies]
 # Tauri dependencies
-tauri = { version = "2", features = ["protocol-asset"] }
+tauri = { version = "2", features = ["protocol-asset", "test"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
 tauri-plugin-shell = "2"
-tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }
 tauri-plugin-mcp-bridge = "0.13"
+tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }
+victauri-plugin = "0.9"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.12"
@@ -86,9 +89,13 @@ e2e-testing = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-poem = { version = "3.1", default-features = false, features = ["server", "test"] }
+poem = { version = "3.1", default-features = false, features = [
+  "server",
+  "test",
+] }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+keyring-core = "1"
 
 [lints]
 workspace = true

@@ -12,6 +12,15 @@ let { onrun, onclose }: Props = $props()
 
 let filter = $state('')
 let selected = $state(0)
+let input: HTMLElement | null = $state(null)
+
+function focusInput() {
+  try {
+    ;(input as unknown as { focus?: () => void } | null)?.focus?.()
+  } catch {
+    // Shadow DOM not ready (e.g. headless teardown) — palette stays usable.
+  }
+}
 
 const results = $derived(
   COMMANDS.filter((command) => command.label.toLowerCase().includes(filter.trim().toLowerCase())),
@@ -50,16 +59,16 @@ function handleKeydown(event: KeyboardEvent) {
 }
 </script>
 
-<wa-dialog open label="Command palette" onwa-after-hide={onclose}>
+<wa-dialog open label="Command palette" onwa-after-hide={onclose} onwa-after-show={focusInput}>
   <!--
     `wa-input` is a WebAwesome custom element: its interactive semantics live in
-    its shadow DOM, which Svelte's static a11y checks cannot see. A command
-    palette is expected to grab focus on open, so suppress these rules.
+    its shadow DOM, which Svelte's static a11y checks cannot see. Focus is
+    grabbed in `wa-after-show` (shadow DOM ready) instead of `autofocus`,
+    whose microtask can outlive the component and throw inside `WaInput.focus`.
   -->
-  <!-- svelte-ignore a11y_autofocus -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <wa-input
-    autofocus
+    bind:this={input}
     placeholder="Type a command…"
     value={filter}
     oninput={handleInput}

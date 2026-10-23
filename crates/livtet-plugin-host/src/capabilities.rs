@@ -14,8 +14,9 @@
 //!   the database paths the application granted when it launched the host
 //!   (`--sqlite <path>`). Rows are an array of `{ column = value }` tables.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+use camino::{Utf8Path, Utf8PathBuf};
 
 use mlua::LuaSerdeExt;
 use stanchion::registry::{DynClass, Registry};
@@ -28,7 +29,10 @@ use stanchion_lua::mlua;
 /// Chains onto whatever `build_registry` already registered; the capabilities
 /// remain gated by policy (a plugin only receives one it declares and the host
 /// config allows).
-pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Registry<DynClass> {
+pub fn register(
+    registry: Registry<DynClass>,
+    sqlite_paths: Vec<Utf8PathBuf>,
+) -> Registry<DynClass> {
     let sqlite_paths = Arc::new(canonicalize_all(sqlite_paths));
     registry.with_setup(move |host| {
         host.capability("xml", |lua, _grant| {
@@ -105,10 +109,15 @@ pub fn register(registry: Registry<DynClass>, sqlite_paths: Vec<PathBuf>) -> Reg
     })
 }
 
-pub(crate) fn canonicalize_all(paths: Vec<PathBuf>) -> Vec<PathBuf> {
+pub(crate) fn canonicalize_all(paths: Vec<Utf8PathBuf>) -> Vec<Utf8PathBuf> {
     paths
         .into_iter()
-        .filter_map(|path| path.canonicalize().ok())
+        .filter_map(|path| {
+            path.into_std_path_buf()
+                .canonicalize()
+                .ok()
+                .and_then(|canonical| Utf8PathBuf::from_path_buf(canonical).ok())
+        })
         .collect()
 }
 
@@ -153,7 +162,10 @@ fn element_to_lua(
 // ── sqlite ──────────────────────────────────────────────────────────────────
 
 /// Builds the `sqlite` module table: `{ query = function(path, sql, params) }`.
-fn build_sqlite_module(lua: &mlua::Lua, allowed: Arc<Vec<PathBuf>>) -> mlua::Result<mlua::Table> {
+fn build_sqlite_module(
+    lua: &mlua::Lua,
+    allowed: Arc<Vec<Utf8PathBuf>>,
+) -> mlua::Result<mlua::Table> {
     let module = lua.create_table()?;
     let query = lua.create_function(
         move |lua, (path, sql, params): (String, String, Option<mlua::Table>)| {
@@ -169,14 +181,20 @@ fn build_sqlite_module(lua: &mlua::Lua, allowed: Arc<Vec<PathBuf>>) -> mlua::Res
 /// and returns the rows as a Lua array of `{ column = value }` tables.
 fn run_query(
     lua: &mlua::Lua,
-    allowed: &[PathBuf],
+    allowed: &[Utf8PathBuf],
     path: &str,
     sql: &str,
     params: Option<&mlua::Table>,
 ) -> Result<mlua::Table, String> {
-    let requested = Path::new(path)
+    let requested = Utf8Path::new(path)
+        .to_path_buf()
+        .into_std_path_buf()
         .canonicalize()
-        .map_err(|err| format!("cannot open {path}: {err}"))?;
+        .map_err(|err| format!("cannot open {path}: {err}"))
+        .and_then(|canonical| {
+            Utf8PathBuf::from_path_buf(canonical)
+                .map_err(|err| format!("non-UTF-8 path {path}: {err:?}"))
+        })?;
     if !allowed.iter().any(|granted| granted == &requested) {
         return Err(format!("{path} was not granted to this plugin"));
     }
@@ -269,6 +287,7 @@ mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use rusqlite::types::{Value, ValueRef};
+    use stanchion::registry::{Rules, Sandbox};
 
     #[test]
     fn lua_nil_becomes_sql_null() {
@@ -375,8 +394,8 @@ mod tests {
     /// it. Uses this crate's own manifest as a path guaranteed to exist.
     #[test]
     pub(crate) fn canonicalize_all_keeps_real_paths_and_drops_the_rest() {
-        let real = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        let missing = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("no-such-file-9f3a.toml");
+        let real = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
+        let missing = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("no-such-file-9f3a.toml");
 
         let resolved = canonicalize_all(vec![real.clone(), missing]);
 
@@ -385,46 +404,404 @@ mod tests {
         assert!(resolved[0].ends_with("Cargo.toml"));
     }
 
-    /// Test that the `register` function executes without error and registers capabilities.
+    /// `register` must extend, not replace, what `build_registry` set up: the
+    /// remote host's `log` and forwarded callbacks have to survive alongside
+    /// Livtet's modules.
     #[test]
-    fn register_adds_capabilities() {
-        let lua = mlua::Lua::new();
-        let registry = Registry::new(lua);
-        let _ = register(registry, vec![]);
+    fn register_keeps_earlier_capabilities_and_offers_livtet_modules() {
+        let registry = Registry::<DynClass>::new(mlua::Lua::new()).with_setup(|host| {
+            host.capability("log", |_runtime, _grant| Ok(stanchion_abi::Value::Nil));
+            Ok(())
+        });
+
+        let registry = register(registry, Vec::new());
+
+        let offered: Vec<&str> = registry.host_setup().offered().collect();
+        assert_eq!(offered, ["base64", "json", "log", "sqlite", "xml"]);
+    }
+
+    // ── capabilities bound into a real plugin ───────────────────────────────
+
+    /// Writes a `probe` plugin under `root` whose `run(input)` method executes
+    /// `body`, declaring `capabilities` in its manifest.
+    fn write_probe(root: &Utf8Path, capabilities: &[&str], body: &str) {
+        let dir = root.join("probe");
+        fs_err::create_dir_all(&dir).unwrap();
+        let mut manifest = String::from("name = \"probe\"\n");
+        for capability in capabilities {
+            manifest.push_str(&format!("\n[capabilities.{capability}]\n"));
+        }
+        fs_err::write(dir.join("plugin.toml"), manifest).unwrap();
+        fs_err::write(
+            dir.join("init.lua"),
+            format!(
+                "local P = {{}}\nP.__index = P\n\
+                 function P.new(config, deps) return setmetatable({{}}, P) end\n\
+                 function P:run(input)\n{body}\nend\nreturn P\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    /// Loads the probe into an isolated, restricted registry (as the host runs
+    /// by default) extended by [`register`], with a policy granting every
+    /// declared capability, then returns `run(input)` as a string.
+    fn run_probe(
+        capabilities: &[&str],
+        sqlite_paths: Vec<Utf8PathBuf>,
+        body: &str,
+        input: &str,
+    ) -> String {
+        let root = tempfile::tempdir().unwrap();
+        let root_path = Utf8Path::from_path(root.path()).unwrap();
+        write_probe(root_path, capabilities, body);
+        let policy = capabilities
+            .iter()
+            .fold(Rules::deny_all(), |rules, name| rules.allow(*name));
+        let mut registry = register(
+            Registry::<DynClass>::isolated(mlua::Lua::new(), Sandbox::restricted()),
+            sqlite_paths,
+        )
+        .with_policy(policy);
+
+        let report = registry.load_dir(root_path).unwrap();
+        let failures: Vec<String> = report.failures.iter().map(ToString::to_string).collect();
+        assert!(failures.is_empty(), "probe failed to load: {failures:?}");
+
+        let plugin = registry.get("probe").unwrap();
+        let args = plugin.lua().pack_multi(input).unwrap();
+        let value = plugin.instance().call_method("run", args).unwrap();
+        plugin.lua().unpack::<String>(value).unwrap()
+    }
+
+    /// Lua that calls `call` under `pcall` and returns `"<ok> <error>"`.
+    fn protected(call: &str) -> String {
+        format!("local ok, err = pcall({call}) return tostring(ok) .. ' ' .. tostring(err)")
+    }
+
+    /// A database at `<dir>/library.db` holding three books.
+    fn library_db(dir: &Utf8Path) -> Utf8PathBuf {
+        let path = dir.join("library.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE books (title TEXT, author TEXT, year INTEGER);
+             INSERT INTO books VALUES ('The Dispossessed', 'Le Guin', 1974),
+                                      ('A Wizard of Earthsea', 'Le Guin', 1968),
+                                      ('Dune', 'Herbert', 1965);",
+        )
+        .unwrap();
+        path
+    }
+
+    fn temp_dir() -> (tempfile::TempDir, Utf8PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).unwrap();
+        (dir, path)
+    }
+
+    /// The node shape plugins rely on: local tag and attribute names (prefixes
+    /// dropped), children in document order, and `text` holding only the
+    /// element's own text, not its descendants'.
+    #[test]
+    fn xml_capability_parses_nested_documents_for_a_granted_plugin() {
+        let body = r#"
+            local root = xml.parse(input)
+            local title, meta = root.children[1], root.children[2]
+            return table.concat({
+                root.tag, root.attrs.id, tostring(#root.children),
+                title.tag, title.attrs.lang, title.text,
+                title.children[1].tag, title.children[1].text,
+                meta.tag, tostring(#meta.children), meta.text,
+            }, "|")
+        "#;
+        let document = r#"<opf:package xmlns:opf="http://www.idpf.org/2007/opf" id="pkg"><title xml:lang="en">Left <i>Hand</i> of Darkness</title><meta/></opf:package>"#;
+
+        assert_eq!(
+            run_probe(&["xml"], Vec::new(), body, document),
+            "package|pkg|2|title|en|Left  of Darkness|i|Hand|meta|0|"
+        );
     }
 
     #[test]
-    fn xml_module_parses_source() {
-        let lua = mlua::Lua::new();
-        let module = build_xml_module(&lua).unwrap();
-        let parse: mlua::Function = module.get("parse").unwrap();
-        let result: mlua::Table = parse.call((r#"<book/>"#,)).unwrap();
-        assert!(result.contains_key("tag").unwrap());
+    fn xml_capability_raises_a_catchable_error_for_a_document_without_a_root() {
+        let out = run_probe(
+            &["xml"],
+            Vec::new(),
+            &protected("xml.parse, input"),
+            "just some text",
+        );
+
+        assert!(out.starts_with("false "), "parse should fail: {out}");
+        assert!(
+            out.contains("xml:"),
+            "error should name the xml module: {out}"
+        );
     }
 
     #[test]
-    fn sqlite_module_works_with_temp_db() {
-        let temp = tempfile::NamedTempFile::new().unwrap();
-        let conn = rusqlite::Connection::open(temp.path()).unwrap();
-        conn.execute("CREATE TABLE test (id INTEGER, value TEXT)", []).unwrap();
-        conn.execute("INSERT INTO test VALUES (1, 'hello')", []).unwrap();
-        let allowed = vec![temp.path().canonicalize().unwrap()];
+    fn json_capability_decodes_nested_values() {
+        let body = r#"
+            local doc = json.decode(input)
+            return table.concat({
+                doc.title, tostring(doc.year), tostring(#doc.tags), doc.tags[2],
+                tostring(doc.series.index), tostring(doc.owned),
+            }, "|")
+        "#;
+        let document = r#"{"title":"Dune","year":1965,"tags":["sf","classic"],"series":{"index":1.5},"owned":true}"#;
+
+        assert_eq!(
+            run_probe(&["json"], Vec::new(), body, document),
+            "Dune|1965|2|classic|1.5|true"
+        );
+    }
+
+    #[test]
+    fn json_capability_raises_a_catchable_error_for_malformed_input() {
+        let out = run_probe(
+            &["json"],
+            Vec::new(),
+            &protected("json.decode, input"),
+            r#"{"title": "Dune""#,
+        );
+
+        assert!(out.starts_with("false "), "decode should fail: {out}");
+        assert!(out.contains("json decode"), "unexpected error: {out}");
+    }
+
+    /// Each provider converts its module through the ABI separately; declaring
+    /// all of them at once must still bind every one under its own name.
+    #[test]
+    fn every_livtet_capability_binds_together_in_one_plugin() {
+        let body = r#"
+            return table.concat({ type(xml.parse), type(json.decode), type(sqlite.query), type(base64) }, ",")
+        "#;
+
+        assert_eq!(
+            run_probe(&["base64", "json", "sqlite", "xml"], Vec::new(), body, ""),
+            "function,function,function,table"
+        );
+    }
+
+    /// Grants are canonicalized at launch, so a grant spelled with `..` still
+    /// matches the plain path the plugin asks for; params bind in order.
+    #[test]
+    fn sqlite_capability_queries_a_granted_database_with_params() {
+        let (_guard, dir) = temp_dir();
+        let db = library_db(&dir);
+        fs_err::create_dir(dir.join("sub")).unwrap();
+        let grant = dir.join("sub").join("..").join("library.db");
+        let body = r#"
+            local rows = sqlite.query(input,
+                "SELECT title, year FROM books WHERE author = ? AND year > ? ORDER BY year",
+                { "Le Guin", 1900 })
+            local out = {}
+            for i, row in ipairs(rows) do out[i] = row.title .. "@" .. row.year end
+            return table.concat(out, ";")
+        "#;
+
+        assert_eq!(
+            run_probe(&["sqlite"], vec![grant], body, db.as_str()),
+            "A Wizard of Earthsea@1968;The Dispossessed@1974"
+        );
+    }
+
+    /// Two databases with the same file name: granting one must not open the
+    /// other, and the refusal surfaces as a Lua error the plugin can catch.
+    #[test]
+    fn sqlite_capability_refuses_a_database_that_was_not_granted() {
+        let (_granted_guard, granted_dir) = temp_dir();
+        let (_other_guard, other_dir) = temp_dir();
+        let granted = library_db(&granted_dir);
+        let other = library_db(&other_dir);
+
+        let out = run_probe(
+            &["sqlite"],
+            vec![granted],
+            &protected("sqlite.query, input, 'SELECT title FROM books'"),
+            other.as_str(),
+        );
+
+        assert!(out.starts_with("false "), "query should be refused: {out}");
+        assert!(
+            out.contains("sqlite:"),
+            "error should name the module: {out}"
+        );
+        assert!(out.contains("was not granted"), "unexpected error: {out}");
+    }
+
+    // ── run_query ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn run_query_maps_every_storage_class_and_leaves_null_columns_unset() {
+        let (_guard, dir) = temp_dir();
+        let path = dir.join("types.db");
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE t (i INTEGER, r REAL, s TEXT, b BLOB, n TEXT);
+                 INSERT INTO t VALUES (42, 2.5, 'héllo', x'00ff', NULL);",
+            )
+            .unwrap();
         let lua = mlua::Lua::new();
-        let module = build_sqlite_module(&lua, Arc::new(allowed)).unwrap();
-        let query: mlua::Function = module.get("query").unwrap();
-        let rows: mlua::Table = query.call((temp.path().to_str().unwrap(), "SELECT * FROM test", std::option::Option::<mlua::Table>::None)).unwrap();
-        assert_eq!(rows.len().unwrap(), 1);
+        let allowed = canonicalize_all(vec![path.clone()]);
+
+        let rows = run_query(
+            &lua,
+            &allowed,
+            path.as_str(),
+            "SELECT i, r, s, b, n FROM t",
+            None,
+        )
+        .unwrap();
+
+        assert_eq!(rows.raw_len(), 1);
+        let row: mlua::Table = rows.get(1).unwrap();
+        assert!(matches!(
+            row.get::<mlua::Value>("i").unwrap(),
+            mlua::Value::Integer(42)
+        ));
+        assert!(matches!(
+            row.get::<mlua::Value>("r").unwrap(),
+            mlua::Value::Number(n) if (n - 2.5).abs() < f64::EPSILON
+        ));
+        assert_eq!(row.get::<String>("s").unwrap(), "héllo");
+        let blob: mlua::LuaString = row.get("b").unwrap();
+        assert_eq!(blob.as_bytes().to_vec(), vec![0x00, 0xff]);
+        assert!(row.get::<mlua::Value>("n").unwrap().is_nil());
+    }
+
+    #[test]
+    fn run_query_with_no_matching_rows_returns_an_empty_array() {
+        let (_guard, dir) = temp_dir();
+        let db = library_db(&dir);
+        let lua = mlua::Lua::new();
+        let params = lua.create_sequence_from([3000_i64]).unwrap();
+
+        let rows = run_query(
+            &lua,
+            &canonicalize_all(vec![db.clone()]),
+            db.as_str(),
+            "SELECT title FROM books WHERE year > ?",
+            Some(&params),
+        )
+        .unwrap();
+
+        assert_eq!(rows.raw_len(), 0);
+    }
+
+    #[test]
+    fn run_query_refuses_an_existing_database_missing_from_the_grants() {
+        let (_guard, dir) = temp_dir();
+        let db = library_db(&dir);
+        let lua = mlua::Lua::new();
+
+        let error = run_query(&lua, &[], db.as_str(), "SELECT title FROM books", None).unwrap_err();
+
+        assert!(
+            error.contains("was not granted"),
+            "unexpected error: {error}"
+        );
+    }
+
+    /// A missing path fails before anything is opened, so no empty database is
+    /// left behind at the requested location.
+    #[test]
+    fn run_query_reports_a_missing_file_without_creating_it() {
+        let (_guard, dir) = temp_dir();
+        let missing = dir.join("missing.db");
+        let lua = mlua::Lua::new();
+
+        let error = run_query(
+            &lua,
+            std::slice::from_ref(&missing),
+            missing.as_str(),
+            "SELECT 1",
+            None,
+        )
+        .unwrap_err();
+
+        assert!(
+            error.starts_with("cannot open"),
+            "unexpected error: {error}"
+        );
+        assert!(!missing.exists());
+    }
+
+    #[test]
+    fn run_query_reports_invalid_sql_and_parameter_count_mismatches() {
+        let (_guard, dir) = temp_dir();
+        let db = library_db(&dir);
+        let allowed = canonicalize_all(vec![db.clone()]);
+        let lua = mlua::Lua::new();
+
+        let bad_sql =
+            run_query(&lua, &allowed, db.as_str(), "SELEKT title FROM books", None).unwrap_err();
+        let missing_param = run_query(
+            &lua,
+            &allowed,
+            db.as_str(),
+            "SELECT title FROM books WHERE year > ?",
+            None,
+        )
+        .unwrap_err();
+
+        assert!(
+            bad_sql.starts_with("prepare failed"),
+            "unexpected error: {bad_sql}"
+        );
+        assert!(
+            missing_param.starts_with("query failed"),
+            "unexpected error: {missing_param}"
+        );
+    }
+
+    /// The grant is read-only: writes are refused and the file is untouched.
+    #[test]
+    fn run_query_cannot_modify_a_granted_database() {
+        let (_guard, dir) = temp_dir();
+        let db = library_db(&dir);
+        let allowed = canonicalize_all(vec![db.clone()]);
+        let lua = mlua::Lua::new();
+
+        let delete = run_query(&lua, &allowed, db.as_str(), "DELETE FROM books", None);
+        let insert = run_query(
+            &lua,
+            &allowed,
+            db.as_str(),
+            "INSERT INTO books VALUES ('Kindred', 'Butler', 1979)",
+            None,
+        );
+
+        assert!(delete.is_err(), "DELETE should be refused");
+        assert!(insert.is_err(), "INSERT should be refused");
+        let count: i64 = rusqlite::Connection::open(&db)
+            .unwrap()
+            .query_row("SELECT count(*) FROM books", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 3);
+    }
+
+    /// `lua_value_to_sql` maps `nil` to NULL, but `lua_params_to_sql` walks the
+    /// params with `sequence_values`, which stops at the first `nil`: the NULL is
+    /// never bound and every later param is dropped, so the query fails with a
+    /// parameter-count error instead.
+    #[test]
+    #[ignore = "bug: a nil param ends the Lua sequence, so NULL can never be bound"]
+    fn run_query_binds_a_nil_param_as_null() {
+        let (_guard, dir) = temp_dir();
+        let db = library_db(&dir);
+        let lua = mlua::Lua::new();
+        let params: mlua::Table = lua.load("return { nil, 'Dune' }").eval().unwrap();
+
+        let rows = run_query(
+            &lua,
+            &canonicalize_all(vec![db.clone()]),
+            db.as_str(),
+            "SELECT title FROM books WHERE ?1 IS NULL AND title = ?2",
+            Some(&params),
+        )
+        .unwrap();
+
+        assert_eq!(rows.raw_len(), 1);
     }
 }
-
-
-#[test]
-fn lua_value_to_sql_roundtrip() {
-    use stanchion_lua::mlua;
-    let lua = mlua::Lua::new();
-    let v = mlua::Value::String(lua.create_string("hello").unwrap());
-    let sql = lua_value_to_sql(&v).unwrap();
-    assert!(matches!(sql, rusqlite::types::Value::Text(_)));
-}
-
-

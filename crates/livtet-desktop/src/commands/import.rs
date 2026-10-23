@@ -311,12 +311,9 @@ async fn resolve_language(
 /// Only the final component of `source` is used, so the store can never escape
 /// `books_dir`. The name is length-capped for `NAME_MAX` (the hash prefix is
 /// kept); an empty source name falls back to `book.{ext}`.
-fn library_store_name(file_hash: &str, source: &std::path::Path, extension: &str) -> String {
+fn library_store_name(file_hash: &str, source: &camino::Utf8Path, extension: &str) -> String {
     const MAX_STORE_NAME_LEN: usize = 200;
-    let raw = source
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
+    let raw = source.file_name().map(str::to_owned).unwrap_or_default();
     let base = match raw.trim() {
         "" if extension.is_empty() => "book".to_string(),
         "" => format!("book.{extension}"),
@@ -331,17 +328,17 @@ fn library_store_name(file_hash: &str, source: &std::path::Path, extension: &str
 }
 
 #[cfg(unix)]
-fn create_symlink(source: &std::path::Path, dest: &camino::Utf8Path) -> std::io::Result<()> {
+fn create_symlink(source: &camino::Utf8Path, dest: &camino::Utf8Path) -> std::io::Result<()> {
     std::os::unix::fs::symlink(source, dest)
 }
 
 #[cfg(windows)]
-fn create_symlink(source: &std::path::Path, dest: &camino::Utf8Path) -> std::io::Result<()> {
+fn create_symlink(source: &camino::Utf8Path, dest: &camino::Utf8Path) -> std::io::Result<()> {
     std::os::windows::fs::symlink_file(source, dest)
 }
 
 #[cfg(not(any(unix, windows)))]
-fn create_symlink(_source: &std::path::Path, _dest: &camino::Utf8Path) -> std::io::Result<()> {
+fn create_symlink(_source: &camino::Utf8Path, _dest: &camino::Utf8Path) -> std::io::Result<()> {
     Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
         "symlinks unsupported on this platform",
@@ -349,7 +346,7 @@ fn create_symlink(_source: &std::path::Path, _dest: &camino::Utf8Path) -> std::i
 }
 
 fn write_copy(dest: &camino::Utf8Path, bytes: &[u8]) -> Result<(), ImportError> {
-    std::fs::write(dest, bytes).map_err(|e| ImportError::new("io", format!("copying file: {e}")))
+    fs_err::write(dest, bytes).map_err(|e| ImportError::new("io", format!("copying file: {e}")))
 }
 
 /// Create the library-owned file at `dest` from `source`, returning the
@@ -360,12 +357,12 @@ fn write_copy(dest: &camino::Utf8Path, bytes: &[u8]) -> Result<(), ImportError> 
 #[tracing::instrument(skip(bytes), fields(dest = %dest), ret, err)]
 fn materialize_library_file(
     dest: &camino::Utf8Path,
-    source: &std::path::Path,
+    source: &camino::Utf8Path,
     bytes: &[u8],
     mode: ImportMode,
 ) -> Result<ImportMode, ImportError> {
     if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)
+        fs_err::create_dir_all(parent)
             .map_err(|e| ImportError::new("io", format!("creating library dir: {e}")))?;
     }
     if dest.exists() || std::fs::symlink_metadata(dest).is_ok() {
@@ -383,7 +380,7 @@ fn materialize_library_file(
             {
                 tracing::warn!(
                     %error,
-                    source = %source.display(),
+                    source = %source,
                     %dest,
                     "symlink refused; copying into the library instead"
                 );
@@ -644,18 +641,53 @@ pub async fn import_file(
     import_one(&path, mode, state.inner()).await
 }
 
-/// Import a single file. Shared by `import_file`, `import_files`, and the
-/// OPDS acquisition handoff.
-#[tracing::instrument(skip_all, fields(path = %path), ret, err)]
+/// The slice of [`AppState`] the import pipeline reads. Kept free of Tauri
+/// types so [`import_one_inner`] and [`import_batch`] can be unit-tested.
+pub(crate) struct ImportContext<'a> {
+    pub(crate) db: &'a livtet_core::data::SharedState,
+    pub(crate) covers_dir: &'a camino::Utf8Path,
+    pub(crate) books_dir: &'a camino::Utf8Path,
+    pub(crate) search_index: &'a tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+    pub(crate) plugin_host_path: &'a camino::Utf8Path,
+    pub(crate) plugin_host_config: &'a camino::Utf8Path,
+    pub(crate) plugins_dir: &'a camino::Utf8Path,
+}
+
+impl<'a> From<&'a AppState> for ImportContext<'a> {
+    fn from(state: &'a AppState) -> Self {
+        Self {
+            db: &state.db,
+            covers_dir: &state.covers_dir,
+            books_dir: &state.books_dir,
+            search_index: &state.search_index,
+            plugin_host_path: &state.plugin_host_path,
+            plugin_host_config: &state.plugin_host_config,
+            plugins_dir: &state.plugins_dir,
+        }
+    }
+}
+
+/// Import a single file from app state. Used by `import_file` and the OPDS
+/// acquisition handoff; see [`import_one_inner`].
 pub(crate) async fn import_one(
     path: &str,
     mode: ImportMode,
     state: &AppState,
 ) -> Result<ImportOutcome, ImportError> {
-    let file_path = std::path::PathBuf::from(path);
+    import_one_inner(path, mode, &ImportContext::from(state)).await
+}
+
+/// Import a single file: select the importer for its extension, fail closed on
+/// its metadata, persist the catalog rows, and index a fresh edition.
+#[tracing::instrument(skip_all, fields(path = %path), ret, err)]
+pub(crate) async fn import_one_inner(
+    path: &str,
+    mode: ImportMode,
+    ctx: &ImportContext<'_>,
+) -> Result<ImportOutcome, ImportError> {
+    let file_path = camino::Utf8PathBuf::from(path);
     let extension = file_path
         .extension()
-        .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     let (meta, source_bytes) = match importer_source_for_extension(&extension) {
@@ -685,9 +717,9 @@ pub(crate) async fn import_one(
         ),
         FileImporterSource::Remote => {
             let read = remote_importer_metadata(
-                state.plugin_host_path.clone().into_std_path_buf(),
-                state.plugin_host_config.clone().into_std_path_buf(),
-                state.plugins_dir.clone().into_std_path_buf(),
+                ctx.plugin_host_path.to_path_buf(),
+                ctx.plugin_host_config.to_path_buf(),
+                ctx.plugins_dir.to_path_buf(),
                 file_path.clone(),
             )
             .await?;
@@ -707,10 +739,10 @@ pub(crate) async fn import_one(
     };
 
     let outcome = persist_import(
-        &state.db,
-        &state.covers_dir,
+        ctx.db,
+        ctx.covers_dir,
         LibraryTarget {
-            dir: &state.books_dir,
+            dir: ctx.books_dir,
             mode,
         },
         &meta,
@@ -728,8 +760,8 @@ pub(crate) async fn import_one(
             .edition_id
             .parse::<DbId>()
             .map_err(|error| ImportError::new("index", error))?;
-        let db = state.db.db_conn();
-        let guard = state.search_index.read().await;
+        let db = ctx.db.db_conn();
+        let guard = ctx.search_index.read().await;
         if let Some(index) = guard.as_ref() {
             index
                 .add_edition(&db, edition_id)
@@ -745,14 +777,14 @@ pub(crate) async fn import_one(
 /// cover to disk. Hash dedup and every row insert share one transaction; a hash
 /// match returns the pre-existing edition without writing anything. Kept free of
 /// Tauri state so it can be unit-tested against a `TestDb`.
-#[tracing::instrument(skip_all, fields(path = %file_path.display()), ret, err)]
+#[tracing::instrument(skip_all, fields(path = %file_path), ret, err)]
 pub(crate) async fn persist_import(
     db: &livtet_core::data::SharedState,
     covers_dir: &camino::Utf8Path,
     target: LibraryTarget<'_>,
     meta: &ImporterMeta,
     bytes: &[u8],
-    file_path: &std::path::Path,
+    file_path: &camino::Utf8Path,
     extension: &str,
 ) -> Result<ImportOutcome, ImportError> {
     let (isbn_strings, other_identifiers) = validate_importer_meta(meta)?;
@@ -943,7 +975,7 @@ pub(crate) async fn persist_import(
     // (DB stays authoritative, file is re-derivable).
     if let (Some((_, data)), Some(path)) = (&cover, &cover_path) {
         let result = async {
-            if let Some(parent) = std::path::Path::new(path.as_str()).parent() {
+            if let Some(parent) = camino::Utf8Path::new(path).parent() {
                 fs_err::tokio::create_dir_all(parent)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -988,56 +1020,63 @@ pub async fn import_files(
     // Tauri rejects async commands that borrow state and return a non-`Result`,
     // so the state is fetched from the handle instead of taken as a parameter.
     let state = app.state::<AppState>();
+    import_batch(
+        paths,
+        mode,
+        &ImportContext::from(state.inner()),
+        |payload| emit_batch(&app, payload),
+        |payload| emit_file(&app, payload),
+    )
+    .await
+}
+
+/// Import `paths` sequentially, reporting batch and per-file progress through
+/// `on_batch` / `on_file`, and return the aggregate result.
+pub(crate) async fn import_batch(
+    paths: Vec<String>,
+    mode: ImportMode,
+    ctx: &ImportContext<'_>,
+    mut on_batch: impl FnMut(ImportBatchProgress),
+    mut on_file: impl FnMut(ImportFileProgress),
+) -> ImportBatchResult {
     let total = paths.len() as i32;
-    emit_batch(
-        &app,
-        ImportBatchProgress {
-            phase: ImportPhase::Started,
-            total,
-            result: None,
-        },
-    );
+    on_batch(ImportBatchProgress {
+        phase: ImportPhase::Started,
+        total,
+        result: None,
+    });
 
     let mut files = Vec::with_capacity(paths.len());
     for (position, path) in paths.into_iter().enumerate() {
         let index = position as i32;
-        emit_file(
-            &app,
-            ImportFileProgress {
-                index,
-                total,
-                path: path.clone(),
-                phase: ImportPhase::Started,
-                outcome: None,
-                error: None,
-            },
-        );
+        on_file(ImportFileProgress {
+            index,
+            total,
+            path: path.clone(),
+            phase: ImportPhase::Started,
+            outcome: None,
+            error: None,
+        });
 
-        let outcome = import_one(&path, mode, state.inner()).await;
+        let outcome = import_one_inner(&path, mode, ctx).await;
         let file = file_result(path, outcome);
-        emit_file(
-            &app,
-            ImportFileProgress {
-                index,
-                total,
-                path: file.path.clone(),
-                phase: ImportPhase::Finished,
-                outcome: file.outcome.clone(),
-                error: file.error.clone(),
-            },
-        );
+        on_file(ImportFileProgress {
+            index,
+            total,
+            path: file.path.clone(),
+            phase: ImportPhase::Finished,
+            outcome: file.outcome.clone(),
+            error: file.error.clone(),
+        });
         files.push(file);
     }
 
     let batch = batch_result(files);
-    emit_batch(
-        &app,
-        ImportBatchProgress {
-            phase: ImportPhase::Finished,
-            total,
-            result: Some(batch.clone()),
-        },
-    );
+    on_batch(ImportBatchProgress {
+        phase: ImportPhase::Finished,
+        total,
+        result: Some(batch.clone()),
+    });
     batch
 }
 
@@ -1063,12 +1102,12 @@ fn is_inside_dir(path: &str, dir: &camino::Utf8Path) -> bool {
 /// is preserved (symlink stays symlink); without a prior file, link. Only a
 /// previous file inside `books_dir` is removed — legacy source paths are
 /// never deleted. Kept free of Tauri state so it can be unit-tested.
-#[tracing::instrument(skip(conn), fields(edition_id = %edition_id, path = %source.display()), ret, err)]
+#[tracing::instrument(skip(conn), fields(edition_id = %edition_id, path = %source), ret, err)]
 async fn relink_edition(
     conn: &DatabaseConnection,
     books_dir: &camino::Utf8Path,
     edition_id: DbId,
-    source: &std::path::Path,
+    source: &camino::Utf8Path,
 ) -> Result<EditionFile, ImportError> {
     let inventory = digital_inventory::Entity::find()
         .filter(digital_inventory::Column::EditionId.eq(edition_id))
@@ -1081,7 +1120,6 @@ async fn relink_edition(
         .map_err(|e| ImportError::new("io", format!("reading file: {e}")))?;
     let extension = source
         .extension()
-        .and_then(|extension| extension.to_str())
         .map(str::to_ascii_lowercase)
         .unwrap_or_default();
     let file_hash = hex::encode(sha2::Sha256::digest(&bytes));
@@ -1094,20 +1132,27 @@ async fn relink_edition(
     let library_path = books_dir.join(library_store_name(&file_hash, source, &extension));
     materialize_library_file(&library_path, source, &bytes, mode)?;
 
-    if let Some(previous) = inventory.file_path.as_deref()
+    let previous = inventory.file_path.clone();
+    let mut model: digital_inventory::ActiveModel = inventory.into();
+    model.file_path = Set(Some(library_path.to_string()));
+    model.file_hash = Set(Some(file_hash));
+    model.file_size_bytes = Set(Some(bytes.len() as i64));
+    // `file_format` is NOT NULL in the schema: an extensionless source keeps
+    // the recorded format rather than failing the update.
+    if !extension.is_empty() {
+        model.file_format = Set(Some(extension));
+    }
+    model.updated_at = Set(Some(now_primitive()));
+    let updated = model.update(conn).await?;
+
+    // Only drop the previous library file once the row points elsewhere, so a
+    // failed update never leaves the edition referencing a deleted file.
+    if let Some(previous) = previous.as_deref()
         && previous != library_path.as_str()
         && is_inside_dir(previous, books_dir)
     {
         let _ = std::fs::remove_file(previous);
     }
-
-    let mut model: digital_inventory::ActiveModel = inventory.into();
-    model.file_path = Set(Some(library_path.to_string()));
-    model.file_hash = Set(Some(file_hash));
-    model.file_size_bytes = Set(Some(bytes.len() as i64));
-    model.file_format = Set((!extension.is_empty()).then(|| extension.clone()));
-    model.updated_at = Set(Some(now_primitive()));
-    let updated = model.update(conn).await?;
 
     Ok(EditionFile {
         file_status: Some(FileStatus::Ok),
@@ -1134,7 +1179,7 @@ pub async fn relink_edition_file(
         &state.db.db_conn(),
         &state.books_dir,
         id,
-        std::path::Path::new(&path),
+        camino::Utf8Path::new(path.as_str()),
     )
     .await
 }
@@ -1142,21 +1187,25 @@ pub async fn relink_edition_file(
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use base64::{Engine, engine::general_purpose::STANDARD};
     use livtet_core::data::entities::{
-        digital_inventory, edition_authors, edition_identifiers, edition_subjects, editions,
-        identifiers, works,
+        authors, digital_inventory, edition_authors, edition_identifiers, edition_publishers,
+        edition_subjects, editions, identifiers, languages, publishers, subjects, works,
     };
     use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
     use livtet_core::data::{Kind, TestDb};
-    use livtet_importer::{ImporterContributor, ImporterMeta};
+    use livtet_importer::{
+        ImporterContributor, ImporterCover, ImporterMeta, ImporterPublicationDate,
+    };
     use livtet_types::DbId;
 
     use super::{
-        FileImporterSource, ImportError, ImportFileResult, ImportMode, ImportOutcome,
-        LibraryTarget, batch_result, contributor_bindings, file_result, format_id_for_extension,
-        identifier_kind, importer_source_for_extension, is_inside_dir, library_store_name,
-        materialize_library_file, normalize_contributor_role, persist_import, relink_edition,
-        validate_importer_meta,
+        FileImporterSource, ImportBatchProgress, ImportContext, ImportError, ImportFileProgress,
+        ImportFileResult, ImportMode, ImportOutcome, ImportPhase, LibraryTarget, batch_result,
+        contributor_bindings, cover_extension, file_result, format_id_for_extension,
+        identifier_kind, import_batch, import_one_inner, importer_source_for_extension,
+        is_inside_dir, library_store_name, materialize_library_file, normalize_contributor_role,
+        persist_import, relink_edition, validate_importer_meta,
     };
     use crate::commands::catalog::FileStatus;
     use livtet_core::data::orm::{ActiveModelTrait, Set};
@@ -1532,7 +1581,7 @@ mod tests {
             },
             &meta,
             b"epub bytes",
-            std::path::Path::new("/books/positive-obsession.epub"),
+            camino::Utf8Path::new("/books/positive-obsession.epub"),
             "epub",
         )
         .await
@@ -1583,7 +1632,7 @@ mod tests {
             },
             &meta,
             b"audiobook bytes",
-            std::path::Path::new("/books/memoir.m4b"),
+            camino::Utf8Path::new("/books/memoir.m4b"),
             "m4b",
         )
         .await
@@ -1615,7 +1664,7 @@ mod tests {
             },
             &meta,
             b"invalid audiobook bytes",
-            std::path::Path::new("/books/invalid.m4b"),
+            camino::Utf8Path::new("/books/invalid.m4b"),
             "m4b",
         )
         .await
@@ -1640,7 +1689,7 @@ mod tests {
             },
             &meta,
             b"duplicate binding bytes",
-            std::path::Path::new("/books/duplicate.epub"),
+            camino::Utf8Path::new("/books/duplicate.epub"),
             "epub",
         )
         .await
@@ -1676,7 +1725,7 @@ mod tests {
             },
             &meta,
             b"duplicate subject bytes",
-            std::path::Path::new("/books/duplicate-subjects.epub"),
+            camino::Utf8Path::new("/books/duplicate-subjects.epub"),
             "epub",
         )
         .await
@@ -1708,7 +1757,7 @@ mod tests {
             },
             &meta,
             b"duplicate isbn bytes",
-            std::path::Path::new("/books/duplicate-isbns.epub"),
+            camino::Utf8Path::new("/books/duplicate-isbns.epub"),
             "epub",
         )
         .await
@@ -1745,7 +1794,7 @@ mod tests {
             },
             &meta,
             b"non-isbn identifier bytes",
-            std::path::Path::new("/books/non-isbn-identifiers.epub"),
+            camino::Utf8Path::new("/books/non-isbn-identifiers.epub"),
             "epub",
         )
         .await
@@ -1795,7 +1844,7 @@ mod tests {
             },
             &meta,
             b"identifierless bytes",
-            std::path::Path::new("/books/identifierless.epub"),
+            camino::Utf8Path::new("/books/identifierless.epub"),
             "epub",
         )
         .await
@@ -1835,7 +1884,7 @@ mod tests {
             },
             &meta,
             b"duplicate identifier bytes",
-            std::path::Path::new("/books/duplicate-identifier.epub"),
+            camino::Utf8Path::new("/books/duplicate-identifier.epub"),
             "epub",
         )
         .await
@@ -1874,7 +1923,7 @@ mod tests {
             },
             &meta,
             bytes,
-            std::path::Path::new("/books/first.epub"),
+            camino::Utf8Path::new("/books/first.epub"),
             "epub",
         )
         .await
@@ -1890,7 +1939,7 @@ mod tests {
             },
             &meta,
             bytes,
-            std::path::Path::new("/books/second.epub"),
+            camino::Utf8Path::new("/books/second.epub"),
             "epub",
         )
         .await
@@ -1914,7 +1963,7 @@ mod tests {
         assert_eq!(
             library_store_name(
                 "abc123",
-                std::path::Path::new("/books/Positive Obsession.epub"),
+                camino::Utf8Path::new("/books/Positive Obsession.epub"),
                 "epub"
             ),
             "abc123-Positive Obsession.epub"
@@ -1924,7 +1973,7 @@ mod tests {
     #[test]
     fn library_store_name_falls_back_when_source_has_no_filename() {
         assert_eq!(
-            library_store_name("abc123", std::path::Path::new("/"), "epub"),
+            library_store_name("abc123", camino::Utf8Path::new("/"), "epub"),
             "abc123-book.epub"
         );
     }
@@ -1932,7 +1981,7 @@ mod tests {
     #[test]
     fn library_store_name_caps_length_but_keeps_the_hash() {
         let long = "a".repeat(300);
-        let source = std::path::PathBuf::from(format!("/books/{long}.epub"));
+        let source = camino::Utf8PathBuf::from(format!("/books/{long}.epub"));
         let hash = "b".repeat(64);
         let name = library_store_name(&hash, &source, "epub");
         assert!(name.len() <= 200, "{name}");
@@ -1942,8 +1991,9 @@ mod tests {
     #[test]
     fn materialize_link_points_at_the_source() {
         let root = tempfile::tempdir().expect("temp root");
-        let source = root.path().join("book.epub");
-        std::fs::write(&source, b"book bytes").expect("source");
+        let source = camino::Utf8PathBuf::from_path_buf(root.path().join("book.epub"))
+            .expect("utf8 temp path");
+        fs_err::write(&source, b"book bytes").expect("source");
         let books = camino::Utf8Path::from_path(root.path())
             .expect("utf8 temp path")
             .to_path_buf();
@@ -1952,9 +2002,12 @@ mod tests {
         let used = materialize_library_file(&dest, &source, b"book bytes", ImportMode::Link)
             .expect("materialize");
         assert_eq!(used, ImportMode::Link);
-        assert_eq!(std::fs::read_link(&dest).expect("read link"), source);
         assert_eq!(
-            std::fs::read(&dest).expect("read through link"),
+            std::fs::read_link(&dest).expect("read link"),
+            source.into_std_path_buf()
+        );
+        assert_eq!(
+            fs_err::read(&dest).expect("read through link"),
             b"book bytes"
         );
     }
@@ -1962,8 +2015,9 @@ mod tests {
     #[test]
     fn materialize_copy_writes_exact_bytes() {
         let root = tempfile::tempdir().expect("temp root");
-        let source = root.path().join("book.epub");
-        std::fs::write(&source, b"book bytes").expect("source");
+        let source = camino::Utf8PathBuf::from_path_buf(root.path().join("book.epub"))
+            .expect("utf8 temp path");
+        fs_err::write(&source, b"book bytes").expect("source");
         let books = camino::Utf8Path::from_path(root.path())
             .expect("utf8 temp path")
             .to_path_buf();
@@ -1972,7 +2026,7 @@ mod tests {
         let used = materialize_library_file(&dest, &source, b"book bytes", ImportMode::Copy)
             .expect("materialize");
         assert_eq!(used, ImportMode::Copy);
-        assert_eq!(std::fs::read(&dest).expect("read copy"), b"book bytes");
+        assert_eq!(fs_err::read(&dest).expect("read copy"), b"book bytes");
         assert!(
             !std::fs::symlink_metadata(&dest)
                 .expect("metadata")
@@ -1985,7 +2039,7 @@ mod tests {
     async fn persist_import_stores_a_library_owned_link() {
         let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
         let meta = importable_record("Positive Obsession", None);
-        let source = std::path::Path::new("/books/positive-obsession.epub");
+        let source = camino::Utf8Path::new("/books/positive-obsession.epub");
 
         let outcome = persist_import(
             &state,
@@ -2032,7 +2086,7 @@ mod tests {
             },
             &meta,
             bytes,
-            std::path::Path::new("/books/first.epub"),
+            camino::Utf8Path::new("/books/first.epub"),
             "epub",
         )
         .await
@@ -2048,7 +2102,7 @@ mod tests {
             },
             &meta,
             bytes,
-            std::path::Path::new("/books/second.epub"),
+            camino::Utf8Path::new("/books/second.epub"),
             "epub",
         )
         .await
@@ -2096,7 +2150,7 @@ mod tests {
             },
             &meta,
             b"original bytes",
-            std::path::Path::new("/books/original.epub"),
+            camino::Utf8Path::new("/books/original.epub"),
             "epub",
         )
         .await
@@ -2106,8 +2160,10 @@ mod tests {
         let previous = previously_stored_path(&conn, edition_id).await;
 
         let outside = tempfile::tempdir().expect("outside dir");
-        let new_source = outside.path().join("replacement.epub");
-        std::fs::write(&new_source, b"replacement bytes").expect("write replacement");
+        let new_source =
+            camino::Utf8PathBuf::from_path_buf(outside.path().join("replacement.epub"))
+                .expect("utf8 temp path");
+        fs_err::write(&new_source, b"replacement bytes").expect("write replacement");
 
         let file = relink_edition(&conn, &books_dir, edition_id, &new_source)
             .await
@@ -2118,7 +2174,7 @@ mod tests {
         assert!(stored.ends_with("replacement.epub"), "{stored}");
         assert_eq!(
             std::fs::read_link(&stored).expect("link target"),
-            new_source
+            new_source.into_std_path_buf()
         );
 
         // Identity follows the new file.
@@ -2151,7 +2207,7 @@ mod tests {
             },
             &meta,
             b"copied bytes",
-            std::path::Path::new("/books/copied.epub"),
+            camino::Utf8Path::new("/books/copied.epub"),
             "epub",
         )
         .await
@@ -2160,15 +2216,17 @@ mod tests {
         let conn = state.db_conn();
 
         let outside = tempfile::tempdir().expect("outside dir");
-        let new_source = outside.path().join("replacement.epub");
-        std::fs::write(&new_source, b"fresh copy bytes").expect("write replacement");
+        let new_source =
+            camino::Utf8PathBuf::from_path_buf(outside.path().join("replacement.epub"))
+                .expect("utf8 temp path");
+        fs_err::write(&new_source, b"fresh copy bytes").expect("write replacement");
 
         let file = relink_edition(&conn, &books_dir, edition_id, &new_source)
             .await
             .expect("relink");
         let stored = file.file_path.expect("file path");
         assert_eq!(
-            std::fs::read(&stored).expect("read copy"),
+            fs_err::read(&stored).expect("read copy"),
             b"fresh copy bytes"
         );
         assert!(
@@ -2192,7 +2250,7 @@ mod tests {
             },
             &meta,
             b"legacy bytes",
-            std::path::Path::new("/books/legacy.epub"),
+            camino::Utf8Path::new("/books/legacy.epub"),
             "epub",
         )
         .await
@@ -2202,8 +2260,9 @@ mod tests {
 
         // Simulate a pre-feature row pointing at a real user file.
         let outside = tempfile::tempdir().expect("outside dir");
-        let original = outside.path().join("precious.epub");
-        std::fs::write(&original, b"precious").expect("write original");
+        let original = camino::Utf8PathBuf::from_path_buf(outside.path().join("precious.epub"))
+            .expect("utf8 temp path");
+        fs_err::write(&original, b"precious").expect("write original");
         let row = digital_inventory::Entity::find()
             .filter(digital_inventory::Column::EditionId.eq(edition_id))
             .one(&conn)
@@ -2211,11 +2270,12 @@ mod tests {
             .expect("inventory query")
             .expect("inventory present");
         let mut model: digital_inventory::ActiveModel = row.into();
-        model.file_path = Set(Some(original.to_string_lossy().into_owned()));
+        model.file_path = Set(Some(original.as_str().to_owned()));
         model.update(&conn).await.expect("backdate row");
 
-        let new_source = outside.path().join("new.epub");
-        std::fs::write(&new_source, b"new bytes").expect("write new");
+        let new_source = camino::Utf8PathBuf::from_path_buf(outside.path().join("new.epub"))
+            .expect("utf8 temp path");
+        fs_err::write(&new_source, b"new bytes").expect("write new");
         let file = relink_edition(&conn, &books_dir, edition_id, &new_source)
             .await
             .expect("relink");
@@ -2226,5 +2286,982 @@ mod tests {
                 .expect("file path")
                 .starts_with(books_dir.as_str())
         );
+    }
+
+    // ---- Shared helpers for the tests below --------------------------------
+
+    /// Persist `meta` as if it were read from `/books/source.{extension}`,
+    /// linking it into `books_dir`. The store name is hash-prefixed, so
+    /// distinct `bytes` never collide.
+    async fn persist_meta(
+        state: &livtet_core::data::SharedState,
+        covers_dir: &camino::Utf8Path,
+        books_dir: &camino::Utf8Path,
+        meta: &ImporterMeta,
+        bytes: &[u8],
+        extension: &str,
+    ) -> Result<ImportOutcome, ImportError> {
+        let source = camino::Utf8PathBuf::from(format!("/books/source.{extension}"));
+        persist_import(
+            state,
+            covers_dir,
+            LibraryTarget {
+                dir: books_dir,
+                mode: ImportMode::Link,
+            },
+            meta,
+            bytes,
+            &source,
+            extension,
+        )
+        .await
+    }
+
+    async fn stored_edition(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        outcome: &ImportOutcome,
+    ) -> editions::Model {
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        editions::Entity::find_by_id(edition_id)
+            .one(conn)
+            .await
+            .expect("edition query")
+            .expect("edition present")
+    }
+
+    async fn stored_inventory(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        outcome: &ImportOutcome,
+    ) -> digital_inventory::Model {
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(conn)
+            .await
+            .expect("inventory query")
+            .expect("inventory present")
+    }
+
+    async fn row_count<E: EntityTrait>(conn: &livtet_core::data::orm::DatabaseConnection) -> usize {
+        E::find().all(conn).await.expect("count rows").len()
+    }
+
+    async fn language_id_for_code(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        code: &str,
+    ) -> Option<DbId> {
+        languages::Entity::find()
+            .filter(languages::Column::Code.eq(code))
+            .one(conn)
+            .await
+            .expect("language query")
+            .map(|language| language.id)
+    }
+
+    fn dir_entries(dir: &camino::Utf8Path) -> usize {
+        std::fs::read_dir(dir).expect("read dir").count()
+    }
+
+    const PNG_COVER: &[u8] = b"\x89PNG\r\n\x1a\nimport-cover-png";
+    const JPEG_COVER: &[u8] = b"\xFF\xD8\xFF\xE0import-cover-jpeg";
+
+    const CONTAINER_XML: &str = r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>"#;
+
+    const LANTERN_METADATA: &str = r#"
+    <dc:identifier id="bookid">9780306406157</dc:identifier>
+    <dc:title>The Lantern Keeper</dc:title>
+    <dc:creator>Ada Quill</dc:creator>
+    <dc:publisher>Harbor Press</dc:publisher>
+    <dc:language>fr</dc:language>
+    <dc:subject>Fiction</dc:subject>
+    "#;
+
+    /// Write a minimal EPUB 3 with `metadata` (and optionally a JPEG
+    /// `cover-image`) to `dir/name`.
+    fn write_epub(
+        dir: &camino::Utf8Path,
+        name: &str,
+        metadata: &str,
+        with_cover: bool,
+    ) -> camino::Utf8PathBuf {
+        use std::io::Write;
+        use zip::write::SimpleFileOptions;
+
+        let cover_item = if with_cover {
+            r#"<item id="cover-image" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>"#
+        } else {
+            ""
+        };
+        let opf = format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+{metadata}
+  </metadata>
+  <manifest>
+    <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/>
+    {cover_item}
+  </manifest>
+  <spine><itemref idref="chapter"/></spine>
+</package>"#
+        );
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        {
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+            let options =
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            zip.start_file("mimetype", options).unwrap();
+            zip.write_all(b"application/epub+zip").unwrap();
+            zip.start_file("META-INF/container.xml", options).unwrap();
+            zip.write_all(CONTAINER_XML.as_bytes()).unwrap();
+            zip.start_file("OEBPS/content.opf", options).unwrap();
+            zip.write_all(opf.as_bytes()).unwrap();
+            zip.start_file("OEBPS/chapter.xhtml", options).unwrap();
+            zip.write_all(b"<html><body>One</body></html>").unwrap();
+            if with_cover {
+                zip.start_file("OEBPS/cover.jpg", options).unwrap();
+                zip.write_all(JPEG_COVER).unwrap();
+            }
+            zip.finish().unwrap();
+        }
+        let path = dir.join(name);
+        fs_err::write(&path, cursor.into_inner()).expect("write epub");
+        path
+    }
+
+    /// Owns everything an [`ImportContext`] borrows. The plugin host path
+    /// names a file that does not exist, so any remote import fails to launch.
+    struct ImportHarness {
+        _db: TestDb,
+        state: livtet_core::data::SharedState,
+        _covers: tempfile::TempDir,
+        covers_dir: camino::Utf8PathBuf,
+        _books: tempfile::TempDir,
+        books_dir: camino::Utf8PathBuf,
+        _sources: tempfile::TempDir,
+        sources_dir: camino::Utf8PathBuf,
+        missing_host: camino::Utf8PathBuf,
+        search_index: tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+        _index_dir: Option<tempfile::TempDir>,
+    }
+
+    impl ImportHarness {
+        async fn new(with_index: bool) -> Self {
+            let (db, state, covers, covers_dir, books, books_dir) = persist_fixture().await;
+            let (sources, sources_dir) = temporary_dir();
+            let missing_host = sources_dir.join("missing-plugin-host");
+            let (index_dir, index) = if with_index {
+                let (dir, path) = temporary_dir();
+                let index = livtet_core::search::SearchIndex::open(&path).expect("search index");
+                (Some(dir), Some(index))
+            } else {
+                (None, None)
+            };
+            Self {
+                _db: db,
+                state,
+                _covers: covers,
+                covers_dir,
+                _books: books,
+                books_dir,
+                _sources: sources,
+                sources_dir,
+                missing_host,
+                search_index: tokio::sync::RwLock::new(index),
+                _index_dir: index_dir,
+            }
+        }
+
+        fn ctx(&self) -> ImportContext<'_> {
+            ImportContext {
+                db: &self.state,
+                covers_dir: &self.covers_dir,
+                books_dir: &self.books_dir,
+                search_index: &self.search_index,
+                plugin_host_path: &self.missing_host,
+                plugin_host_config: &self.missing_host,
+                plugins_dir: &self.sources_dir,
+            }
+        }
+    }
+
+    // ---- Error shape --------------------------------------------------------
+
+    #[test]
+    fn database_errors_surface_with_the_database_code() {
+        let error = ImportError::from(livtet_core::data::orm::DbErr::Custom(
+            "disk is full".to_string(),
+        ));
+        assert_eq!(error.code, "database");
+        assert!(error.message.contains("disk is full"), "{}", error.message);
+
+        let rendered = error.to_string();
+        assert!(
+            rendered.contains("database") && rendered.contains("disk is full"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn batch_result_does_not_count_a_result_without_either_side() {
+        let batch = batch_result(vec![ImportFileResult {
+            path: "ghost.epub".to_string(),
+            outcome: None,
+            error: None,
+        }]);
+        assert_eq!((batch.imported, batch.duplicated, batch.failed), (0, 0, 0));
+    }
+
+    // ---- Library file materialization ----------------------------------------
+
+    #[cfg(unix)]
+    #[test]
+    fn materialize_replaces_stale_and_dangling_entries_at_dest() {
+        let (_root, root) = temporary_dir();
+        let source = root.join("book.epub");
+        fs_err::write(&source, b"fresh bytes").expect("source");
+        let lib = root.join("lib");
+        fs_err::create_dir_all(&lib).expect("lib dir");
+
+        // A leftover regular file from a crashed import is overwritten.
+        let stale = lib.join("hash-book.epub");
+        fs_err::write(&stale, b"stale bytes").expect("stale file");
+        let used = materialize_library_file(&stale, &source, b"fresh bytes", ImportMode::Copy)
+            .expect("replace stale file");
+        assert_eq!(used, ImportMode::Copy);
+        assert_eq!(fs_err::read(&stale).expect("read copy"), b"fresh bytes");
+
+        // A dangling symlink (`exists()` is false) is replaced, not tripped over.
+        let dangling = lib.join("hash-other.epub");
+        std::os::unix::fs::symlink(root.join("gone.epub"), &dangling).expect("dangling link");
+        let used = materialize_library_file(&dangling, &source, b"fresh bytes", ImportMode::Link)
+            .expect("replace dangling link");
+        assert_eq!(used, ImportMode::Link);
+        assert_eq!(
+            std::fs::read_link(&dangling).expect("read link"),
+            source.into_std_path_buf()
+        );
+    }
+
+    // ---- Format metadata gate ----------------------------------------------
+
+    #[tokio::test]
+    async fn audiobook_without_format_metadata_fails_closed_before_writing() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let meta = importable_record("Silent Audiobook", None);
+
+        let error = persist_meta(&state, &covers_dir, &books_dir, &meta, b"m4b bytes", "m4b")
+            .await
+            .expect_err("audiobooks need duration and chapters");
+        assert_eq!(error.code, "importer");
+
+        let conn = state.db_conn();
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 0);
+        assert_eq!(dir_entries(&books_dir), 0);
+    }
+
+    #[tokio::test]
+    async fn format_metadata_for_an_unknown_format_fails_closed() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Plain Text", None);
+        meta.format_metadata = Some(serde_json::json!({ "pages": 3 }));
+
+        let error = persist_meta(&state, &covers_dir, &books_dir, &meta, b"txt bytes", "txt")
+            .await
+            .expect_err("metadata without a catalog format is rejected");
+        assert_eq!(error.code, "importer");
+
+        let conn = state.db_conn();
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 0);
+        assert_eq!(dir_entries(&books_dir), 0);
+    }
+
+    // ---- Name-keyed upserts --------------------------------------------------
+
+    #[tokio::test]
+    async fn publisher_is_linked_and_reused_across_editions() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Harbor Tales", None);
+        meta.publisher = Some("Harbor Press".to_string());
+
+        let first = persist_meta(&state, &covers_dir, &books_dir, &meta, b"first", "epub")
+            .await
+            .expect("first import");
+        let second = persist_meta(&state, &covers_dir, &books_dir, &meta, b"second", "epub")
+            .await
+            .expect("second import");
+        assert!(!second.duplicate);
+
+        let conn = state.db_conn();
+        let publisher_rows = publishers::Entity::find()
+            .filter(publishers::Column::Name.eq("Harbor Press"))
+            .all(&conn)
+            .await
+            .expect("publishers");
+        assert_eq!(publisher_rows.len(), 1);
+        let publisher_id = publisher_rows[0].id;
+
+        for outcome in [&first, &second] {
+            let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+            let links = edition_publishers::Entity::find()
+                .filter(edition_publishers::Column::EditionId.eq(edition_id))
+                .all(&conn)
+                .await
+                .expect("edition publishers");
+            assert_eq!(links.len(), 1);
+            assert_eq!(links[0].publisher_id, publisher_id);
+        }
+    }
+
+    #[tokio::test]
+    async fn second_edition_reuses_existing_author_subject_and_identifier_rows() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Shared Rows", None);
+        meta.isbns = vec!["9781784780609".to_string()];
+        meta.subjects = vec!["Lighthouses".to_string()];
+
+        let first = persist_meta(&state, &covers_dir, &books_dir, &meta, b"one", "epub")
+            .await
+            .expect("first import");
+        let second = persist_meta(&state, &covers_dir, &books_dir, &meta, b"two", "epub")
+            .await
+            .expect("second import");
+        assert_ne!(first.edition_id, second.edition_id);
+
+        let conn = state.db_conn();
+        let ids = |outcome: &ImportOutcome| outcome.edition_id.parse::<DbId>().expect("id");
+        let (first_id, second_id) = (ids(&first), ids(&second));
+
+        let first_authors = linked_author_ids(&conn, first_id).await;
+        assert_eq!(first_authors.len(), 1);
+        assert_eq!(first_authors, linked_author_ids(&conn, second_id).await);
+        let author_rows = authors::Entity::find()
+            .filter(authors::Column::Name.eq("Susana M. Morris"))
+            .all(&conn)
+            .await
+            .expect("authors");
+        assert_eq!(author_rows.len(), 1);
+
+        let first_subjects = linked_subject_ids(&conn, first_id).await;
+        assert_eq!(first_subjects.len(), 1);
+        assert_eq!(first_subjects, linked_subject_ids(&conn, second_id).await);
+        let subject_rows = subjects::Entity::find()
+            .filter(subjects::Column::Name.eq("Lighthouses"))
+            .all(&conn)
+            .await
+            .expect("subjects");
+        assert_eq!(subject_rows.len(), 1);
+
+        let first_identifiers = linked_identifier_ids(&conn, first_id).await;
+        assert_eq!(first_identifiers.len(), 1);
+        assert_eq!(
+            first_identifiers,
+            linked_identifier_ids(&conn, second_id).await
+        );
+    }
+
+    async fn linked_author_ids(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        edition_id: DbId,
+    ) -> Vec<DbId> {
+        edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(edition_id))
+            .all(conn)
+            .await
+            .expect("edition authors")
+            .into_iter()
+            .map(|row| row.author_id)
+            .collect()
+    }
+
+    async fn linked_subject_ids(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        edition_id: DbId,
+    ) -> Vec<DbId> {
+        edition_subjects::Entity::find()
+            .filter(edition_subjects::Column::EditionId.eq(edition_id))
+            .all(conn)
+            .await
+            .expect("edition subjects")
+            .into_iter()
+            .map(|row| row.subject_id)
+            .collect()
+    }
+
+    async fn linked_identifier_ids(
+        conn: &livtet_core::data::orm::DatabaseConnection,
+        edition_id: DbId,
+    ) -> Vec<DbId> {
+        edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(conn)
+            .await
+            .expect("edition identifiers")
+            .into_iter()
+            .map(|row| row.identifier_id)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn non_core_contributor_role_is_stored_verbatim() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Anthology", None);
+        meta.contributors = vec![
+            contributor("Susana M. Morris", Some("aut")),
+            contributor("Alice Sheldon", Some("CTB")),
+        ];
+
+        let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, b"anthology", "epub")
+            .await
+            .expect("persist import");
+
+        let conn = state.db_conn();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let mut roles: Vec<String> = edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("edition authors")
+            .into_iter()
+            .map(|row| row.role)
+            .collect();
+        roles.sort();
+        assert_eq!(roles, vec!["aut".to_string(), "ctb".to_string()]);
+    }
+
+    // ---- Language resolution -------------------------------------------------
+
+    #[tokio::test]
+    async fn seeded_language_is_reused_for_639_1_and_639_3_codes() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let conn = state.db_conn();
+        let english = language_id_for_code(&conn, "en")
+            .await
+            .expect("English is seeded");
+        let languages_before = row_count::<languages::Entity>(&conn).await;
+
+        for (code, bytes) in [("en", b"en".as_slice()), ("eng", b"eng".as_slice())] {
+            let mut meta = importable_record("Language Book", None);
+            meta.language = Some(code.to_string());
+            let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, bytes, "epub")
+                .await
+                .expect("persist import");
+
+            let edition = stored_edition(&conn, &outcome).await;
+            assert_eq!(edition.language_id, Some(english), "{code}");
+            let work = works::Entity::find_by_id(edition.work_id)
+                .one(&conn)
+                .await
+                .expect("work query")
+                .expect("work present");
+            assert_eq!(work.language_id, Some(english), "{code}");
+        }
+        assert_eq!(
+            row_count::<languages::Entity>(&conn).await,
+            languages_before
+        );
+    }
+
+    #[tokio::test]
+    async fn unseeded_language_is_created_once_and_then_reused() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let conn = state.db_conn();
+        assert_eq!(language_id_for_code(&conn, "ga").await, None);
+        let languages_before = row_count::<languages::Entity>(&conn).await;
+
+        let mut meta = importable_record("Irish Book", None);
+        meta.language = Some("ga".to_string());
+        let first = persist_meta(&state, &covers_dir, &books_dir, &meta, b"ga", "epub")
+            .await
+            .expect("first import");
+        meta.language = Some("gle".to_string());
+        let second = persist_meta(&state, &covers_dir, &books_dir, &meta, b"gle", "epub")
+            .await
+            .expect("second import");
+
+        let irish = languages::Entity::find()
+            .filter(languages::Column::Code.eq("ga"))
+            .all(&conn)
+            .await
+            .expect("languages");
+        assert_eq!(irish.len(), 1);
+        assert_eq!(irish[0].name, "Irish");
+        assert_eq!(
+            row_count::<languages::Entity>(&conn).await,
+            languages_before + 1
+        );
+        assert_eq!(
+            stored_edition(&conn, &first).await.language_id,
+            Some(irish[0].id)
+        );
+        assert_eq!(
+            stored_edition(&conn, &second).await.language_id,
+            Some(irish[0].id)
+        );
+    }
+
+    #[tokio::test]
+    async fn unrecognized_language_leaves_the_edition_without_a_language() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let conn = state.db_conn();
+        let languages_before = row_count::<languages::Entity>(&conn).await;
+        let mut meta = importable_record("Mystery Tongue", None);
+        meta.language = Some("not-a-language".to_string());
+
+        let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, b"mystery", "epub")
+            .await
+            .expect("an unknown language must not fail the import");
+
+        assert_eq!(stored_edition(&conn, &outcome).await.language_id, None);
+        assert_eq!(
+            row_count::<languages::Entity>(&conn).await,
+            languages_before
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "bug: livtet-types at the locked rev (b7be4c6) normalizes `en-US`/`en-GB` to None, so region-tagged EPUB languages are dropped; fixed upstream, needs a livtet-core bump"]
+    async fn region_tagged_language_resolves_to_a_seeded_row() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let conn = state.db_conn();
+        let english = language_id_for_code(&conn, "en").await.expect("English");
+        let uk_english = language_id_for_code(&conn, "en-GB")
+            .await
+            .expect("UK English is seeded");
+
+        for (code, bytes, expected) in [
+            ("en-US", b"en-US".as_slice(), english),
+            ("en_US", b"en_US".as_slice(), english),
+            ("en-GB", b"en-GB".as_slice(), uk_english),
+        ] {
+            let mut meta = importable_record("Regional Book", None);
+            meta.language = Some(code.to_string());
+            let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, bytes, "epub")
+                .await
+                .expect("persist import");
+            assert_eq!(
+                stored_edition(&conn, &outcome).await.language_id,
+                Some(expected),
+                "{code}"
+            );
+        }
+    }
+
+    // ---- Publication dates ---------------------------------------------------
+
+    #[tokio::test]
+    async fn published_date_defaults_missing_parts_and_drops_impossible_dates() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let conn = state.db_conn();
+        let date = |year: i32, month: time::Month, day: u8| {
+            time::Date::from_calendar_date(year, month, day).expect("valid calendar date")
+        };
+        let cases = [
+            (
+                2025,
+                None,
+                None,
+                b"year-only".as_slice(),
+                Some(date(2025, time::Month::January, 1)),
+            ),
+            (
+                2021,
+                Some(6),
+                Some(15),
+                b"full".as_slice(),
+                Some(date(2021, time::Month::June, 15)),
+            ),
+            (2021, Some(2), Some(30), b"feb-30".as_slice(), None),
+        ];
+
+        for (year, month, day, bytes, expected) in cases {
+            let mut meta = importable_record("Dated Book", None);
+            meta.published = Some(ImporterPublicationDate { year, month, day });
+            let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, bytes, "epub")
+                .await
+                .expect("an impossible date must not fail the import");
+            assert_eq!(
+                stored_edition(&conn, &outcome).await.published_date,
+                expected,
+                "{year}-{month:?}-{day:?}"
+            );
+        }
+    }
+
+    // ---- Covers --------------------------------------------------------------
+
+    #[test]
+    fn cover_extension_follows_the_mime_type() {
+        let cases = [
+            ("image/jpeg", "jpg"),
+            ("image/png", "png"),
+            ("image/webp", "webp"),
+            ("image/gif", "gif"),
+            ("image/svg+xml", "img"),
+            ("application/octet-stream", "img"),
+        ];
+        for (mime, extension) in cases {
+            assert_eq!(cover_extension(mime), extension, "{mime}");
+        }
+    }
+
+    #[tokio::test]
+    async fn cover_is_written_under_the_inventory_directory() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Covered", None);
+        meta.cover = Some(ImporterCover {
+            mime: "image/png".to_string(),
+            data_base64: STANDARD.encode(PNG_COVER),
+        });
+
+        let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, b"covered", "epub")
+            .await
+            .expect("persist import");
+
+        let conn = state.db_conn();
+        let inventory = stored_inventory(&conn, &outcome).await;
+        let expected = covers_dir.join(inventory.id.to_string()).join("cover.png");
+        assert_eq!(inventory.cover_path.as_deref(), Some(expected.as_str()));
+        assert_eq!(fs_err::read(&expected).expect("cover file"), PNG_COVER);
+    }
+
+    #[tokio::test]
+    async fn undecodable_cover_rolls_back_rows_and_library_file() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let mut meta = importable_record("Broken Cover", None);
+        meta.cover = Some(ImporterCover {
+            mime: "image/png".to_string(),
+            data_base64: "@@ not base64 @@".to_string(),
+        });
+
+        let error = persist_meta(&state, &covers_dir, &books_dir, &meta, b"broken", "epub")
+            .await
+            .expect_err("invalid cover data fails the import");
+        assert_eq!(error.code, "parse");
+
+        let conn = state.db_conn();
+        assert_eq!(row_count::<works::Entity>(&conn).await, 0);
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 0);
+        assert_eq!(row_count::<digital_inventory::Entity>(&conn).await, 0);
+        assert_eq!(dir_entries(&books_dir), 0, "library file must be removed");
+    }
+
+    // fs-err formats tokio I/O errors via `block_in_place`, which needs the
+    // multi-thread runtime the app runs on.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_cover_write_keeps_the_import_and_clears_cover_path() {
+        let (_db, state, _covers, _covers_dir, _books, books_dir) = persist_fixture().await;
+        // A regular file where the covers directory should be: every cover
+        // directory creation under it fails.
+        let (_blocker_root, blocker_root) = temporary_dir();
+        let covers_dir = blocker_root.join("covers");
+        fs_err::write(&covers_dir, b"not a directory").expect("blocker file");
+
+        let mut meta = importable_record("Uncovered", None);
+        meta.cover = Some(ImporterCover {
+            mime: "image/jpeg".to_string(),
+            data_base64: STANDARD.encode(JPEG_COVER),
+        });
+
+        let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, b"uncovered", "epub")
+            .await
+            .expect("a cover write failure must not fail the import");
+        assert!(!outcome.duplicate);
+
+        let conn = state.db_conn();
+        let inventory = stored_inventory(&conn, &outcome).await;
+        assert_eq!(inventory.cover_path, None);
+        assert!(inventory.file_path.is_some());
+    }
+
+    // ---- Relink edge cases -----------------------------------------------------
+
+    #[tokio::test]
+    async fn relink_without_a_recorded_file_is_a_database_error() {
+        let (_db, state, _covers, _covers_dir, _books, books_dir) = persist_fixture().await;
+        let (_outside, outside) = temporary_dir();
+        let source = outside.join("orphan.epub");
+        fs_err::write(&source, b"orphan").expect("source");
+
+        let error = relink_edition(&state.db_conn(), &books_dir, DbId::new(), &source)
+            .await
+            .expect_err("no inventory row to relink");
+        assert_eq!(error.code, "database");
+        assert_eq!(dir_entries(&books_dir), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn relink_to_an_unreadable_source_leaves_the_entry_untouched() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let meta = importable_record("Stays Put", None);
+        let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, b"stays", "epub")
+            .await
+            .expect("persist import");
+        let conn = state.db_conn();
+        let before = stored_inventory(&conn, &outcome).await;
+
+        let (_outside, outside) = temporary_dir();
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let error = relink_edition(&conn, &books_dir, edition_id, &outside.join("missing.epub"))
+            .await
+            .expect_err("missing source cannot be relinked");
+        assert_eq!(error.code, "io");
+
+        let after = stored_inventory(&conn, &outcome).await;
+        assert_eq!(after.file_path, before.file_path);
+        assert_eq!(after.file_hash, before.file_hash);
+        let previous = before.file_path.expect("file path");
+        assert!(std::fs::symlink_metadata(&previous).is_ok(), "{previous}");
+    }
+
+    #[tokio::test]
+    async fn relink_to_an_extensionless_source_keeps_the_recorded_format() {
+        let (_db, state, _covers, covers_dir, _books, books_dir) = persist_fixture().await;
+        let meta = importable_record("No Extension", None);
+        let outcome = persist_meta(&state, &covers_dir, &books_dir, &meta, b"noext", "epub")
+            .await
+            .expect("persist import");
+        let conn = state.db_conn();
+        let previous = stored_inventory(&conn, &outcome)
+            .await
+            .file_path
+            .expect("file path");
+
+        let (_outside, outside) = temporary_dir();
+        let source = outside.join("replacement");
+        fs_err::write(&source, b"extensionless bytes").expect("source");
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let file = relink_edition(&conn, &books_dir, edition_id, &source)
+            .await
+            .expect("an extensionless source must relink");
+
+        // `file_format` is NOT NULL: the recorded format survives.
+        assert_eq!(file.file_format.as_deref(), Some("epub"));
+        let row = stored_inventory(&conn, &outcome).await;
+        assert_eq!(row.file_format.as_deref(), Some("epub"));
+        let stored = row.file_path.expect("file path");
+        assert_eq!(file.file_path.as_deref(), Some(stored.as_str()));
+        assert_eq!(
+            fs_err::read(&stored).expect("read through link"),
+            b"extensionless bytes"
+        );
+        assert!(std::fs::symlink_metadata(&previous).is_err(), "{previous}");
+    }
+
+    // ---- import_one_inner / import_batch ---------------------------------------
+
+    #[tokio::test]
+    async fn native_epub_import_persists_metadata_cover_and_search_entry() {
+        let harness = ImportHarness::new(true).await;
+        let source = write_epub(&harness.sources_dir, "lantern.epub", LANTERN_METADATA, true);
+
+        let outcome = import_one_inner(source.as_str(), ImportMode::Link, &harness.ctx())
+            .await
+            .expect("import epub");
+        assert!(!outcome.duplicate);
+        assert_eq!(outcome.title, "The Lantern Keeper");
+        assert_eq!(outcome.isbns, vec!["9780306406157".to_string()]);
+
+        let conn = harness.state.db_conn();
+        let edition = stored_edition(&conn, &outcome).await;
+        assert_eq!(edition.format_id, format_id_for_extension("epub"));
+        assert_eq!(edition.language_id, language_id_for_code(&conn, "fr").await);
+        assert!(edition.language_id.is_some());
+
+        let publisher_links = edition_publishers::Entity::find()
+            .filter(edition_publishers::Column::EditionId.eq(edition.id))
+            .all(&conn)
+            .await
+            .expect("edition publishers");
+        assert_eq!(publisher_links.len(), 1);
+        let publisher = publishers::Entity::find_by_id(publisher_links[0].publisher_id)
+            .one(&conn)
+            .await
+            .expect("publisher query")
+            .expect("publisher present");
+        assert_eq!(publisher.name, "Harbor Press");
+
+        let inventory = stored_inventory(&conn, &outcome).await;
+        let stored = inventory.file_path.clone().expect("file path");
+        assert!(stored.starts_with(harness.books_dir.as_str()), "{stored}");
+        assert_eq!(
+            std::fs::read_link(&stored).expect("library link"),
+            source.clone().into_std_path_buf()
+        );
+        assert_eq!(inventory.file_format.as_deref(), Some("epub"));
+        let cover_path = harness
+            .covers_dir
+            .join(inventory.id.to_string())
+            .join("cover.jpg");
+        assert_eq!(inventory.cover_path.as_deref(), Some(cover_path.as_str()));
+        assert_eq!(fs_err::read(&cover_path).expect("cover file"), JPEG_COVER);
+
+        {
+            let guard = harness.search_index.read().await;
+            let hits = guard
+                .as_ref()
+                .expect("index")
+                .search("Lantern", 10)
+                .await
+                .expect("search");
+            assert!(
+                hits.iter()
+                    .any(|hit| hit.edition_id.as_deref() == Some(outcome.edition_id.as_str())),
+                "fresh import must be searchable"
+            );
+        }
+
+        // Re-importing the same bytes is a no-op returning the same edition.
+        let again = import_one_inner(source.as_str(), ImportMode::Link, &harness.ctx())
+            .await
+            .expect("re-import epub");
+        assert!(again.duplicate);
+        assert_eq!(again.edition_id, outcome.edition_id);
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 1);
+        assert_eq!(dir_entries(&harness.books_dir), 1);
+    }
+
+    #[tokio::test]
+    async fn unparseable_native_files_fail_with_the_parse_code() {
+        let harness = ImportHarness::new(false).await;
+        for extension in ["epub", "azw3", "azw", "m4b", "m4a", "pdf"] {
+            let source = harness.sources_dir.join(format!("garbage.{extension}"));
+            fs_err::write(&source, b"this is not a book in any format").expect("garbage");
+
+            let error = import_one_inner(source.as_str(), ImportMode::Copy, &harness.ctx())
+                .await
+                .expect_err("garbage must not import");
+            assert_eq!(error.code, "parse", "{extension}: {}", error.message);
+        }
+
+        let conn = harness.state.db_conn();
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 0);
+        assert_eq!(dir_entries(&harness.books_dir), 0);
+    }
+
+    #[tokio::test]
+    async fn epub_without_a_creator_is_rejected_before_anything_is_stored() {
+        let harness = ImportHarness::new(false).await;
+        let source = write_epub(
+            &harness.sources_dir,
+            "anonymous.epub",
+            r#"<dc:identifier id="bookid">9780306406157</dc:identifier>
+    <dc:title>Anonymous</dc:title>"#,
+            false,
+        );
+
+        let error = import_one_inner(source.as_str(), ImportMode::Copy, &harness.ctx())
+            .await
+            .expect_err("a creator is required");
+        assert_eq!(error.code, "parse");
+
+        let conn = harness.state.db_conn();
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 0);
+        assert_eq!(dir_entries(&harness.books_dir), 0);
+    }
+
+    #[tokio::test]
+    async fn non_native_extension_is_routed_to_the_remote_importer() {
+        let harness = ImportHarness::new(false).await;
+        let source = harness.sources_dir.join("notes.xyz");
+        fs_err::write(&source, b"remote-only format").expect("source");
+
+        // The native importers would answer `parse`; only the remote path
+        // reports a host launch failure as `importer`.
+        let error = import_one_inner(source.as_str(), ImportMode::Copy, &harness.ctx())
+            .await
+            .expect_err("no plugin host is available");
+        assert_eq!(error.code, "importer", "{}", error.message);
+
+        let conn = harness.state.db_conn();
+        assert_eq!(row_count::<editions::Entity>(&conn).await, 0);
+        assert_eq!(dir_entries(&harness.books_dir), 0);
+    }
+
+    #[tokio::test]
+    async fn batch_reports_ordered_progress_and_aggregates_outcomes() {
+        let harness = ImportHarness::new(false).await;
+        let good = write_epub(
+            &harness.sources_dir,
+            "lantern.epub",
+            LANTERN_METADATA,
+            false,
+        );
+        let bad = harness.sources_dir.join("broken.epub");
+        fs_err::write(&bad, b"not a zip").expect("broken epub");
+        let paths = vec![good.to_string(), good.to_string(), bad.to_string()];
+
+        let mut batch_events: Vec<ImportBatchProgress> = Vec::new();
+        let mut file_events: Vec<ImportFileProgress> = Vec::new();
+        let result = import_batch(
+            paths.clone(),
+            ImportMode::Copy,
+            &harness.ctx(),
+            |event| batch_events.push(event),
+            |event| file_events.push(event),
+        )
+        .await;
+
+        assert_eq!(
+            (result.imported, result.duplicated, result.failed),
+            (1, 1, 1)
+        );
+        let returned_paths: Vec<&str> = result.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            returned_paths,
+            paths.iter().map(String::as_str).collect::<Vec<_>>()
+        );
+        let first = result.files[0].outcome.as_ref().expect("first imported");
+        let second = result.files[1].outcome.as_ref().expect("second duplicated");
+        assert!(!first.duplicate);
+        assert!(second.duplicate);
+        assert_eq!(second.edition_id, first.edition_id);
+        assert_eq!(
+            result.files[2].error.as_ref().map(|e| e.code.as_str()),
+            Some("parse")
+        );
+
+        // Batch: started (no result) then finished (carrying the aggregate).
+        assert_eq!(batch_events.len(), 2);
+        assert!(matches!(batch_events[0].phase, ImportPhase::Started));
+        assert_eq!(batch_events[0].total, 3);
+        assert!(batch_events[0].result.is_none());
+        assert!(matches!(batch_events[1].phase, ImportPhase::Finished));
+        let finished = batch_events[1].result.as_ref().expect("final aggregate");
+        assert_eq!(
+            (finished.imported, finished.duplicated, finished.failed),
+            (1, 1, 1)
+        );
+
+        // Files: a started/finished pair per path, in order, with the
+        // finished event mirroring that file's result.
+        assert_eq!(file_events.len(), 6);
+        for (position, pair) in file_events.chunks(2).enumerate() {
+            let (started, done) = (&pair[0], &pair[1]);
+            assert_eq!(started.index, position as i32);
+            assert_eq!(done.index, position as i32);
+            assert_eq!(started.total, 3);
+            assert_eq!(started.path, paths[position]);
+            assert_eq!(done.path, paths[position]);
+            assert!(matches!(started.phase, ImportPhase::Started));
+            assert!(started.outcome.is_none() && started.error.is_none());
+            assert!(matches!(done.phase, ImportPhase::Finished));
+            assert_eq!(
+                done.outcome.as_ref().map(|o| o.duplicate),
+                result.files[position].outcome.as_ref().map(|o| o.duplicate)
+            );
+            assert_eq!(
+                done.error.as_ref().map(|e| e.code.clone()),
+                result.files[position]
+                    .error
+                    .as_ref()
+                    .map(|e| e.code.clone())
+            );
+        }
     }
 }

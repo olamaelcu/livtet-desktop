@@ -13,7 +13,7 @@
 mod error;
 mod metadata;
 
-use std::path::Path;
+use camino::Utf8Path;
 
 pub use error::AudioError;
 pub use livtet_importer_types::{
@@ -31,11 +31,9 @@ pub type Result<T> = std::result::Result<T, AudioError>;
 /// error. A missing ISBN is not: [`SourceMetadata::isbns`] is empty for
 /// audiobooks while an ASIN-style identifier is preserved in
 /// `other_identifiers` when present.
-pub fn read_metadata(path: &Path) -> Result<SourceMetadata> {
+pub fn read_metadata(path: &Utf8Path) -> Result<SourceMetadata> {
     let tag = mp4ameta::Tag::read_from_path(path)?;
-    let title_fallback = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned());
+    let title_fallback = path.file_stem().map(str::to_owned);
     metadata::from_tag(&tag, title_fallback.as_deref())
 }
 

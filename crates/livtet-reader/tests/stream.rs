@@ -5,6 +5,7 @@
 #[path = "../../livtet-epub/src/test_support.rs"]
 mod test_support;
 
+use camino::Utf8Path;
 use livtet_reader::{Reader, ReaderError};
 use serde_json::json;
 use test_support::EpubBuilder;
@@ -83,7 +84,7 @@ fn encoded_fixture() -> tempfile::NamedTempFile {
 
 #[test]
 fn manifest_has_self_link_reading_order_and_title() {
-    let reader = Reader::open(fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(fixture().path().to_str().unwrap())).unwrap();
     let manifest = reader.manifest("reader://localhost/abc/");
 
     assert_eq!(manifest["metadata"]["title"], "Reader Test");
@@ -107,7 +108,7 @@ fn manifest_has_self_link_reading_order_and_title() {
 
 #[test]
 fn positions_follow_reading_order() {
-    let reader = Reader::open(fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(fixture().path().to_str().unwrap())).unwrap();
     let positions = reader.positions();
 
     assert_eq!(positions.len(), 2);
@@ -124,7 +125,7 @@ fn positions_follow_reading_order() {
 
 #[test]
 fn reads_spine_item_and_css() {
-    let reader = Reader::open(fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(fixture().path().to_str().unwrap())).unwrap();
 
     let (mime, bytes) = reader.read("OEBPS/ch01.xhtml").unwrap();
     assert_eq!(mime, "application/xhtml+xml");
@@ -140,7 +141,7 @@ fn reads_spine_item_and_css() {
 
 #[test]
 fn rejects_traversal_and_unknown_hrefs() {
-    let reader = Reader::open(fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(fixture().path().to_str().unwrap())).unwrap();
 
     assert!(reader.read("../../etc/passwd").is_none());
     assert!(reader.read("/etc/passwd").is_none());
@@ -160,12 +161,12 @@ fn open_rejects_non_zip_files() {
     file.write_all(b"this is not a zip archive").unwrap();
     file.flush().unwrap();
 
-    assert!(Reader::open(file.path()).is_err());
+    assert!(Reader::open(Utf8Path::new(file.path().to_str().unwrap())).is_err());
 }
 
 #[test]
 fn reads_percent_encoded_href() {
-    let reader = Reader::open(encoded_fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(encoded_fixture().path().to_str().unwrap())).unwrap();
 
     let manifest = reader.manifest("reader://localhost/enc/");
     assert_eq!(
@@ -189,7 +190,7 @@ fn reads_percent_encoded_href() {
 
 #[test]
 fn rejects_percent_encoded_traversal_and_backslash() {
-    let reader = Reader::open(encoded_fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(encoded_fixture().path().to_str().unwrap())).unwrap();
 
     assert!(reader.read("%2e%2e%2fetc/passwd").is_none());
     assert!(reader.read("..%2f..%2fetc%2fpasswd").is_none());
@@ -201,7 +202,7 @@ fn rejects_percent_encoded_traversal_and_backslash() {
 
 #[test]
 fn resolves_manifest_media_type_for_encoded_href() {
-    let reader = Reader::open(encoded_fixture().path()).unwrap();
+    let reader = Reader::open(Utf8Path::new(encoded_fixture().path().to_str().unwrap())).unwrap();
 
     let (mime, bytes) = reader.read("OEBPS/weird%20file.bin").unwrap();
     assert_eq!(mime, "application/x-myformat");
@@ -231,7 +232,7 @@ fn open_rejects_epub_without_reading_order() {
         .tempfile();
 
     assert!(matches!(
-        Reader::open(file.path()),
+        Reader::open(Utf8Path::new(file.path().to_str().unwrap())),
         Err(ReaderError::Unsupported(_))
     ));
 }

@@ -11,8 +11,9 @@ mod path;
 
 pub use error::ReaderError;
 
-use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
+
+use camino::Utf8Path;
 
 use livtet_epub::{Archive, ocf};
 
@@ -48,15 +49,12 @@ pub struct Reader {
 impl Reader {
     /// Open and parse an EPUB. Fails closed on an unreadable archive or a
     /// package with no reading order.
-    pub fn open(path: &Path) -> Result<Self, ReaderError> {
-        let bytes = std::fs::read(path)?;
+    pub fn open(path: &Utf8Path) -> Result<Self, ReaderError> {
+        let bytes = fs_err::read(path)?;
         let mut archive = Archive::open(bytes)?;
         let opf_path = ocf::find_opf_path(&mut archive)?;
         let base_dir = ocf::base_dir(&opf_path);
-        let file_name = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("Untitled");
+        let file_name = path.file_stem().unwrap_or("Untitled");
         let package = package::parse(&mut archive, &opf_path, file_name)?;
         Ok(Self {
             archive: Mutex::new(archive),

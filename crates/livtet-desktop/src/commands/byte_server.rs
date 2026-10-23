@@ -273,7 +273,7 @@ mod tests {
         let books_dir =
             camino::Utf8PathBuf::from_path_buf(dir.path().to_path_buf()).expect("utf8 path");
         let file_path = books_dir.join(format!("book.{extension}"));
-        std::fs::write(&file_path, b"0123456789abcdef").expect("fixture file");
+        fs_err::write(&file_path, b"0123456789abcdef").expect("fixture file");
 
         let edition_id = DbId::new();
         editions::ActiveModel {

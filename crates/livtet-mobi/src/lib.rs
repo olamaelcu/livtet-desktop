@@ -23,7 +23,7 @@ mod pdb;
 #[cfg(test)]
 mod test_support;
 
-use std::path::Path;
+use camino::Utf8Path;
 
 pub use error::MobiError;
 pub use livtet_importer_types::{
@@ -40,7 +40,7 @@ pub type Result<T> = std::result::Result<T, MobiError>;
 /// Fails closed: an unreadable file or a missing title or creator is an
 /// error. A missing ISBN is not: [`SourceMetadata::isbns`] may be empty while
 /// non-ISBN identifiers are preserved in `other_identifiers`.
-pub fn read_metadata(path: &Path) -> Result<SourceMetadata> {
-    let bytes = std::fs::read(path)?;
+pub fn read_metadata(path: &Utf8Path) -> Result<SourceMetadata> {
+    let bytes = fs_err::read(path)?;
     metadata::extract(&bytes)
 }

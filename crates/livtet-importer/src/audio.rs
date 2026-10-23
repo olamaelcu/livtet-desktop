@@ -1,6 +1,5 @@
-use std::path::Path;
-
 use base64::{Engine, engine::general_purpose::STANDARD};
+use camino::Utf8Path;
 use stanchion_lua::mlua;
 
 use crate::{Importer, ImporterContributor, ImporterCover, ImporterMeta, ImporterPublicationDate};
@@ -15,7 +14,7 @@ impl Importer for AudiobookImporter {
 
     fn read_metadata(&self, path: String) -> mlua::Result<ImporterMeta> {
         let parsed =
-            livtet_audio::read_metadata(Path::new(&path)).map_err(mlua::Error::external)?;
+            livtet_audio::read_metadata(Utf8Path::new(&path)).map_err(mlua::Error::external)?;
 
         Ok(ImporterMeta {
             title: parsed.title.0,

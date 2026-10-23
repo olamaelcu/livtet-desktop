@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 
 const { convertFileSrc, invoke } = vi.hoisted(() => ({
@@ -22,6 +22,12 @@ beforeEach(() => {
   goto.mockClear()
   focusSearchTarget.mockClear()
   invoke.mockClear()
+})
+
+afterEach(() => {
+  // wa-dialog escapes the render container, so a palette left open would leak
+  // into the next test's document-wide query and its late focus microtasks.
+  for (const dialog of document.querySelectorAll('wa-dialog')) dialog.remove()
 })
 
 function palette(_container: HTMLElement): HTMLElement | null {

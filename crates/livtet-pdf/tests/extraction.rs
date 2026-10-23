@@ -2,9 +2,15 @@
 //! dictionary onto them, and assert extraction.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use camino::Utf8Path;
 use livtet_pdf::{PdfError, PublicationDate, Role};
 use pdf_oxide::editor::{DocumentEditor, DocumentInfo, EditableDocument};
 use pdf_oxide::writer::{DocumentBuilder, PageSize};
+
+/// Borrow a tempfile as UTF-8 for [`livtet_pdf::read_metadata`].
+fn upath(file: &tempfile::NamedTempFile) -> &Utf8Path {
+    Utf8Path::new(file.path().to_str().unwrap())
+}
 
 /// Build a one-page PDF carrying `info` and write it to a temp file.
 fn fixture(info: DocumentInfo) -> tempfile::NamedTempFile {
@@ -15,7 +21,7 @@ fn fixture(info: DocumentInfo) -> tempfile::NamedTempFile {
     }
     let bytes = builder.build().expect("fixture PDF builds");
     let file = tempfile::Builder::new().suffix(".pdf").tempfile().unwrap();
-    std::fs::write(file.path(), bytes).unwrap();
+    fs_err::write(file.path(), bytes).unwrap();
 
     let mut editor = DocumentEditor::open(file.path()).expect("fixture opens for editing");
     editor
@@ -42,7 +48,7 @@ fn extracts_info_metadata_with_optional_isbn() {
         .keywords("9781784780609, publisher-123, Biography");
     info.creation_date = Some("D:20250819235959Z".to_string());
 
-    let parsed = livtet_pdf::read_metadata(fixture(info).path()).expect("valid fixture");
+    let parsed = livtet_pdf::read_metadata(upath(&fixture(info))).expect("valid fixture");
 
     assert_eq!(parsed.title.0, "Positive Obsession");
     assert_eq!(names(&parsed), vec!["Susana M. Morris"]);
@@ -80,7 +86,7 @@ fn splits_info_author_into_contributors() {
     let info = DocumentInfo::new()
         .title("Collaborative Work")
         .author("Ada Lovelace and Charles Babbage && Sons");
-    let parsed = livtet_pdf::read_metadata(fixture(info).path()).expect("valid fixture");
+    let parsed = livtet_pdf::read_metadata(upath(&fixture(info))).expect("valid fixture");
 
     assert_eq!(
         names(&parsed),
@@ -91,7 +97,7 @@ fn splits_info_author_into_contributors() {
 #[test]
 fn missing_title_fails_closed() {
     let info = DocumentInfo::new().author("Susana M. Morris");
-    let error = livtet_pdf::read_metadata(fixture(info).path())
+    let error = livtet_pdf::read_metadata(upath(&fixture(info)))
         .expect_err("a PDF with no title must not import");
 
     assert!(matches!(error, PdfError::MissingRequired("title")));
@@ -100,7 +106,7 @@ fn missing_title_fails_closed() {
 #[test]
 fn missing_creator_fails_closed() {
     let info = DocumentInfo::new().title("Positive Obsession");
-    let error = livtet_pdf::read_metadata(fixture(info).path())
+    let error = livtet_pdf::read_metadata(upath(&fixture(info)))
         .expect_err("a PDF with no creator must not import");
 
     assert!(matches!(error, PdfError::MissingRequired("creator")));
@@ -109,7 +115,7 @@ fn missing_creator_fails_closed() {
 #[test]
 fn renders_page_zero_as_cover_fallback() {
     let info = DocumentInfo::new().title("Coverless").author("Someone");
-    let parsed = livtet_pdf::read_metadata(fixture(info).path()).expect("valid fixture");
+    let parsed = livtet_pdf::read_metadata(upath(&fixture(info))).expect("valid fixture");
 
     let cover = parsed.cover.expect("a blank page renders to a PNG cover");
     assert_eq!(cover.mime, "image/png");

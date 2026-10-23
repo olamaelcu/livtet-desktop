@@ -81,6 +81,8 @@ beforeEach(() => {
         return []
       case 'search_typeahead':
         return []
+      case 'delete_editions':
+        return { deleted: 1, files_removed: 1, covers_removed: 0, skipped: [] }
       default:
         throw new Error(`unexpected command: ${command}`)
     }
@@ -119,6 +121,64 @@ test('renders a card per edition once results arrive', async () => {
   // The empty state is the other arm of the same branch, so it must be gone
   // rather than merely hidden.
   expect(emptyState(container)).toBeNull()
+})
+
+function actionBar(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('[role="toolbar"][aria-label="Selection actions"]')
+}
+
+function buttonByLabel(container: HTMLElement, label: string): HTMLElement {
+  // Actions render as `wa-button` custom elements; the confirm dialog uses
+  // native buttons.
+  const found = [...container.querySelectorAll<HTMLElement>('wa-button,button')].find((button) =>
+    button.textContent?.includes(label),
+  )
+  expect(found, `a "${label}" button`).not.toBeUndefined()
+  return found as HTMLElement
+}
+
+test('selection mode docks the action bar and counts selections', async () => {
+  hits = [hit('Capital'), hit('Debt')]
+  const { container } = await render(LibraryPageFixture)
+  await expect.poll(() => cardTitles(container).length).toBe(2)
+
+  expect(actionBar(container)).toBeNull()
+  buttonByLabel(container, 'Select').click()
+  await expect.poll(() => actionBar(container)?.textContent).toContain('0 selected')
+
+  const [first] = [...container.querySelectorAll<HTMLButtonElement>('.card-wrap .card')]
+  first?.click()
+  await expect.poll(() => actionBar(container)?.textContent).toContain('1 selected')
+})
+
+test('deleting from selection calls delete_editions and toasts', async () => {
+  hits = [hit('Capital')]
+  const { container } = await render(LibraryPageFixture)
+  await expect.poll(() => cardTitles(container).length).toBe(1)
+
+  buttonByLabel(container, 'Select').click()
+  await expect.poll(() => actionBar(container)).not.toBeNull()
+  const [card] = [...container.querySelectorAll<HTMLButtonElement>('.card-wrap .card')]
+  card?.click()
+  await expect.poll(() => actionBar(container)?.textContent).toContain('1 selected')
+
+  const bar = () => actionBar(container) as HTMLElement
+  const barButton = (label: string) => {
+    const found = [...bar().querySelectorAll<HTMLElement>('wa-button,button')].find((button) =>
+      button.textContent?.includes(label),
+    )
+    expect(found, `an action-bar "${label}" button`).not.toBeUndefined()
+    return found as HTMLElement
+  }
+  barButton('Delete').click()
+  await expect
+    .poll(() => container.querySelector('wa-dialog[label="Delete editions"]'))
+    .not.toBeNull()
+  expect(container.textContent).toContain('Delete 1 selected edition?')
+  container.querySelector<HTMLButtonElement>('wa-dialog button.danger')?.click()
+
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Deleted 1')
+  expect(invoke).toHaveBeenCalledWith('delete_editions', { editionIds: ['ed-Capital'] })
 })
 
 // The empty state is guarded by `!editions.isPending && !editions.isError`, so

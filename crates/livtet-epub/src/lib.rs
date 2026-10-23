@@ -29,7 +29,7 @@ mod zip;
 #[cfg(test)]
 mod test_support;
 
-use std::path::Path;
+use camino::Utf8Path;
 
 pub use cover::percent_decode;
 pub use error::EpubError;
@@ -48,8 +48,8 @@ pub type Result<T> = std::result::Result<T, EpubError>;
 /// Fails closed: an unreadable file or a missing title or creator is an error.
 /// A missing ISBN is not: when the metadata carries none, the content documents
 /// are scanned for one, so [`SourceMetadata::isbns`] may be empty.
-pub fn read_metadata(path: &Path) -> Result<SourceMetadata> {
-    let bytes = std::fs::read(path)?;
+pub fn read_metadata(path: &Utf8Path) -> Result<SourceMetadata> {
+    let bytes = fs_err::read(path)?;
     let mut archive = zip::Archive::open(bytes)?;
     metadata::extract(&mut archive)
 }

@@ -33,7 +33,7 @@ mod info;
 mod metadata;
 mod xmp;
 
-use std::path::Path;
+use camino::Utf8Path;
 
 pub use error::PdfError;
 pub use livtet_importer_types::{
@@ -52,8 +52,8 @@ pub type Result<T> = std::result::Result<T, PdfError>;
 /// title or creator are errors. A missing ISBN and a missing cover are not:
 /// [`PdfMetadata::isbns`] may be empty and [`PdfMetadata::cover`] may be
 /// [`None`].
-pub fn read_metadata(path: &Path) -> Result<PdfMetadata> {
-    let bytes = std::fs::read(path)?;
+pub fn read_metadata(path: &Utf8Path) -> Result<PdfMetadata> {
+    let bytes = fs_err::read(path)?;
     let doc = pdf_oxide::PdfDocument::from_bytes(bytes.clone())?;
     // XMP is supplementary: a document whose XMP packet cannot be read still
     // has its Info dictionary, so an XMP failure degrades to "no XMP".

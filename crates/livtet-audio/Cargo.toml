@@ -13,6 +13,7 @@ livtet-types.workspace = true
 mp4ameta.workspace = true
 serde_json = "1"
 thiserror = "2"
+camino = "1.2"
 
 
 [lints]

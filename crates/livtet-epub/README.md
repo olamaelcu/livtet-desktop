@@ -18,6 +18,7 @@ dropped. `title_sort` is taken from the main title's `file-as` refinement or
 `calibre:title_sort`.
 
 ```rust,ignore
+let path = camino::Utf8Path::new("book.epub");
 let meta = livtet_epub::read_metadata(path)?;
 meta.title;               // non-empty
 meta.title_sort;          // Option<String>, from file-as / calibre:title_sort

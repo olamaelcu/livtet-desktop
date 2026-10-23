@@ -1,7 +1,8 @@
 use std::fs::File;
 use std::io::Read as _;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+use camino::{Utf8Path, Utf8PathBuf};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use livtet_importer::ImporterMeta;
@@ -112,21 +113,21 @@ pub struct RemoteImporterRead {
 }
 
 pub async fn remote_importer_metadata(
-    host: PathBuf,
-    config: PathBuf,
-    plugins_dir: PathBuf,
-    path: PathBuf,
+    host: Utf8PathBuf,
+    config: Utf8PathBuf,
+    plugins_dir: Utf8PathBuf,
+    path: Utf8PathBuf,
 ) -> Result<RemoteImporterRead, ImportError> {
     let selected_path = path.clone();
     let observed_bytes = Arc::new(Mutex::new(None));
     let record = tokio::task::spawn_blocking(move || -> Result<RemoteImporterRead, ImportError> {
-        let requested_path = selected_path.to_string_lossy().into_owned();
+        let requested_path = selected_path.as_str().to_owned();
         let extension = selected_path
             .extension()
-            .and_then(|extension| extension.to_str())
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
-        let options = RemoteOptions::new(host)
+        // `RemoteOptions` takes std paths at this boundary.
+        let options = RemoteOptions::new(host.into_std_path_buf())
             .config(config)
             .plugins(&plugins_dir)
             .inherit_stderr(false);
@@ -191,7 +192,7 @@ pub async fn remote_importer_metadata(
             .clone()
         {
             Some(bytes) => bytes,
-            None => std::fs::read(&selected_path)
+            None => fs_err::read(&selected_path)
                 .map_err(|error| ImportError::new("io", format!("reading import file: {error}")))?,
         };
         Ok(RemoteImporterRead {
@@ -212,7 +213,7 @@ fn no_importer_message(extension: &str) -> String {
     }
 }
 
-fn answer_fs_read(call: &CallbackCall, selected_path: &Path) -> Result<Json, String> {
+fn answer_fs_read(call: &CallbackCall, selected_path: &Utf8Path) -> Result<Json, String> {
     if call.capability != "fs_read" {
         return Err(format!("unsupported capability `{}`", call.capability));
     }
@@ -222,7 +223,7 @@ fn answer_fs_read(call: &CallbackCall, selected_path: &Path) -> Result<Json, Str
     let requested = requested
         .as_str()
         .ok_or_else(|| "fs_read path must be a string".to_string())?;
-    if Path::new(requested) != selected_path {
+    if Utf8Path::new(requested) != selected_path {
         return Err("fs_read is limited to the selected import file".to_string());
     }
     let file =
@@ -246,8 +247,8 @@ fn answer_fs_read(call: &CallbackCall, selected_path: &Path) -> Result<Json, Str
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
-    use std::fs;
-    use std::path::PathBuf;
+    use camino::{Utf8Path, Utf8PathBuf};
+    use fs_err as fs;
 
     use base64::{Engine, engine::general_purpose::STANDARD};
 
@@ -288,17 +289,18 @@ end
 return Importer
 "#;
 
-    fn host_binary() -> PathBuf {
+    fn host_binary() -> Utf8PathBuf {
         let test_binary = std::env::current_exe().unwrap();
         let profile_dir = test_binary.parent().and_then(|path| path.parent()).unwrap();
-        profile_dir.join(if cfg!(windows) {
+        Utf8PathBuf::from_path_buf(profile_dir.join(if cfg!(windows) {
             "livtet-plugin-host.exe"
         } else {
             "livtet-plugin-host"
-        })
+        }))
+        .unwrap()
     }
 
-    fn write_txt_plugin(plugins_dir: &std::path::Path, name: &str) {
+    fn write_txt_plugin(plugins_dir: &Utf8Path, name: &str) {
         let plugin_dir = plugins_dir.join(name);
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
@@ -311,8 +313,9 @@ return Importer
         fs::write(plugin_dir.join("init.lua"), TEXT_IMPORTER).unwrap();
     }
 
-    fn write_host_config(root: &tempfile::TempDir) -> PathBuf {
-        let config = root.path().join("host.toml");
+    fn write_host_config(root: &tempfile::TempDir) -> Utf8PathBuf {
+        let config =
+            Utf8PathBuf::from(root.path().to_str().expect("utf8 tempdir")).join("host.toml");
         fs::write(
             &config,
             "[capabilities]\nallow = [\"log\"]\ncallbacks = [\"fs_read\"]\n\n[signatures]\nrequired = false\n",
@@ -324,10 +327,10 @@ return Importer
     #[tokio::test]
     async fn remote_importer_reads_only_the_selected_file() {
         let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("remote.txt");
+        let file = Utf8PathBuf::from(root.path().to_str().unwrap()).join("remote.txt");
         fs::write(&file, b"remote-bytes").unwrap();
 
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = Utf8PathBuf::from(root.path().to_str().unwrap()).join("plugins");
         write_txt_plugin(&plugins_dir, "txt-importer");
         let config = write_host_config(&root);
 
@@ -346,10 +349,10 @@ return Importer
     #[tokio::test]
     async fn duplicate_extension_claims_are_an_error() {
         let root = tempfile::tempdir().unwrap();
-        let file = root.path().join("remote.txt");
+        let file = Utf8PathBuf::from(root.path().to_str().unwrap()).join("remote.txt");
         fs::write(&file, b"remote-bytes").unwrap();
 
-        let plugins_dir = root.path().join("plugins");
+        let plugins_dir = Utf8PathBuf::from(root.path().to_str().unwrap()).join("plugins");
         write_txt_plugin(&plugins_dir, "txt-importer");
         write_txt_plugin(&plugins_dir, "other-txt-importer");
         let config = write_host_config(&root);
@@ -377,15 +380,15 @@ return Importer
     #[test]
     fn fs_read_rejects_a_different_path() {
         let root = tempfile::tempdir().unwrap();
-        let selected = root.path().join("selected.txt");
+        let selected = Utf8PathBuf::from(root.path().to_str().unwrap()).join("selected.txt");
         fs::write(&selected, b"selected").unwrap();
-        let other = root.path().join("other.txt");
+        let other = Utf8PathBuf::from(root.path().to_str().unwrap()).join("other.txt");
         fs::write(&other, b"other").unwrap();
         let call = CallbackCall {
             plugin: "txt-importer".to_string(),
             capability: "fs_read".to_string(),
             grant: serde_json::Value::Null,
-            args: vec![serde_json::json!(other.to_string_lossy())],
+            args: vec![serde_json::json!(other.as_str())],
         };
 
         let error = answer_fs_read(&call, &selected).expect_err("fs_read is scoped");
@@ -469,13 +472,13 @@ return Importer
     #[test]
     fn fs_read_rejects_an_undeclared_capability() {
         let root = tempfile::tempdir().unwrap();
-        let selected = root.path().join("selected.txt");
+        let selected = Utf8PathBuf::from(root.path().to_str().unwrap()).join("selected.txt");
         fs::write(&selected, b"selected").unwrap();
         let call = CallbackCall {
             plugin: "txt-importer".to_string(),
             capability: "network".to_string(),
             grant: serde_json::Value::Null,
-            args: vec![serde_json::json!(selected.to_string_lossy())],
+            args: vec![serde_json::json!(selected.as_str())],
         };
 
         let error = answer_fs_read(&call, &selected).expect_err("only fs_read is answered");

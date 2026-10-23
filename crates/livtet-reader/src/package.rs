@@ -242,3 +242,208 @@ fn all_text(metadata: &Element, local: &str) -> Vec<String> {
 fn collapse(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use std::io::{Cursor, Write};
+
+    use zip::ZipWriter;
+    use zip::write::SimpleFileOptions;
+
+    use super::*;
+
+    fn archive(files: &[(&str, &[u8])]) -> Archive {
+        let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes) in files {
+            zip.start_file(*name, SimpleFileOptions::default()).unwrap();
+            zip.write_all(bytes).unwrap();
+        }
+        Archive::open(zip.finish().unwrap().into_inner()).unwrap()
+    }
+
+    fn opf(metadata: &str, manifest: &str, spine: &str) -> String {
+        format!(
+            r#"<?xml version="1.0"?>
+<package xmlns="http://www.idpf.org/2007/opf" xmlns:dc="http://purl.org/dc/elements/1.1/" version="3.0">
+  <metadata>{metadata}</metadata>
+  <manifest>{manifest}</manifest>
+  {spine}
+</package>"#
+        )
+    }
+
+    const CHAPTER: &str = r#"<item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>"#;
+    const NAV_ITEM: &str =
+        r#"<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>"#;
+    const NCX_ITEM: &str =
+        r#"<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>"#;
+    const NCX: &str = r#"<ncx><navMap>
+  <navPoint><navLabel><text>  Chapter
+     One </text></navLabel><content src="ch1.xhtml#start"/></navPoint>
+  <navPoint><navLabel><text>No target</text></navLabel></navPoint>
+  <navPoint><navLabel><text>   </text></navLabel><content src="ch1.xhtml"/></navPoint>
+</navMap></ncx>"#;
+
+    fn toc(package: &Package) -> Vec<(&str, &str)> {
+        package
+            .toc
+            .iter()
+            .map(|entry| (entry.href.as_str(), entry.title.as_str()))
+            .collect()
+    }
+
+    #[test]
+    fn spine_skips_itemrefs_without_or_with_unknown_idrefs() {
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            CHAPTER,
+            r#"<spine page-progression-direction="RTL"><itemref/><itemref idref="ghost"/><itemref idref="ch1"/></spine>"#,
+        );
+        let mut archive = archive(&[("content.opf", doc.as_bytes())]);
+        let package = parse(&mut archive, "content.opf", "file").unwrap();
+
+        let ids: Vec<&str> = package
+            .reading_order
+            .iter()
+            .map(|item| item.id.as_str())
+            .collect();
+        assert_eq!(ids, ["ch1"]);
+        assert_eq!(
+            package.reading_progression, "rtl",
+            "direction is case-insensitive"
+        );
+    }
+
+    #[test]
+    fn spine_of_only_dangling_itemrefs_is_unsupported() {
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            CHAPTER,
+            r#"<spine><itemref idref="ghost"/></spine>"#,
+        );
+        let mut archive = archive(&[("content.opf", doc.as_bytes())]);
+        let error = parse(&mut archive, "content.opf", "file").unwrap_err();
+        assert!(matches!(error, ReaderError::Unsupported(_)), "{error:?}");
+    }
+
+    #[test]
+    fn missing_title_and_creator_fall_back_to_file_name_and_contributors() {
+        let doc = opf(
+            "<dc:contributor> Ed   Itor </dc:contributor><dc:title>   </dc:title>",
+            CHAPTER,
+            r#"<spine><itemref idref="ch1"/></spine>"#,
+        );
+        let mut archive = archive(&[("content.opf", doc.as_bytes())]);
+        let package = parse(&mut archive, "content.opf", "My Book").unwrap();
+
+        assert_eq!(package.title, "My Book");
+        assert_eq!(package.authors, ["Ed Itor"]);
+        assert_eq!(package.reading_progression, "ltr");
+    }
+
+    #[test]
+    fn toc_falls_back_to_ncx_when_nav_has_no_usable_entries() {
+        // The only nav anchor has an empty title, so the NCX supplies the TOC.
+        let nav =
+            br#"<html><body><nav><ol><li><a href="ch1.xhtml"> </a></li></ol></nav></body></html>"#;
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            &format!("{CHAPTER}{NAV_ITEM}{NCX_ITEM}"),
+            r#"<spine><itemref idref="ch1"/></spine>"#,
+        );
+        let mut archive = archive(&[
+            ("content.opf", doc.as_bytes()),
+            ("nav.xhtml", nav.as_slice()),
+            ("toc.ncx", NCX.as_bytes()),
+        ]);
+        let package = parse(&mut archive, "content.opf", "file").unwrap();
+
+        assert_eq!(toc(&package), [("ch1.xhtml", "Chapter One")]);
+        assert!(
+            package.resources.is_empty(),
+            "nav and NCX are not exposed as resources: {:?}",
+            package.resources
+        );
+    }
+
+    #[test]
+    fn ncx_hrefs_resolve_against_the_ncx_directory() {
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            r#"<item id="ch1" href="Text/ch1.xhtml" media-type="application/xhtml+xml"/><item id="ncx" href="Misc/toc.ncx" media-type="application/x-dtbncx+xml"/>"#,
+            r#"<spine><itemref idref="ch1"/></spine>"#,
+        );
+        let ncx = br#"<ncx><navPoint><navLabel><text>One</text></navLabel><content src="../Text/ch1.xhtml"/></navPoint></ncx>"#;
+        let mut archive = archive(&[
+            ("OEBPS/content.opf", doc.as_bytes()),
+            ("OEBPS/Misc/toc.ncx", ncx.as_slice()),
+        ]);
+        let package = parse(&mut archive, "OEBPS/content.opf", "file").unwrap();
+
+        assert_eq!(toc(&package), [("OEBPS/Text/ch1.xhtml", "One")]);
+    }
+
+    #[test]
+    fn toc_is_empty_when_nav_and_ncx_are_missing_or_unparseable() {
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            &format!("{CHAPTER}{NAV_ITEM}{NCX_ITEM}"),
+            r#"<spine><itemref idref="ch1"/></spine>"#,
+        );
+
+        // Neither document is in the archive.
+        let mut missing = archive(&[("content.opf", doc.as_bytes())]);
+        let package = parse(&mut missing, "content.opf", "file").unwrap();
+        assert!(package.toc.is_empty());
+
+        // Both documents exist but contain no XML element.
+        let mut garbage = archive(&[
+            ("content.opf", doc.as_bytes()),
+            ("nav.xhtml", b"plain text".as_slice()),
+            ("toc.ncx", b"plain text".as_slice()),
+        ]);
+        let package = parse(&mut garbage, "content.opf", "file").unwrap();
+        assert!(package.toc.is_empty());
+    }
+
+    #[test]
+    fn nav_document_without_a_nav_element_falls_back_to_ncx() {
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            &format!("{CHAPTER}{NAV_ITEM}{NCX_ITEM}"),
+            r#"<spine><itemref idref="ch1"/></spine>"#,
+        );
+        let mut archive = archive(&[
+            ("content.opf", doc.as_bytes()),
+            (
+                "nav.xhtml",
+                br#"<html><body><a href="ch1.xhtml">Stray</a></body></html>"#.as_slice(),
+            ),
+            ("toc.ncx", NCX.as_bytes()),
+        ]);
+        let package = parse(&mut archive, "content.opf", "file").unwrap();
+
+        assert_eq!(toc(&package), [("ch1.xhtml", "Chapter One")]);
+    }
+
+    #[test]
+    fn nav_prefers_the_toc_typed_nav_over_earlier_navs() {
+        let nav = br#"<html xmlns:epub="http://www.idpf.org/2007/ops"><body>
+<nav epub:type="landmarks"><a href="ch1.xhtml">Landmark</a></nav>
+<nav epub:type="TOC"><a href="ch1.xhtml#p">Real Entry</a></nav>
+</body></html>"#;
+        let doc = opf(
+            "<dc:title>T</dc:title>",
+            &format!("{CHAPTER}{NAV_ITEM}"),
+            r#"<spine><itemref idref="ch1"/></spine>"#,
+        );
+        let mut archive = archive(&[
+            ("content.opf", doc.as_bytes()),
+            ("nav.xhtml", nav.as_slice()),
+        ]);
+        let package = parse(&mut archive, "content.opf", "file").unwrap();
+
+        assert_eq!(toc(&package), [("ch1.xhtml", "Real Entry")]);
+    }
+}

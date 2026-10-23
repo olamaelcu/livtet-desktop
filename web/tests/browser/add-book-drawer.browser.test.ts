@@ -8,9 +8,10 @@ import '@awesome.me/webawesome/dist/components/switch/switch.js'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 
-const { importFiles, openDialog } = vi.hoisted(() => ({
+const { importFiles, openDialog, toast } = vi.hoisted(() => ({
   importFiles: vi.fn(),
   openDialog: vi.fn(),
+  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }))
 vi.mock('../../lib/library/import', async (original) => ({
   ...(await original<typeof import('../../lib/library/import')>()),
@@ -22,9 +23,7 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
   getCurrentWebviewWindow: () => ({ onDragDropEvent: async () => () => undefined }),
 }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }))
-vi.mock('svelte-sonner', () => ({
-  toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn() },
-}))
+vi.mock('svelte-sonner', () => ({ toast }))
 
 import AddBookDrawerFixture from './fixtures/AddBookDrawerFixture.svelte'
 
@@ -33,6 +32,9 @@ type WaSwitch = HTMLElement & { checked: boolean; updateComplete?: Promise<unkno
 beforeEach(() => {
   importFiles.mockReset()
   openDialog.mockReset()
+  toast.error.mockReset()
+  toast.success.mockReset()
+  toast.warning.mockReset()
   importFiles.mockResolvedValue({ files: [], imported: 1, duplicated: 0, failed: 0 })
   openDialog.mockResolvedValue(['/tmp/a.epub'])
 })
@@ -64,4 +66,32 @@ test('leaving the switch alone imports as a link', async () => {
   const { container } = await render(AddBookDrawerFixture)
   await chooseFiles(container)
   expect(importFiles).toHaveBeenCalledWith(['/tmp/a.epub'], 'link')
+})
+
+test('a rejected file picker toasts an error', async () => {
+  openDialog.mockRejectedValue(new Error('dialog unavailable'))
+  const { container } = await render(AddBookDrawerFixture)
+  const buttons = [...container.querySelectorAll<HTMLElement>('wa-button')]
+  buttons.find((b) => b.textContent?.includes('Choose files'))?.click()
+
+  await expect.poll(() => toast.error).toHaveBeenCalledWith('dialog unavailable')
+  expect(importFiles).not.toHaveBeenCalled()
+})
+
+test('a failed import toasts an error', async () => {
+  importFiles.mockRejectedValue(new Error('disk full'))
+  const { container } = await render(AddBookDrawerFixture)
+  await chooseFiles(container).catch(() => undefined)
+
+  await expect.poll(() => toast.error).toHaveBeenCalledWith('disk full')
+})
+
+test('a partial import warns with the summary', async () => {
+  importFiles.mockResolvedValue({ files: [], imported: 1, duplicated: 0, failed: 2 })
+  const { container } = await render(AddBookDrawerFixture)
+  await chooseFiles(container)
+
+  await expect
+    .poll(() => toast.warning)
+    .toHaveBeenCalledWith('1 imported · 0 already in library · 2 failed')
 })

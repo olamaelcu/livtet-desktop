@@ -76,3 +76,81 @@ pub(crate) fn media_type_for_extension(path: &str) -> Option<&'static str> {
         _ => return None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use super::*;
+
+    #[test]
+    fn resolve_at_archive_root_keeps_href_and_normalizes_backslashes() {
+        assert_eq!(resolve("", "Text\\ch1.xhtml"), "Text/ch1.xhtml");
+        assert_eq!(resolve("", "./a/./b.css"), "a/b.css");
+    }
+
+    #[test]
+    fn resolve_collapses_parent_segments_against_base() {
+        assert_eq!(
+            resolve("OEBPS/Text", "../Images/c.jpg"),
+            "OEBPS/Images/c.jpg"
+        );
+        assert_eq!(resolve("OEBPS", "a//b/../c.xhtml"), "OEBPS/a/c.xhtml");
+    }
+
+    #[test]
+    fn resolve_keeps_leading_parents_that_cannot_be_popped() {
+        // Escaping the root is preserved (not silently dropped) so
+        // `decode_and_validate` can still refuse it.
+        assert_eq!(resolve("", "../../x.css"), "../../x.css");
+        assert_eq!(resolve("a", "../../x.css"), "../x.css");
+    }
+
+    #[test]
+    fn decode_and_validate_refuses_unsafe_paths() {
+        assert_eq!(
+            decode_and_validate("Text/a%20b.xhtml").as_deref(),
+            Some("Text/a b.xhtml")
+        );
+        assert_eq!(decode_and_validate(""), None);
+        assert_eq!(decode_and_validate("%2Fetc/passwd"), None);
+        assert_eq!(decode_and_validate("a%5cb"), None);
+        assert_eq!(decode_and_validate("a%00b"), None);
+        assert_eq!(decode_and_validate("a/%2e%2e/b"), None);
+        // `..` inside a name is not a traversal segment.
+        assert_eq!(decode_and_validate("a..b/c").as_deref(), Some("a..b/c"));
+    }
+
+    #[test]
+    fn strip_target_drops_fragment_and_query() {
+        assert_eq!(strip_target("ch1.xhtml#p3"), "ch1.xhtml");
+        assert_eq!(strip_target("ch1.xhtml?x=1#y"), "ch1.xhtml");
+        assert_eq!(strip_target("ch1.xhtml"), "ch1.xhtml");
+    }
+
+    #[test]
+    fn media_type_fallback_is_case_insensitive_and_covers_known_extensions() {
+        let cases = [
+            ("a.XHTML", "application/xhtml+xml"),
+            ("a.htm", "text/html"),
+            ("a.html", "text/html"),
+            ("a.css", "text/css"),
+            ("a.JPEG", "image/jpeg"),
+            ("a.jpg", "image/jpeg"),
+            ("a.png", "image/png"),
+            ("a.gif", "image/gif"),
+            ("a.svg", "image/svg+xml"),
+            ("content.opf", "application/oebps-package+xml"),
+            ("toc.ncx", "application/x-dtbncx+xml"),
+            ("a.js", "application/javascript"),
+            ("f.woff", "font/woff"),
+            ("f.woff2", "font/woff2"),
+            ("f.ttf", "font/ttf"),
+            ("f.otf", "font/otf"),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(media_type_for_extension(path), Some(expected), "{path}");
+        }
+        assert_eq!(media_type_for_extension("archive.bin"), None);
+        assert_eq!(media_type_for_extension("README"), None);
+    }
+}

@@ -4,7 +4,7 @@ PDF metadata and cover extraction for Livtet imports.
 
 ## Scope
 
-`read_metadata(path) -> Result<PdfMetadata>` reads a PDF's Info dictionary and
+`read_metadata(path: &Utf8Path) -> Result<PdfMetadata>` reads a PDF's Info dictionary and
 XMP packet and returns one source record. It does **not** extract text or
 render page content beyond the cover fallback.
 
