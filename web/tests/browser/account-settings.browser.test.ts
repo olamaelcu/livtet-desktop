@@ -13,6 +13,9 @@ vi.mock('@tauri-apps/api/event', () => ({ listen }))
 const { toast } = vi.hoisted(() => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 vi.mock('svelte-sonner', () => ({ toast }))
 
+const { openDialog } = vi.hoisted(() => ({ openDialog: vi.fn() }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openDialog }))
+
 import AccountSettingsFixture from './fixtures/AccountSettingsFixture.svelte'
 
 type WaInput = HTMLElement & { value: string; updateComplete?: Promise<unknown> }
@@ -32,6 +35,8 @@ beforeEach(() => {
   toast.error.mockReset()
   toast.success.mockReset()
   listen.mockResolvedValue(() => {})
+  openDialog.mockReset()
+  openDialog.mockResolvedValue('/tmp/avatar.png')
 
   invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
     switch (command) {
@@ -43,6 +48,12 @@ beforeEach(() => {
         return { url: 'https://pds.example/authorize?client_id=livtet' }
       case 'atproto_logout':
         return null
+      case 'atproto_complete_login':
+        return { did: DID, scope: 'atproto', expires_at: null }
+      case 'atproto_update_profile':
+        return { did: DID, display_name: 'New name', description: 'New bio' }
+      case 'atproto_set_avatar':
+        return { did: DID, avatar_url: 'https://pds.example/blob?cid=new' }
       default:
         throw new Error(`unexpected command: ${command} ${JSON.stringify(args)}`)
     }
@@ -120,12 +131,17 @@ test('signed in shows the DID, scope and expiry with a sign-out action', async (
   await expect.poll(() => container.querySelector('.session-details')).not.toBeNull()
   const details = container.querySelector('.session-details')?.textContent ?? ''
   expect(details).toContain(DID)
-  expect(details).toContain('atproto repo:x')
+  expect(
+    [...container.querySelectorAll('.session-details ul code')].map((n) => n.textContent),
+  ).toEqual(['atproto', 'repo:x'])
   expect(details).toContain('2026-01-02T03:04:05.000Z')
 
   await expect
-    .poll(() => container.querySelector('.profile')?.textContent ?? '')
+    .poll(() => container.querySelector('.profile-card .display-name')?.textContent ?? '')
     .toContain('Reader')
+  expect(container.querySelector('.profile-card .handle')?.textContent?.trim()).toBe(
+    '@reader.example',
+  )
   expect(
     [...container.querySelectorAll('wa-button')].map((node) => node.textContent?.trim() ?? ''),
   ).toContain('Sign out')
@@ -140,6 +156,36 @@ test('a null profile reports that no record exists yet', async () => {
   await expect.poll(() => container.textContent ?? '').toContain('No profile record yet')
 })
 
+test('manually pasting the callback URL completes the exchange', async () => {
+  const { container } = await render(AccountSettingsFixture)
+  await expect.poll(() => container.querySelector('.manual wa-input')).not.toBeNull()
+
+  const input = container.querySelector('.manual wa-input') as WaInput
+  await input.updateComplete
+  input.value = 'net.olamaelcu.livtet:/oauth-redirect?code=abc&state=xyz'
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+
+  await expect
+    .poll(
+      () =>
+        [...container.querySelectorAll<WaButton>('wa-button')].find(
+          (node) => node.textContent?.trim() === 'Complete sign-in',
+        )?.disabled,
+    )
+    .toBe(false)
+
+  await clickButton(container, 'Complete sign-in')
+
+  await expect
+    .poll(() => invoke.mock.calls.some(([c]) => c === 'atproto_complete_login'))
+    .toBe(true)
+  const call = invoke.mock.calls.find(([c]) => c === 'atproto_complete_login')
+  expect(call?.[1]).toEqual({
+    callbackUrl: 'net.olamaelcu.livtet:/oauth-redirect?code=abc&state=xyz',
+  })
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Signed in to ATProto')
+})
+
 test('signing out calls the logout command and invalidates the session', async () => {
   status = { did: DID, scope: 'atproto', expires_at: null }
   profile = null
@@ -151,6 +197,63 @@ test('signing out calls the logout command and invalidates the session', async (
 
   await expect.poll(() => invoke.mock.calls.some(([c]) => c === 'atproto_logout')).toBe(true)
   await expect.poll(() => toast.success).toHaveBeenCalledWith('Signed out of ATProto')
+})
+
+test('saving the profile writes it to the PDS', async () => {
+  status = { did: DID, scope: 'atproto', expires_at: null }
+  profile = { did: DID, display_name: 'Old name', description: 'Old bio' }
+
+  const { container } = await render(AccountSettingsFixture)
+  await expect.poll(() => container.querySelector('.profile-editor')).not.toBeNull()
+
+  const inputs = [...container.querySelectorAll<WaInput>('.profile-editor wa-input')]
+  expect(inputs).toHaveLength(2)
+  await inputs[0].updateComplete
+  await inputs[1].updateComplete
+  inputs[0].value = 'New name'
+  inputs[0].dispatchEvent(new Event('input', { bubbles: true }))
+  inputs[1].value = 'New bio'
+  inputs[1].dispatchEvent(new Event('input', { bubbles: true }))
+
+  await expect
+    .poll(
+      () =>
+        [...container.querySelectorAll<WaButton>('wa-button')].find(
+          (node) => node.textContent?.trim() === 'Save to PDS',
+        )?.disabled,
+    )
+    .toBe(false)
+  await clickButton(container, 'Save to PDS')
+
+  await expect
+    .poll(() => invoke.mock.calls.some(([c]) => c === 'atproto_update_profile'))
+    .toBe(true)
+  const call = invoke.mock.calls.find(([c]) => c === 'atproto_update_profile')
+  expect(call?.[1]).toEqual({ displayName: 'New name', description: 'New bio' })
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Profile saved to your PDS')
+})
+
+test('shows the avatar and uploads a new one', async () => {
+  status = { did: DID, scope: 'atproto', expires_at: null }
+  profile = {
+    did: DID,
+    display_name: 'Reader',
+    avatar_url: 'https://livtet.olamaelcu.net/user/profileImage/' + DID,
+  }
+
+  const { container } = await render(AccountSettingsFixture)
+
+  await expect.poll(() => container.querySelector('img.avatar')).not.toBeNull()
+  expect(container.querySelector('img.avatar')?.getAttribute('src')).toBe(
+    'https://livtet.olamaelcu.net/user/profileImage/' + DID,
+  )
+
+  await clickButton(container, 'Change avatar')
+
+  await expect.poll(() => invoke.mock.calls.some(([c]) => c === 'atproto_set_avatar')).toBe(true)
+  const call = invoke.mock.calls.find(([c]) => c === 'atproto_set_avatar')
+  expect(call?.[1]).toEqual({ avatarPath: '/tmp/avatar.png' })
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Avatar updated')
 })
 
 test('refreshing the profile calls the appview command', async () => {

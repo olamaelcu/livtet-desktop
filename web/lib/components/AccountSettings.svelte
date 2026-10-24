@@ -1,6 +1,6 @@
 <script lang="ts">
 import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-query'
-import { onMount } from 'svelte'
+import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { toast } from 'svelte-sonner'
 import {
   atprotoErrorMessage,
@@ -8,7 +8,9 @@ import {
   atprotoLogout,
   atprotoStatus,
   beginAtprotoLogin,
-  listenToAtprotoEvents,
+  completeAtprotoLogin,
+  setAtprotoAvatar,
+  updateAtprotoProfile,
 } from '../atproto'
 import { atprotoKeys } from '../query/keys'
 import ActionButton from './ActionButton.svelte'
@@ -28,6 +30,28 @@ const profile = createQuery(() => ({
 
 let handle = $state('')
 let loginUrl = $state('')
+let callbackUrl = $state('')
+let draftName = $state('')
+let draftDescription = $state('')
+let hydratedFor = $state<string | null>(null)
+let showEditor = $state(false)
+let showDebug = $state(false)
+
+/** The platform proxy 404s when the account has no Bluesky avatar either. */
+function hideMissingAvatar(event: Event) {
+  const image = event.currentTarget
+  if (image instanceof HTMLImageElement) image.style.display = 'none'
+}
+
+// Seed the editor once per account; later query refreshes must not clobber
+// whatever the user is typing.
+$effect(() => {
+  const data = profile.data
+  if (!data || hydratedFor === data.did) return
+  draftName = data.display_name ?? ''
+  draftDescription = data.description ?? ''
+  hydratedFor = data.did
+})
 
 const signedIn = $derived(status.data ?? null)
 
@@ -43,6 +67,17 @@ const signIn = createMutation(() => ({
   onError: (error) => toast.error(atprotoErrorMessage(error)),
 }))
 
+const completeLogin = createMutation(() => ({
+  mutationFn: () => completeAtprotoLogin(callbackUrl.trim()),
+  onSuccess: () => {
+    callbackUrl = ''
+    loginUrl = ''
+    toast.success('Signed in to ATProto')
+    invalidate()
+  },
+  onError: (error) => toast.error(atprotoErrorMessage(error)),
+}))
+
 const signOut = createMutation(() => ({
   mutationFn: atprotoLogout,
   onSuccess: () => {
@@ -53,36 +88,45 @@ const signOut = createMutation(() => ({
   onError: (error) => toast.error(atprotoErrorMessage(error)),
 }))
 
-const refreshProfile = createMutation(() => ({
-  mutationFn: atprotoGetProfile,
-  onSuccess: () => {
-    void profile.refetch()
-    toast.success('Profile refreshed')
+const changeAvatar = createMutation(() => ({
+  mutationFn: async () => {
+    const selected = await openDialog({
+      multiple: false,
+      title: 'Choose a profile image',
+      filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+    })
+    if (typeof selected !== 'string') return null
+    return setAtprotoAvatar(selected)
+  },
+  onSuccess: (view) => {
+    if (!view) return
+    queryClient.setQueryData(atprotoKeys.profile(), view)
+    hydratedFor = view.did
+    toast.success('Avatar updated')
   },
   onError: (error) => toast.error(atprotoErrorMessage(error)),
 }))
 
-onMount(() => {
-  let unlisten: (() => void) | undefined
-  let cancelled = false
+const saveProfile = createMutation(() => ({
+  mutationFn: () => updateAtprotoProfile({ displayName: draftName, description: draftDescription }),
+  onSuccess: (view) => {
+    queryClient.setQueryData(atprotoKeys.profile(), view)
+    hydratedFor = view.did
+    toast.success('Profile saved to your PDS')
+  },
+  onError: (error) => toast.error(atprotoErrorMessage(error)),
+}))
 
-  void listenToAtprotoEvents({
-    onLogin: () => {
-      loginUrl = ''
-      toast.success('Signed in to ATProto')
-      invalidate()
-    },
-    onError: (message) => toast.error(message),
-  }).then((stop) => {
-    if (cancelled) stop()
-    else unlisten = stop
-  })
+const refreshProfile = createMutation(() => ({
+  mutationFn: atprotoGetProfile,
+  onSuccess: (data) => {
+    void profile.refetch()
+    toast.success(data ? 'Profile refreshed' : 'No profile record yet')
+  },
+  onError: (error) => toast.error(atprotoErrorMessage(error)),
+}))
 
-  return () => {
-    cancelled = true
-    unlisten?.()
-  }
-})
+const scopes = $derived(signedIn?.scope.split(' ') || [])
 </script>
 
 <section class="account" aria-labelledby="account-heading">
@@ -101,7 +145,13 @@ onMount(() => {
           {#if signedIn.scope}
             <div>
               <dt>Scope</dt>
-              <dd><code>{signedIn.scope}</code></dd>
+              <dd>
+                <ul>
+                  {#each scopes as scope}
+                  <li><code>{scope}</code></li>
+                  {/each}
+                </ul>
+              </dd>
             </div>
           {/if}
           {#if signedIn.expires_at}
@@ -114,23 +164,68 @@ onMount(() => {
       </wa-card>
 
       {#if profile.isPending}
-        <p class="muted">Loading the profile from the appview…</p>
+        <p class="muted">Loading your Livtet profile…</p>
       {:else if profile.data}
-        <div class="profile">
-          {#if profile.data.display_name}
-            <strong>{profile.data.display_name}</strong>
-          {/if}
-          {#if profile.data.handle}
-            <span class="muted">@{profile.data.handle}</span>
-          {/if}
+        <wa-card class="profile-card">
+          <div class="profile-header">
+            {#if profile.data.avatar_url}
+              <img
+                class="avatar"
+                src={profile.data.avatar_url}
+                alt=""
+                onerror={hideMissingAvatar}
+              />
+            {/if}
+            <div class="identity">
+              <h3 class="display-name">{profile.data.display_name ?? 'No display name'}</h3>
+              {#if profile.data.handle}
+                <span class="handle">@{profile.data.handle}</span>
+              {/if}
+            </div>
+          </div>
           {#if profile.data.description}
             <p class="description">{profile.data.description}</p>
           {/if}
-        </div>
+        </wa-card>
       {:else if profile.isError}
         <p class="error">{atprotoErrorMessage(profile.error)}</p>
       {:else}
-        <p class="muted">No profile record yet</p>
+        <wa-card class="profile-card">
+          <p class="muted">No profile record yet — save one below.</p>
+        </wa-card>
+      {/if}
+
+      <div class="editor-trigger">
+        <ActionButton onclick={() => (showEditor = !showEditor)}>
+          {showEditor ? "Cancel editing" : "Edit profile"}
+        </ActionButton>
+      </div>
+      {#if showEditor}
+      <wa-card class="profile-editor">
+        <h3 class="editor-heading">Edit profile</h3>
+        <wa-input
+          label="Display name"
+          maxlength={640}
+          value={draftName}
+          oninput={(event) => (draftName = event.currentTarget.value)}
+        ></wa-input>
+        <wa-input
+          label="Description"
+          value={draftDescription}
+          oninput={(event) => (draftDescription = event.currentTarget.value)}
+        ></wa-input>
+        <wa-button-group>
+          <ActionButton onclick={() => saveProfile.mutate()} disabled={saveProfile.isPending}>
+            Save to PDS
+          </ActionButton>
+          <ActionButton
+            onclick={() => changeAvatar.mutate()}
+            disabled={changeAvatar.isPending}
+          >
+            Change avatar
+          </ActionButton>
+        </wa-button-group>
+      </wa-card>
       {/if}
 
       <wa-button-group>
@@ -176,6 +271,21 @@ onMount(() => {
         <code class="login-url">{loginUrl}</code>
       </div>
     {/if}
+
+    <div class="manual">
+      <wa-input
+        label="Callback URL"
+        placeholder="net.olamaelcu.livtet:/oauth-redirect?code=…"
+        value={callbackUrl}
+        oninput={(event) => (callbackUrl = event.currentTarget.value)}
+      ></wa-input>
+      <ActionButton
+        onclick={() => completeLogin.mutate()}
+        disabled={completeLogin.isPending || callbackUrl.trim().length === 0}
+      >
+        Complete sign-in
+      </ActionButton>
+    </div>
   {/if}
 </section>
 
@@ -208,20 +318,66 @@ onMount(() => {
     margin: 0;
   }
 
-  .profile {
+  .profile-card {
+    --padding: var(--wa-space-l);
+  }
+
+  .profile-header {
+    display: flex;
+    align-items: center;
+    gap: var(--wa-space-l);
+  }
+
+  .avatar {
+    width: 112px;
+    height: 112px;
+    flex: none;
+    border-radius: 50%;
+    object-fit: cover;
+    border: var(--wa-border-width-m) var(--wa-border-style)
+      var(--wa-color-surface-border);
+  }
+
+  .identity {
     display: flex;
     flex-direction: column;
     gap: var(--wa-space-2xs);
+    min-width: 0;
+  }
+
+  .display-name {
+    margin: 0;
+    font-size: var(--wa-font-size-2xl, 1.75rem);
+    line-height: 1.15;
+  }
+
+  .handle {
+    font-family: var(--wa-font-family-mono, ui-monospace, monospace);
+    color: var(--wa-color-text-quiet);
   }
 
   .description {
-    margin: 0;
+    margin: var(--wa-space-m) 0 0;
+    max-width: 60ch;
   }
 
-  .sign-in {
+  .sign-in,
+  .manual {
     display: flex;
     align-items: end;
     gap: var(--wa-space-s);
+  }
+
+  .profile-editor {
+    --padding: var(--wa-space-l);
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-s);
+  }
+
+  .editor-heading {
+    margin: 0;
+    font-size: var(--wa-font-size-l);
   }
 
   .fallback {

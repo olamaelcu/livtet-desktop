@@ -21,6 +21,17 @@ export async function atprotoLogout(): Promise<void> {
   return invoke<void>('atproto_logout')
 }
 
+export async function updateAtprotoProfile(input: {
+  displayName: string
+  description: string
+}): Promise<AtprotoProfileView> {
+  return invoke<AtprotoProfileView>('atproto_update_profile', input)
+}
+
+export async function setAtprotoAvatar(avatarPath: string): Promise<AtprotoProfileView> {
+  return invoke<AtprotoProfileView>('atproto_set_avatar', { avatarPath })
+}
+
 export async function atprotoGetProfile(): Promise<AtprotoProfileView | null> {
   return invoke<AtprotoProfileView | null>('atproto_get_profile')
 }

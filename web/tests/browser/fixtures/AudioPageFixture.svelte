@@ -1,32 +1,19 @@
 <script lang="ts">
+import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
 import AudioPage from '$routes/reader/audio/[editionId]/+page.svelte'
 
-const { convertFileSrc, invoke } = vi.hoisted(() => ({
-  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
-  invoke: vi.fn(async () => [
-    { type: 'audio', url: 'audio.mp3' },
-    { type: 'cover', url: 'cover.jpg' },
-  ]),
-}))
-
-vi.mock('@tauri-apps/api/core', () => ({
-  convertFileSrc: (path: string) => `asset://${path}`,
-  invoke: vi.fn(),
-}))
-
-import { render } from 'vitest-browser-svelte'
-
-const { convertFileSrc, invoke } = vi.hoisted(() => ({
-  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
-  invoke: vi.fn(),
-}))
-vi.mock('@tauri-apps/api/webviewWindow', () => ({ getCurrentWindow: vi.fn(() => ({ close: vi.fn() })) }))
-
-import { render } from 'vitest-browser-svelte'
-
-test('renders audio reader shell', async () => {
-  const { container } = await render(AudioPageFixture)
-  expect(container).toContain('data-route-shell')
-  expect(container).not.toContain('aria-label="Primary"')
-  await expect.poll(() => container.textContent).toContain('Audio Reader')
+// The route reads its query client from context and drives the publication,
+// cover, progress and edition-detail queries. A fresh client per mount keeps
+// the cache from leaking between tests; retries are off so a refused command
+// surfaces once instead of being retried behind the assertion.
+const client = new QueryClient({
+  defaultOptions: {
+    queries: { retry: false, gcTime: 0, refetchInterval: false },
+    mutations: { retry: false },
+  },
 })
+</script>
+
+<QueryClientProvider {client}>
+  <AudioPage />
+</QueryClientProvider>

@@ -7,6 +7,8 @@ import {
   beginAtprotoLogin,
   completeAtprotoLogin,
   listenToAtprotoEvents,
+  setAtprotoAvatar,
+  updateAtprotoProfile,
 } from '$lib/atproto'
 
 // `vi.mock` is hoisted above the imports, so the fakes must be too.
@@ -57,6 +59,25 @@ describe('atproto command wrappers', () => {
 
     await atprotoLogout()
     expect(invoke).toHaveBeenCalledWith('atproto_logout')
+  })
+
+  test('updateAtprotoProfile passes both text fields', async () => {
+    invoke.mockResolvedValue({ did: STATUS.did })
+
+    await updateAtprotoProfile({ displayName: 'Reader', description: 'Reads books' })
+    expect(invoke).toHaveBeenCalledWith('atproto_update_profile', {
+      displayName: 'Reader',
+      description: 'Reads books',
+    })
+  })
+
+  test('setAtprotoAvatar passes the file path', async () => {
+    invoke.mockResolvedValue({ did: STATUS.did })
+
+    await setAtprotoAvatar('/tmp/avatar.png')
+    expect(invoke).toHaveBeenCalledWith('atproto_set_avatar', {
+      avatarPath: '/tmp/avatar.png',
+    })
   })
 
   test('atprotoGetProfile targets the profile command', async () => {

@@ -6,9 +6,10 @@ import { createHotkey } from '@tanstack/svelte-hotkeys'
 import { QueryClientProvider } from '@tanstack/svelte-query'
 import { SvelteQueryDevtools } from '@tanstack/svelte-query-devtools'
 import { onMount } from 'svelte'
-import { Toaster } from 'svelte-sonner'
+import { Toaster, toast } from 'svelte-sonner'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
+import { listenToAtprotoEvents } from '../lib/atproto'
 import CommandPalette from '../lib/components/CommandPalette.svelte'
 import { bindingFor, initBindings } from '../lib/hotkeys/bindings.svelte'
 import type { CommandId } from '../lib/hotkeys/commands'
@@ -16,6 +17,7 @@ import { focusSearchTarget } from '../lib/hotkeys/searchTarget.svelte'
 import AppFrame from '../lib/layout/AppFrame.svelte'
 
 import { queryClient } from '../lib/query/client'
+import { atprotoKeys } from '../lib/query/keys'
 
 let { children } = $props()
 
@@ -77,6 +79,32 @@ createHotkey(
 
 onMount(() => {
   void initBindings()
+
+  // The OAuth redirect finishes outside any command, so the result arrives as
+  // an event. Subscribe here rather than in the Account panel: the callback
+  // usually lands while the user is still in their browser, with no guarantee
+  // that the settings tab is mounted.
+  let unlisten: (() => void) | undefined
+  let cancelled = false
+  void listenToAtprotoEvents({
+    onLogin: () => {
+      toast.success('Signed in to ATProto')
+      void queryClient.invalidateQueries({ queryKey: atprotoKeys.all })
+    },
+    onError: (message) => toast.error(message),
+  })
+    .then((stop) => {
+      if (cancelled) stop()
+      else unlisten = stop
+    })
+    // Outside Tauri (SSR, component tests) there is no event bridge; the
+    // subscription is an enhancement, not a requirement.
+    .catch(() => {})
+
+  return () => {
+    cancelled = true
+    unlisten?.()
+  }
 })
 </script>
 

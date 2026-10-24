@@ -1,4 +1,7 @@
 <script lang="ts">
+import { createQuery } from '@tanstack/svelte-query'
+import { atprotoKeys } from '$lib/query/keys'
+import { atprotoStatus } from '../atproto'
 import type { NavItem } from './navItems'
 
 interface Props {
@@ -9,6 +12,11 @@ interface Props {
 }
 
 let { items, currentPath, expanded = false }: Props = $props()
+
+const status = createQuery(() => ({
+  queryKey: atprotoKeys.status(),
+  queryFn: atprotoStatus,
+}))
 
 function isActive(href: string) {
   return currentPath === href || currentPath.startsWith(`${href}/`)
@@ -48,6 +56,17 @@ function currentOnLink(current: boolean) {
       <span class="rail__label">{item.label}</span>
     </wa-button>
   {/each}
+  <div class="spacer"></div>
+  {#if status.data}
+    <wa-button href="/settings?tab=account" appearance="filled" variant="brand">
+      <img
+        class="nav-avatar"
+        src={status.data ? `https://livtet.olamaelcu.net/user/profileImage/${status.data.did}` : ''}
+        alt="Profile"
+      />
+      <span class="rail__label">Profile</span>
+    </wa-button>
+  {/if}
 </nav>
 
 <style>
@@ -65,7 +84,11 @@ function currentOnLink(current: boolean) {
     border-inline-end: var(--wa-border-width-s) var(--wa-border-style) var(--wa-color-surface-border);
   }
 
-  .rail[data-expanded] {
+  .spacer { flex: 1 1;}
+
+  .nav-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; vertical-align: middle; }
+
+.rail[data-expanded] {
     inline-size: var(--app-rail-width-expanded);
   }
 
@@ -75,8 +98,7 @@ function currentOnLink(current: boolean) {
    */
   .rail:not([data-expanded]) .rail__label {
     position: absolute;
-    inline-size: 1px;
-    block-size: 1px;
+    vertical-align: middle;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
@@ -84,7 +106,9 @@ function currentOnLink(current: boolean) {
 
   @container (width < 46rem) {
     .rail,
-    .rail[data-expanded] {
+    .nav-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; }
+
+.rail[data-expanded] {
       inline-size: var(--app-rail-width);
     }
 
