@@ -74,3 +74,8 @@ strip = true
 # `..Default::default()`; drop it once upstream ships a fix.
 [patch.crates-io]
 tauri-plugin-deep-link = { path = "vendor/tauri-plugin-deep-link" }
+# 0.1.7 hardcodes `redirect_uris[0]` at the token endpoint (breaking any flow
+# that authorized with another listed URI) and turns an exchange failure into
+# `todo!()`. The local copy threads the authorized URI through and reports the
+# real error. Drop it once upstream does the same.
+atrium-oauth = { path = "vendor/atrium-oauth" }

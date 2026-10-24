@@ -10,6 +10,7 @@
     "decorum:allow-show-snap-overlay",
     "victauri:default",
     "playwright:default",
+    "mcp-bridge:default",
     "core:window:allow-close",
     "core:window:allow-center",
     "core:window:allow-minimize",

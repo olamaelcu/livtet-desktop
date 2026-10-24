@@ -73,6 +73,9 @@ const NOT_MEASURED = [
   // producing coverage data, so the list cannot rot into a silent hole.
   /^crates\/livtet-desktop\/src\/types\.rs$/, // type declarations
   /^crates\/livtet-desktop\/src\/commands\/mod\.rs$/, // module re-exports
+  /^crates\/livtet-desktop\/src\/atproto\/mod\.rs$/, // module declarations + constants
+  /^crates\/livtet-desktop\/src\/atproto\/types\.rs$/, // IPC DTOs, derives only
+  /^crates\/livtet-desktop\/src\/commands\/atproto\.rs$/, // thin command wrappers, excluded by coverage-ignore.txt
   /^crates\/livtet-audio\/src\/error\.rs$/, // thiserror derives
   /^crates\/livtet-epub\/src\/error\.rs$/, // thiserror derives
   /^crates\/livtet-mobi\/src\/error\.rs$/, // thiserror derives
@@ -193,14 +196,16 @@ export function preflight({ reports, mergeBase, fileExists, changedFiles = [], t
 export const REPORTS = [
   {
     name: 'rust',
-    path: 'target/coverage/rust.lcov',
-    normalizedPath: 'target/coverage/rust.norm.lcov',
+    // Written by `mise run coverage:rust`, which keeps its instrumented
+    // build in `target/llvm-cov-target` and its reports next to it.
+    path: 'target/llvm-cov/rust.lcov',
+    normalizedPath: 'target/llvm-cov/rust.norm.lcov',
     minRecords: 30,
   },
   {
     name: 'frontend',
     path: 'coverage/lcov.info',
-    normalizedPath: 'target/coverage/web.norm.lcov',
+    normalizedPath: 'target/llvm-cov/web.norm.lcov',
     minRecords: 40,
   },
 ]

@@ -51,6 +51,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         livtet_desktop_lib::commands::atproto::atproto_status,
         livtet_desktop_lib::commands::atproto::atproto_logout,
         livtet_desktop_lib::commands::atproto::atproto_get_profile,
+        livtet_desktop_lib::commands::atproto::atproto_update_profile,
+        livtet_desktop_lib::commands::atproto::atproto_set_avatar,
         livtet_desktop_lib::commands::reader::open_reader,
         livtet_desktop_lib::commands::reader::reader_publication,
         livtet_desktop_lib::commands::reader::reader_resource,

@@ -24,6 +24,15 @@ RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 depends = ["secrets-export-env"]
 run = "cargo run --bin generate-bindings"
 
+[tasks."dev:atproto"]
+description = "Dev app with ATProto OAuth logging (identity, authorize URL, callback, token exchange, appview)"
+# `atrium-oauth` has no logging of its own, so these directives surface our
+# instrumentation in `src/atproto/` and the command wrappers without the
+# reqwest/tantivy trace flood.
+env = { RUST_LOG = "livtet_desktop_lib::atproto=trace,livtet_desktop_lib::commands::atproto=trace,info" }
+depends = ["generate-bindings"]
+run = ["cargo build -p livtet-plugin-host", "pnpm tauri dev"]
+
 [tasks.dev]
 depends = ["generate-bindings"]
 run = ["cargo build -p livtet-plugin-host", "pnpm tauri dev"]

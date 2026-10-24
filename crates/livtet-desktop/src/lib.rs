@@ -377,6 +377,8 @@ pub fn run() {
         commands::atproto::atproto_status,
         commands::atproto::atproto_logout,
         commands::atproto::atproto_get_profile,
+        commands::atproto::atproto_update_profile,
+        commands::atproto::atproto_set_avatar,
     ]);
 
     let builder = tauri::Builder::default();
@@ -392,6 +394,10 @@ pub fn run() {
 
     let builder = builder
         .plugin(tauri_plugin_deep_link::init())
+        // `StoreBuilder::new` reads `StoreState` from the app, which only
+        // exists once this plugin is registered; `app_setup` builds the OPDS
+        // store, so registration must happen before setup runs.
+        .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())

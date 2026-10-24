@@ -688,8 +688,6 @@ dependencies = [
 [[package]]
 name = "atrium-oauth"
 version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d027eb47a804181f5a0632cf0af816227a89a64aa0c1ac99e92e999dcc4939b"
 dependencies = [
  "atrium-api",
  "atrium-common",
