@@ -41,3 +41,9 @@ prototype/
 
 # Staged by scripts/stage-pdfjs.mjs — recreated on each dev/build (ADR 0037)
 static/pdfjs/
+
+# Flatpak staging, build dir, and OSTree repo (ADR 0039)
+/packaging/flatpak/staging/
+/flatpak-repo/
+/build-dir/
+.vitest

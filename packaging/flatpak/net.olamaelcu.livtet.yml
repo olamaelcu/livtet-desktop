@@ -1,0 +1,30 @@
+id: net.olamaelcu.livtet
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+command: livtet-desktop
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+  - --share=network
+  - --filesystem=home
+  - --talk-name=org.freedesktop.secrets
+  - --talk-name=org.a11y.Bus
+
+modules:
+  - name: livtet
+    buildsystem: simple
+    sources:
+      - type: dir
+        path: staging
+    build-commands:
+      - mkdir -p /app/bin /app/share
+      - cp -a usr/bin/. /app/bin/
+      - cp -a usr/share/icons /app/share/
+      - cp -a usr/share/applications /app/share/
+      - mv /app/share/applications/livtet-desktop.desktop /app/share/applications/net.olamaelcu.livtet.desktop
+      - install -Dm644 usr/share/metainfo/net.olamaelcu.livtet.metainfo.xml /app/share/metainfo/net.olamaelcu.livtet.metainfo.xml

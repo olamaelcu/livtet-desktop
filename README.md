@@ -31,6 +31,48 @@ pnpm tauri:dev
 See [GETTING_STARTED.md](./GETTING_STARTED.md) for prerequisites, the full dev
 loop, and how to produce a release build.
 
+
+## Install
+
+### macOS (Homebrew)
+
+```sh
+brew tap olamaelcu/tap
+brew install --cask livtet
+```
+
+### Debian / Ubuntu (signed APT repository)
+
+```sh
+curl -fsSL https://olamaelcu.github.io/livtet-desktop/apt/livtet.asc \
+  | sudo tee /usr/share/keyrings/livtet.asc >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/livtet.asc] https://olamaelcu.github.io/livtet-desktop/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/livtet.list
+sudo apt update
+sudo apt install livtet-desktop
+```
+
+### Flatpak
+
+```sh
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --if-not-exists --from livtet https://olamaelcu.github.io/livtet-desktop/flatpak/livtet.flatpakrepo
+flatpak install livtet net.olamaelcu.livtet
+```
+
+Direct downloads (`.deb`, `.rpm`, AppImage, `.dmg`, `.flatpak`) and checksums are on the [releases page](https://github.com/olamaelcu/livtet-desktop/releases).
+
+## Releasing
+
+```sh
+node scripts/set-version.mjs 0.2.0
+git commit -am "chore: release v0.2.0"
+git tag -a v0.2.0 -m "livtet 0.2.0"
+git push github main --follow-tags
+```
+
+The tag must match `crates/livtet-desktop/tauri.conf.json`; the workflow rejects mismatches.
+
 ## Contributing
 
 Bug reports, fixes, and feature work all flow through pull requests. Read

@@ -62,7 +62,7 @@ cargo check --workspace
 pnpm tauri:build
 ```
 
-The output lands in `tauri/target/release/bundle/` for your platform (`.dmg` on
+The output lands in `target/release/bundle/` (or `target/<triple>/release/bundle/` when `--target` is passed) for your platform (`.dmg` on
 macOS, `.msi`/`.exe` installers on Windows, `.deb`/`.AppImage` on Linux). The
 build runs `pnpm build` first to produce the static frontend in `build/`, which
 Tauri then packages.

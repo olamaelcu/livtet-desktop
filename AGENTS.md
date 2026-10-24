@@ -25,3 +25,4 @@ skill's description, load it before doing anything else. To add a new skill:
   term is ambiguous. Single source in `doc/GLOSSARY.md`.
 - **release-notes** — load when drafting release notes or summarizing
   changes for a release.
+- **coverage-report** — load when measuring, aggregating, or viewing code coverage across the whole repository (Rust + web). Covers `cargo llvm-cov` + Vitest v8, lcov parsing, HTML report generation, and opening reports.

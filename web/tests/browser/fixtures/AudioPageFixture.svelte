@@ -1,17 +1,32 @@
 <script lang="ts">
-import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
 import AudioPage from '$routes/reader/audio/[editionId]/+page.svelte'
 
-// The page reads the edition id from the page params stub and loads the
-// publication, detail, covers, and saved progress; the spec mocks `invoke`.
-const client = new QueryClient({
-  defaultOptions: {
-    queries: { retry: false, gcTime: 0 },
-    mutations: { retry: false },
-  },
-})
-</script>
+const { convertFileSrc, invoke } = vi.hoisted(() => ({
+  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
+  invoke: vi.fn(async () => [
+    { type: 'audio', url: 'audio.mp3' },
+    { type: 'cover', url: 'cover.jpg' },
+  ]),
+}))
 
-<QueryClientProvider {client}>
-  <AudioPage />
-</QueryClientProvider>
+vi.mock('@tauri-apps/api/core', () => ({
+  convertFileSrc: (path: string) => `asset://${path}`,
+  invoke: vi.fn(),
+}))
+
+import { render } from 'vitest-browser-svelte'
+
+const { convertFileSrc, invoke } = vi.hoisted(() => ({
+  convertFileSrc: vi.fn((path: string) => `asset://${path}`),
+  invoke: vi.fn(),
+}))
+vi.mock('@tauri-apps/api/webviewWindow', () => ({ getCurrentWindow: vi.fn(() => ({ close: vi.fn() })) }))
+
+import { render } from 'vitest-browser-svelte'
+
+test('renders audio reader shell', async () => {
+  const { container } = await render(AudioPageFixture)
+  expect(container).toContain('data-route-shell')
+  expect(container).not.toContain('aria-label="Primary"')
+  await expect.poll(() => container.textContent).toContain('Audio Reader')
+})

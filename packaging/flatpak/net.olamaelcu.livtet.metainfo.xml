@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>net.olamaelcu.livtet</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MPL-2.0</project_license>
+  <name>Livtet</name>
+  <summary>Search, browse, and manage a personal library of books</summary>
+  <developer id="net.olamaelcu">
+    <name>Jacky Alcine</name>
+  </developer>
+  <launchable type="desktop-id">net.olamaelcu.livtet.desktop</launchable>
+  <url type="homepage">https://github.com/olamaelcu/livtet-desktop</url>
+  <url type="bugtracker">https://github.com/olamaelcu/livtet-desktop/issues</url>
+  <categories>
+    <category>Office</category>
+  </categories>
+  <description>
+    <p>Livtet indexes local and remote catalogues, fetches cover art and edition details, and surfaces metadata through a fast command palette.</p>
+  </description>
+  <content_rating type="oars-1.1"/>
+</component>

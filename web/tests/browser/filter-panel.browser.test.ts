@@ -43,8 +43,16 @@ function choose(node: HTMLElement, value: string) {
   node.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
+function buttonByLabel(container: HTMLElement, label: string): HTMLElement {
+  const found = [...container.querySelectorAll<HTMLElement>('wa-button')].find(
+    (node) => node.textContent?.trim() === label,
+  )
+  expect(found, `a "${label}" button`).not.toBeUndefined()
+  return found as HTMLElement
+}
+
 test('renders availability, axis, and sort selects once options arrive', async () => {
-  const { container } = await render(FilterPanelFixture)
+  const { container } = render(FilterPanelFixture)
 
   await expect.poll(() => selectByLabel(container, 'Availability')).not.toBeUndefined()
   expect(container.textContent).toContain('Format')
@@ -53,7 +61,7 @@ test('renders availability, axis, and sort selects once options arrive', async (
 })
 
 test('choosing a sort field reports it through onchange', async () => {
-  const { container } = await render(FilterPanelFixture, {
+  const { container } = render(FilterPanelFixture, {
     props: { onchange: (filters: EditionFilters) => seen.push(filters) },
   })
   await expect.poll(() => selectByLabel(container, 'Sort field')).not.toBeUndefined()
@@ -65,7 +73,7 @@ test('choosing a sort field reports it through onchange', async () => {
 })
 
 test('choosing availability reports has_file through onchange', async () => {
-  const { container } = await render(FilterPanelFixture, {
+  const { container } = render(FilterPanelFixture, {
     props: { onchange: (filters: EditionFilters) => seen.push(filters) },
   })
   await expect.poll(() => selectByLabel(container, 'Availability')).not.toBeUndefined()
@@ -74,4 +82,16 @@ test('choosing availability reports has_file through onchange', async () => {
 
   await expect.poll(() => seen.length).toBe(1)
   expect(seen[0]).toMatchObject({ has_file: true })
+})
+
+test('choosing availability false reports has_file false', async () => {
+  const { container } = render(FilterPanelFixture, {
+    props: { onchange: (filters: EditionFilters) => seen.push(filters) },
+  })
+  await expect.poll(() => selectByLabel(container, 'Availability')).not.toBeUndefined()
+
+  choose(selectByLabel(container, 'Availability'), 'false')
+
+  await expect.poll(() => seen.length).toBe(1)
+  expect(seen[0]).toMatchObject({ has_file: false })
 })

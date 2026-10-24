@@ -234,6 +234,40 @@ impl From<livtet_opds_types::OpdsError> for OpdsError {
         }
     }
 }
+    #[error("ATProto authorization failed: {message}")]
+    Authorization { message: String },
+    #[error("ATProto keyring unavailable: {message}")]
+    Keyring { message: String },
+    #[error("Not signed in to ATProto")]
+    NotSignedIn,
+    #[error("ATProto appview request failed: {message}")]
+    AppView { message: String },
+
+impl AtprotoError {
+    pub fn metadata(message: impl std::fmt::Display) -> Self {
+        Self::Metadata {
+            message: message.to_string(),
+        }
+    }
+    pub fn authorization(message: impl std::fmt::Display) -> Self {
+        Self::Authorization {
+            message: message.to_string(),
+        }
+    }
+    pub fn appview(message: impl std::fmt::Display) -> Self {
+        Self::AppView {
+            message: message.to_string(),
+        }
+    }
+}
+
+impl From<crate::atproto::store::AtprotoStoreError> for AtprotoError {
+    fn from(error: crate::atproto::store::AtprotoStoreError) -> Self {
+        Self::Keyring {
+            message: error.to_string(),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -294,3 +328,5 @@ mod tests {
         assert!(matches!(OpdsError::feed("f"), OpdsError::Feed { .. }));
     }
 }
+
+#[derive(Debug, Clone, Error, Serialize, Type)]

@@ -68,3 +68,9 @@ export const catalogKeys = {
   editionCovers: (editionIds: string[]) =>
     [...catalogKeys.all, 'edition-covers', { editionIds }] as const,
 }
+
+export const atprotoKeys = {
+  all: ['atproto'] as const,
+  status: () => [...atprotoKeys.all, 'status'] as const,
+  profile: () => [...atprotoKeys.all, 'profile'] as const,
+}

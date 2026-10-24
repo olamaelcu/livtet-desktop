@@ -43,4 +43,7 @@ pub struct AppState {
     /// `DbId` is `Hash`, so it works as the cache key directly. Entries are
     /// removed when their `reader-{id}` window is destroyed.
     pub readers: Arc<Mutex<HashMap<DbId, Arc<livtet_reader::Reader>>>>,
+
+    /// ATProto OAuth session and manager.
+    pub atproto: Arc<crate::atproto::AtprotoManager>,
 }

@@ -1,0 +1,465 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. v0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  validate:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - id: version
+        name: Check tag matches tauri.conf.json
+        run: |
+          set -euo pipefail
+          version="$(jq -r .version crates/livtet-desktop/tauri.conf.json)"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match tauri.conf.json version $version"
+            exit 1
+          fi
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: Linux ${{ matrix.arch }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,rpm,appimage
+          - arch: arm64
+            runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            bundles: deb
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev pkg-config \
+            build-essential patchelf file libfuse2
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.0'
+          targets: ${{ matrix.target }}
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install sops
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Linux-X64) asset=sops-v3.13.2.linux.amd64 ;;
+            Linux-ARM64) asset=sops-v3.13.2.linux.arm64 ;;
+            *) echo "unsupported runner: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops"
+          chmod +x "$RUNNER_TEMP/sops"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Decrypt build secrets
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          bash .mise/tasks/secrets-decrypt
+          bash .mise/tasks/secrets-export-env
+      - name: Generate IPC bindings
+        run: cargo run --bin generate-bindings
+      - name: Build bundles
+        run: pnpm tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
+      - name: Upload deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/bundle/deb/*.deb
+          if-no-files-found: error
+      - name: Upload rpm and AppImage
+        if: matrix.arch == 'amd64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-amd64-extra
+          path: |
+            target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+            target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - arch: x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Detect signing availability
+        id: signing
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Import Apple signing certificate
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_CERTIFICATE" > certificate.b64
+          if ! base64 --decode < certificate.b64 > certificate.p12 2>/dev/null; then
+            base64 -D < certificate.b64 > certificate.p12
+          fi
+          security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+          security set-keychain-settings -t 3600 -u build.keychain
+          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+          cert_id="$(security find-identity -v -p codesigning build.keychain | awk -F'"' '/Developer ID Application/ {print $2; exit}')"
+          test -n "$cert_id"
+          echo "APPLE_SIGNING_IDENTITY=$cert_id" >> "$GITHUB_ENV"
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.0'
+          targets: ${{ matrix.target }}
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install sops
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            macOS-X64) asset=sops-v3.13.2.darwin.amd64 ;;
+            macOS-ARM64) asset=sops-v3.13.2.darwin.arm64 ;;
+            *) echo "unsupported runner: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops"
+          chmod +x "$RUNNER_TEMP/sops"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Decrypt build secrets
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          bash .mise/tasks/secrets-decrypt
+          bash .mise/tasks/secrets-export-env
+      - name: Generate IPC bindings
+        run: cargo run --bin generate-bindings
+      - name: Build DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for var in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!var:-}" ]; then unset "$var"; fi
+          done
+          pnpm tauri build --target "${{ matrix.target }}" --bundles dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak bundle
+    needs: [validate, linux]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-amd64
+          path: artifacts
+      - name: Stage Flatpak tree from the Debian package
+        run: |
+          set -euo pipefail
+          version="${{ needs.validate.outputs.version }}"
+          deb="$(find artifacts -name "livtet-desktop_${version}_amd64.deb" -print -quit)"
+          test -n "$deb"
+          rm -rf packaging/flatpak/staging
+          mkdir -p packaging/flatpak/staging/usr/share/metainfo
+          dpkg-deb -x "$deb" packaging/flatpak/staging
+          cp packaging/flatpak/net.olamaelcu.livtet.metainfo.xml packaging/flatpak/staging/usr/share/metainfo/
+      - name: Install Flatpak toolchain and runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder elfutils
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.gnome.Platform//50 org.gnome.Sdk//50
+      - name: Build Flatpak bundle
+        run: |
+          set -euo pipefail
+          version="${{ needs.validate.outputs.version }}"
+          flatpak-builder --force-clean --disable-rofiles-fuse \
+            --repo="$PWD/flatpak-repo" build-dir \
+            packaging/flatpak/net.olamaelcu.livtet.yml
+          mkdir -p dist
+          flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo \
+            "$PWD/flatpak-repo" "dist/livtet-desktop_${version}_x86_64.flatpak" \
+            net.olamaelcu.livtet
+      - name: Install the bundle and verify the runtime
+        run: |
+          set -euo pipefail
+          bundle="$(find dist -name '*.flatpak' -print -quit)"
+          flatpak install --user -y --bundle "$bundle"
+          flatpak build build-dir sh -c '
+            for b in livtet-desktop livtet-plugin-host livtet-sync-daemon; do
+              test -x "/app/bin/$b" || exit 1
+              ldd "/app/bin/$b" | grep "not found" && exit 1
+            done
+            exit 0
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: dist/*.flatpak
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    needs: [validate, linux, macos, flatpak]
+    runs-on: ubuntu-latest
+    env:
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Collect assets and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.flatpak' \) -exec cp {} out/ \;
+          (
+            cd out
+            find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/SHA256SUMS.txt"
+            mv "$RUNNER_TEMP/SHA256SUMS.txt" SHA256SUMS.txt
+            cat SHA256SUMS.txt
+          )
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG already exists; uploading assets"
+          else
+            gh release create "$TAG" \
+              --title "Livtet ${{ needs.validate.outputs.version }}" \
+              --generate-notes \
+              --verify-tag
+          fi
+          gh release upload "$TAG" out/* --clobber
+
+  homebrew:
+    name: Update Homebrew tap
+    needs: [validate, release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Download macOS DMGs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --pattern 'livtet-desktop_*_aarch64.dmg' --dir dist
+          gh release download "$TAG" --pattern 'livtet-desktop_*_x64.dmg' --dir dist
+      - name: Render and push cask
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          arm_sha="$(sha256sum "dist/livtet-desktop_${VERSION}_aarch64.dmg" | cut -d' ' -f1)"
+          intel_sha="$(sha256sum "dist/livtet-desktop_${VERSION}_x64.dmg" | cut -d' ' -f1)"
+          sed \
+            -e "s/__VERSION__/${VERSION}/g" \
+            -e "s/__ARM_SHA256__/${arm_sha}/g" \
+            -e "s/__INTEL_SHA256__/${intel_sha}/g" \
+            packaging/homebrew/livtet.rb.tmpl > /tmp/livtet.rb
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/olamaelcu/homebrew-tap.git" tap-repo
+          mkdir -p tap-repo/Casks
+          cp /tmp/livtet.rb tap-repo/Casks/livtet.rb
+          git -C tap-repo config user.name 'github-actions[bot]'
+          git -C tap-repo config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C tap-repo add Casks/livtet.rb
+          if git -C tap-repo diff --cached --quiet; then
+            echo 'cask is already up to date'
+          else
+            git -C tap-repo commit -m "livtet ${VERSION}"
+            git -C tap-repo push
+          fi
+
+  publish-pages:
+    name: Publish APT and Flatpak repositories
+    needs: [validate, release, linux, flatpak]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: 'linux-*'
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: flatpak
+          path: artifacts-flatpak
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev apt-utils gnupg flatpak
+      - name: Import package signing key
+        env:
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          printf '%s' "$PACKAGES_GPG_KEY" | gpg --batch --import
+          keyid="$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr:/{print $10; exit}')"
+          test -n "$keyid"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          echo "KEYID=$keyid" >> "$GITHUB_ENV"
+      - name: Check out the gh-pages branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          if git ls-remote --exit-code --heads "$remote" gh-pages >/dev/null 2>&1; then
+            git clone --depth 1 --branch gh-pages "$remote" pages
+          else
+            mkdir pages
+            git -C pages init -b gh-pages
+            git -C pages remote add origin "$remote"
+          fi
+          touch pages/.nojekyll
+      - name: Build APT repository
+        run: |
+          set -euo pipefail
+          version="${{ needs.validate.outputs.version }}"
+          install -d pages/apt/pool/main/l/livtet-desktop
+          install -d pages/apt/dists/stable/main/binary-amd64
+          install -d pages/apt/dists/stable/main/binary-arm64
+          find artifacts -name '*.deb' -exec cp {} pages/apt/pool/main/l/livtet-desktop/ \;
+          find pages/apt/pool/main/l/livtet-desktop -name '*.deb' ! -name "livtet-desktop_${version}_*.deb" -delete
+          (
+            cd pages/apt
+            dpkg-scanpackages -m -a amd64 pool > dists/stable/main/binary-amd64/Packages
+            dpkg-scanpackages -m -a arm64 pool > dists/stable/main/binary-arm64/Packages
+            gzip -9kf dists/stable/main/binary-amd64/Packages dists/stable/main/binary-arm64/Packages
+            apt-ftparchive -c "$GITHUB_WORKSPACE/packaging/apt/apt-ftparchive.conf" release dists/stable > dists/stable/Release
+            gpg --batch --yes --default-key "$KEYID" --clearsign -o dists/stable/InRelease dists/stable/Release
+            gpg --batch --yes --default-key "$KEYID" --detach-sign --output dists/stable/Release.gpg dists/stable/Release
+            gpg --armor --export "$KEYID" > livtet.asc
+            printf '%s\n' 'deb [signed-by=/usr/share/keyrings/livtet.asc] https://olamaelcu.github.io/livtet-desktop/apt stable main' > livtet.list
+          )
+      - name: Build Flatpak repository
+        run: |
+          set -euo pipefail
+          bundle="$(find artifacts-flatpak -name '*.flatpak' -print -quit)"
+          test -n "$bundle"
+          install -d pages/flatpak
+          flatpak build-import-bundle --gpg-sign="$KEYID" --gpg-homedir="$GNUPGHOME" pages/flatpak/repo "$bundle"
+          flatpak build-update-repo --gpg-sign="$KEYID" --gpg-homedir="$GNUPGHOME" \
+            --generate-static-deltas --prune --prune-depth=1 --title=Livtet \
+            pages/flatpak/repo
+          key_b64="$(gpg --export "$KEYID" | base64 -w0)"
+          cat > pages/flatpak/livtet.flatpakrepo <<EOF
+[Flatpak Repo]
+Title=Livtet
+Url=https://olamaelcu.github.io/livtet-desktop/flatpak/repo/
+Homepage=https://github.com/olamaelcu/livtet-desktop
+Comment=Livtet desktop releases
+GPGKey=${key_b64}
+EOF
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git -C pages config user.name 'github-actions[bot]'
+          git -C pages config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C pages add -A
+          if git -C pages diff --cached --quiet; then
+            echo 'no pages changes'
+          else
+            git -C pages commit -m "packages: livtet ${{ needs.validate.outputs.version }}"
+            git -C pages push origin gh-pages
+          fi

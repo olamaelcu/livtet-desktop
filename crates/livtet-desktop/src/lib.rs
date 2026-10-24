@@ -1,5 +1,6 @@
 pub mod commands;
 mod error;
+pub mod atproto;
 mod http;
 mod paths;
 mod plugin_host;
@@ -304,6 +305,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         opds_store,
         secrets: Arc::new(secrets::KeyringSecretStore),
         readers: Arc::new(Mutex::new(HashMap::new())),
+        atproto: Arc::new(crate::atproto::AtprotoManager::new(opds_http.clone())),
     };
     {
         let mut guard = state.search_index.write().await;
@@ -369,6 +371,12 @@ pub fn run() {
         commands::sync::sync_conflicts_resolve,
         commands::sync::sync_server_start,
         commands::sync::sync_server_stop,
+        commands::atproto::atproto_begin_login,
+        commands::atproto::atproto_complete_login,
+        commands::atproto::atproto_status,
+        commands::atproto::atproto_logout,
+        
+        commands::atproto::atproto_get_profile,
     ]);
 
     let builder = tauri::Builder::default()
@@ -473,3 +481,9 @@ pub fn run() {
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| panic!("error while running tauri application: {e}"));
 }
+
+
+// Test fixture for bulk wrapper tests (adds mock_state_for_bulk)
+mod test_fixture;
+
+pub use test_fixture::mock_state_for_bulk;

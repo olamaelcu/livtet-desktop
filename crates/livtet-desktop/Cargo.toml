@@ -83,6 +83,20 @@ rand = "0.10"
 time = { version = "0.3", features = ["formatting"] }
 tauri-plugin-playwright = "0.4"
 
+atrium-api = { workspace = true, features = ["agent"] }
+atrium-common = { workspace = true }
+atrium-identity = { workspace = true, features = ["doh-handle-resolver"] }
+atrium-oauth = { workspace = true, default-features = false }
+atrium-xrpc = { workspace = true }
+atrium-xrpc-client = { workspace = true, default-features = false, features = [
+  "reqwest",
+] }
+# tauri-plugin-deep-link = { version = "2.4", features = [] }
+# tauri-plugin-single-instance = { version = "2.4", features = [
+#   "semver",
+#   "deep-link",
+# ] }
+
 [features]
 default = ["tauri/custom-protocol"]
 e2e-testing = []
@@ -93,7 +107,7 @@ poem = { version = "3.1", default-features = false, features = [
   "server",
   "test",
 ] }
-zip = { version = "8", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 keyring-core = "1"
 
