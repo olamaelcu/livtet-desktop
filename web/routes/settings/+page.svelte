@@ -1,4 +1,5 @@
 <script lang="ts">
+import AccountSettings from '../../lib/components/AccountSettings.svelte'
 import CatalogSettings from '../../lib/components/CatalogSettings.svelte'
 import HotkeySettings from '../../lib/components/HotkeySettings.svelte'
 import SyncPanel from '../../lib/components/SyncPanel.svelte'
@@ -11,6 +12,9 @@ import SettingsLayout from './SettingsLayout.svelte'
   </wa-tab-panel>
   <wa-tab-panel name="catalogs">
     <CatalogSettings />
+  </wa-tab-panel>
+  <wa-tab-panel name="account">
+    <AccountSettings />
   </wa-tab-panel>
   <wa-tab-panel name="hotkeys">
     <HotkeySettings />

@@ -6,7 +6,7 @@ import { NAV_ITEMS } from '../../lib/layout/navItems'
 import Pane from '../../lib/layout/Pane.svelte'
 import RouteShell from '../../lib/layout/RouteShell.svelte'
 
-/** `children` are the `<wa-tab-panel>`s for the sync, catalogs and hotkeys tabs. */
+/** `children` are the `<wa-tab-panel>`s for the sync, catalogs, account and hotkeys tabs. */
 let { children }: { children: Snippet } = $props()
 </script>
 
@@ -28,6 +28,7 @@ let { children }: { children: Snippet } = $props()
     <wa-tab-group class="settings__tabs" data-scroll-region>
       <wa-tab slot="nav" panel="sync">Sync</wa-tab>
       <wa-tab slot="nav" panel="catalogs">Catalogs</wa-tab>
+      <wa-tab slot="nav" panel="account">Account</wa-tab>
       <wa-tab slot="nav" panel="hotkeys">Keyboard</wa-tab>
       {@render children()}
     </wa-tab-group>

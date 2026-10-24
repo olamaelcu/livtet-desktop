@@ -1,11 +1,12 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Mock-app test for delete_editions wrapper — seeds and deletes.
-use tauri::Manager;
-use livtet_core::data::{Kind, TestDb};
 use livtet_core::data::entities::{editions, works};
 use livtet_core::data::orm::{ActiveModelTrait, Set};
-use livtet_types::{DbId, now_primitive};
+use livtet_core::data::{Kind, TestDb};
 use livtet_desktop_lib::commands::bulk::delete_editions;
 use livtet_desktop_lib::{AppState, mock_state_for_bulk};
+use livtet_types::{DbId, now_primitive};
+use tauri::Manager;
 
 #[tokio::test]
 async fn delete_editions_wrapper_deletes_seeded_edition() {

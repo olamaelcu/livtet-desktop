@@ -1,6 +1,6 @@
+pub mod atproto;
 pub mod commands;
 mod error;
-pub mod atproto;
 mod http;
 mod paths;
 mod plugin_host;
@@ -280,6 +280,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let opds_store = tauri_plugin_store::StoreBuilder::new(&*app, "opds-catalogs.json")
         .build()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let opds_store: Arc<dyn commands::opds::CatalogStore> = opds_store;
 
     // Loopback byte server for library files the webview must fetch:
     // `<audio>` playback (WebKitGTK routes media through GStreamer, which
@@ -301,11 +302,11 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         plugins_dir,
         disabled_plugins_dir,
         sync: Arc::new(sync),
+        atproto: Arc::new(crate::atproto::AtprotoManager::new(opds_http.clone())),
         opds_http,
         opds_store,
         secrets: Arc::new(secrets::KeyringSecretStore),
         readers: Arc::new(Mutex::new(HashMap::new())),
-        atproto: Arc::new(crate::atproto::AtprotoManager::new(opds_http.clone())),
     };
     {
         let mut guard = state.search_index.write().await;
@@ -375,11 +376,22 @@ pub fn run() {
         commands::atproto::atproto_complete_login,
         commands::atproto::atproto_status,
         commands::atproto::atproto_logout,
-        
         commands::atproto::atproto_get_profile,
     ]);
 
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+
+    // Must be the first plugin: a second launch focuses the running window
+    // instead of starting a new app.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = window.set_focus();
+        }
+    }));
+
+    let builder = builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -476,12 +488,32 @@ pub fn run() {
             }
             tauri::async_runtime::block_on(app_setup(app))?;
 
+            #[cfg(desktop)]
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+
+                // Dev builds and Windows installs must register the scheme at
+                // runtime; bundled Linux packages ship it in the desktop file.
+                #[cfg(any(target_os = "linux", target_os = "windows"))]
+                if let Err(error) = app.deep_link().register_all() {
+                    tracing::warn!(%error, "could not register the ATProto callback scheme");
+                }
+
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    crate::commands::atproto::handle_deep_links(&handle, event.urls());
+                });
+
+                if let Some(urls) = app.deep_link().get_current()? {
+                    crate::commands::atproto::handle_deep_links(app.handle(), urls);
+                }
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| panic!("error while running tauri application: {e}"));
 }
-
 
 // Test fixture for bulk wrapper tests (adds mock_state_for_bulk)
 mod test_fixture;

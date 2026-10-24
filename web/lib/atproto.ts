@@ -1,45 +1,58 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import type { AtprotoLoginStart, AtprotoProfileView, AtprotoStatus } from './bindings'
 
-export interface AtprotoLoginStart {
-  url: string;
+// Strict re-export of the generated contract — single source of truth.
+export type { AtprotoLoginStart, AtprotoProfileView, AtprotoStatus }
+
+export async function beginAtprotoLogin(handle: string): Promise<AtprotoLoginStart> {
+  return invoke<AtprotoLoginStart>('atproto_begin_login', { handle })
 }
 
-export interface AtprotoStatus {
-  did: string;
-  scope?: string;
-  expires_at?: string;
+export async function completeAtprotoLogin(callbackUrl: string): Promise<AtprotoStatus> {
+  return invoke<AtprotoStatus>('atproto_complete_login', { callbackUrl })
 }
 
-export interface AtprotoProfileView {
-  did: string;
-  handle?: string;
-  display_name?: string;
-  description?: string;
-  avatar_cid?: string;
+export async function atprotoStatus(): Promise<AtprotoStatus | null> {
+  return invoke<AtprotoStatus | null>('atproto_status')
 }
 
-export function atprotoStatus() {
-  return invoke<Option<AtprotoStatus>>('atproto_status');
+export async function atprotoLogout(): Promise<void> {
+  return invoke<void>('atproto_logout')
 }
 
-export function beginAtprotoLogin(handle: string) {
-  return invoke<AtprotoLoginStart>('atproto_begin_login', { handle });
-}
-
-export function completeAtprotoLogin(callbackUrl: string) {
-  return invoke<AtprotoStatus>('atproto_complete_login', { callbackUrl });
-}
-
-export function atprotoLogout() {
-  return invoke('atproto_logout');
-}
-
-export function atprotoGetProfile() {
-  return invoke<Option<AtprotoProfileView>>('atproto_get_profile');
+export async function atprotoGetProfile(): Promise<AtprotoProfileView | null> {
+  return invoke<AtprotoProfileView | null>('atproto_get_profile')
 }
 
 export function atprotoErrorMessage(error: unknown): string {
-  if (typeof error === "string") return error;
-  if (error && typeof error === "object" && "message" in error) {
-    const message = (error as Record<string, unknown>).message;
-    if (typeof message === "string") return message;
+  if (typeof error === 'string') return error
+  if (error && typeof error === 'object') {
+    const value = Object.values(error as Record<string, unknown>)[0]
+    if (typeof value === 'string') return value
+    if (value && typeof value === 'object' && 'message' in value) {
+      return String(value.message)
+    }
+  }
+  return 'ATProto request failed'
+}
+
+/**
+ * Subscribe to the results of the deep-link callback flow, which finishes
+ * outside any command's lifetime and reports through events instead.
+ */
+export async function listenToAtprotoEvents(handlers: {
+  onLogin: (status: AtprotoStatus) => void
+  onError: (message: string) => void
+}): Promise<UnlistenFn> {
+  const unlistenLogin = await listen<AtprotoStatus>('atproto://login', (event) =>
+    handlers.onLogin(event.payload),
+  )
+  const unlistenError = await listen<string>('atproto://error', (event) =>
+    handlers.onError(event.payload),
+  )
+  return () => {
+    unlistenLogin()
+    unlistenError()
+  }
+}

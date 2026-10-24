@@ -46,4 +46,11 @@
       "icons/icon.ico"
     ]
   }
-}
+,
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["net.olamaelcu.livtet"]
+      }
+    }
+  }}

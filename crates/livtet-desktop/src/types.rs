@@ -33,7 +33,7 @@ pub struct AppState {
     /// Shared HTTP client for OPDS catalog requests.
     pub opds_http: reqwest::Client,
     /// Rust-owned store of subscribed OPDS catalogs (metadata only).
-    pub opds_store: Arc<tauri_plugin_store::Store<tauri::Wry>>,
+    pub opds_store: Arc<dyn crate::commands::opds::CatalogStore>,
     /// OS-keyring-backed storage for OPDS catalog credentials.
     pub secrets: Arc<dyn crate::secrets::SecretStore>,
     /// Loopback HTTP server serving library file bytes to the webview.
@@ -45,5 +45,5 @@ pub struct AppState {
     pub readers: Arc<Mutex<HashMap<DbId, Arc<livtet_reader::Reader>>>>,
 
     /// ATProto OAuth session and manager.
-    pub atproto: Arc<crate::atproto::AtprotoManager>,
+    pub(crate) atproto: Arc<crate::atproto::AtprotoManager>,
 }

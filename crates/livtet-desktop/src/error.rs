@@ -234,6 +234,11 @@ impl From<livtet_opds_types::OpdsError> for OpdsError {
         }
     }
 }
+
+#[derive(Debug, Clone, Error, Serialize, Type)]
+pub enum AtprotoError {
+    #[error("ATProto client metadata unavailable: {message}")]
+    Metadata { message: String },
     #[error("ATProto authorization failed: {message}")]
     Authorization { message: String },
     #[error("ATProto keyring unavailable: {message}")]
@@ -242,6 +247,7 @@ impl From<livtet_opds_types::OpdsError> for OpdsError {
     NotSignedIn,
     #[error("ATProto appview request failed: {message}")]
     AppView { message: String },
+}
 
 impl AtprotoError {
     pub fn metadata(message: impl std::fmt::Display) -> Self {
@@ -328,5 +334,3 @@ mod tests {
         assert!(matches!(OpdsError::feed("f"), OpdsError::Feed { .. }));
     }
 }
-
-#[derive(Debug, Clone, Error, Serialize, Type)]

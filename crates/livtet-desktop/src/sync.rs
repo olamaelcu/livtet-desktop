@@ -295,6 +295,17 @@ fn fail_pending(pending: &Pending, message: &str) {
     }
 }
 
+/// A [`SyncHandle`] wired to an in-memory duplex that is never exercised.
+///
+/// Integration tests link against the crate without `cfg(test)`, so
+/// `test_fixture` cannot use [`testing::connect`]; this always-compiled
+/// constructor lets `mock_state_for_bulk` fill the `sync` field.
+pub(crate) fn fixture_handle() -> SyncHandle {
+    let (client, _peer) = tokio::io::duplex(1024);
+    let (_stdout, events) = tokio::sync::mpsc::channel(1);
+    SyncHandle::connect(client, events, |_, _| {}, Duration::from_secs(1))
+}
+
 /// In-memory daemon doubles for driving a [`SyncHandle`] without a sidecar.
 #[cfg(test)]
 pub(crate) mod testing {

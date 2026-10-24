@@ -15,6 +15,7 @@ import SettingsLayout from '$routes/settings/SettingsLayout.svelte'
     <wa-tab-panel name="catalogs">
       <div style="height: 6000px">taller catalogs panel</div>
     </wa-tab-panel>
+    <wa-tab-panel name="account">account</wa-tab-panel>
     <wa-tab-panel name="hotkeys">hotkeys</wa-tab-panel>
   </SettingsLayout>
 </AppFrame>

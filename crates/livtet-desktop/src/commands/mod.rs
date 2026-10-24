@@ -1,3 +1,4 @@
+pub mod atproto;
 pub mod bulk;
 pub mod byte_server;
 pub mod calibre;
@@ -12,4 +13,3 @@ pub mod plugins;
 pub mod reader;
 pub mod search;
 pub mod sync;
-pub mod atproto;

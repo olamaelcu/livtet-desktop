@@ -56,6 +56,8 @@ atrium-common = "0.1"
 atrium-identity = { version = "0.1", default-features = false }
 atrium-oauth = { version = "0.1", default-features = false }
 atrium-xrpc = "0.12"
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
 atrium-xrpc-client = { version = "0.5", default-features = false, features = [
   "reqwest",
 ] }
@@ -66,3 +68,9 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# `tauri-plugin-deep-link` 2.6.2 builds `rust-ini::ParseOption` with a struct
+# literal that predates the two fields added in 0.21.3. The local copy adds
+# `..Default::default()`; drop it once upstream ships a fix.
+[patch.crates-io]
+tauri-plugin-deep-link = { path = "vendor/tauri-plugin-deep-link" }

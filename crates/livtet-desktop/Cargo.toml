@@ -91,11 +91,8 @@ atrium-xrpc = { workspace = true }
 atrium-xrpc-client = { workspace = true, default-features = false, features = [
   "reqwest",
 ] }
-# tauri-plugin-deep-link = { version = "2.4", features = [] }
-# tauri-plugin-single-instance = { version = "2.4", features = [
-#   "semver",
-#   "deep-link",
-# ] }
+tauri-plugin-deep-link = { workspace = true }
+tauri-plugin-single-instance = { workspace = true, features = ["deep-link"] }
 
 [features]
 default = ["tauri/custom-protocol"]

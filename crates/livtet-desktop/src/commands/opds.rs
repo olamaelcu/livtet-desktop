@@ -291,7 +291,7 @@ fn map_feed(feed: &Feed) -> OpdsFeed {
 
 /// Where the catalog list is persisted. Production uses the Tauri plugin-store
 /// file; the seam lets the command logic run without a Tauri app.
-trait CatalogStore: Send + Sync {
+pub trait CatalogStore: Send + Sync {
     /// The persisted catalog list, if one has ever been written.
     fn read(&self) -> Option<serde_json::Value>;
     /// Replace the persisted catalog list and flush it.

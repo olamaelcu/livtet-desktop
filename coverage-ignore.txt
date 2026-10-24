@@ -39,6 +39,10 @@ crates/livtet-importer/src/lib\.rs
 test_support\.rs
 # Code generation script (not part of the product)
 generate-bindings\.rs
+# ATProto command wrappers — thin delegations onto `AtprotoManager`, whose
+# store, metadata, callback and mapping helpers are unit-tested directly. The
+# remaining lines are deep-link/app plumbing that needs a live Tauri app.
+crates/livtet-desktop/src/commands/atproto\.rs
 
 # Web exclusions (as glob patterns, to be interpreted by Vitest)
 web/lib/bindings\.ts

@@ -47,3 +47,4 @@ static/pdfjs/
 /flatpak-repo/
 /build-dir/
 .vitest
+vendor/
