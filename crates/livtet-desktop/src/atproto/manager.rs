@@ -1,23 +1,33 @@
-use crate::atproto::http_log::LoggingHttpClient;
-use crate::atproto::{
-    APPVIEW_PROFILE_NSID, APPVIEW_URL, CLIENT_ORIGIN, DOH_URL, LOOPBACK_REDIRECT_URI,
-    MAX_AVATAR_BYTES, PLATFORM_AVATAR_BASE, PROFILE_COLLECTION, PROFILE_RKEY, REDIRECT_URI,
-    client_metadata,
-    store::{AtprotoSessionStore, AtprotoStateStore, KeyValueBackend, KeyringBackend},
-    types::{AtprotoLoginStart, AtprotoProfileView, AtprotoStatus},
+use crate::{
+    atproto::{
+        APPVIEW_PROFILE_NSID, APPVIEW_URL, CLIENT_ORIGIN, DOH_URL, LOOPBACK_REDIRECT_URI,
+        MAX_AVATAR_BYTES, PLATFORM_AVATAR_BASE, PROFILE_COLLECTION, PROFILE_RKEY, REDIRECT_URI,
+        client_metadata,
+        http_log::LoggingHttpClient,
+        shelf_records::{
+            BOOK_SHELVING_COLLECTION, SHELF_COLLECTION, book_shelving_record, derive_rkey,
+            shelf_record, status_shelf_uri,
+        },
+        store::{AtprotoSessionStore, AtprotoStateStore, KeyValueBackend, KeyringBackend},
+        types::{AtprotoLoginStart, AtprotoProfileView, AtprotoStatus},
+    },
+    error::AtprotoError,
 };
-use crate::error::AtprotoError;
-use atrium_api::agent::{Configure, SessionManager};
-use atrium_api::types::string::Did;
-use atrium_common::resolver::Resolver;
-use atrium_common::store::Store;
-use atrium_identity::did::{CommonDidResolver, CommonDidResolverConfig, DEFAULT_PLC_DIRECTORY_URL};
-use atrium_identity::handle::{
-    AtprotoHandleResolver, AtprotoHandleResolverConfig, DohDnsTxtResolver, DohDnsTxtResolverConfig,
+use atrium_api::{
+    agent::{Configure, SessionManager},
+    types::string::Did,
+};
+use atrium_common::{resolver::Resolver, store::Store};
+use atrium_identity::{
+    did::{CommonDidResolver, CommonDidResolverConfig, DEFAULT_PLC_DIRECTORY_URL},
+    handle::{
+        AtprotoHandleResolver, AtprotoHandleResolverConfig, DohDnsTxtResolver,
+        DohDnsTxtResolverConfig,
+    },
 };
 use atrium_oauth::{AtprotoClientMetadata, OAuthClient, OAuthClientConfig, OAuthResolverConfig};
-use atrium_xrpc::http::Method;
-use atrium_xrpc::{XrpcClient, XrpcRequest};
+use atrium_xrpc::{XrpcClient, XrpcRequest, http::Method};
+use livtet_core::shelf::ReadingStatus;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
@@ -38,6 +48,11 @@ type AtprotoSession = atrium_oauth::OAuthSession<
     AtprotoSessionStore,
 >;
 
+/// The access token lifetime is server-controlled (PDS `expires_in`).
+/// We cannot force a 1-week token from the desktop client; the realistic
+/// upgrade is a robust refresh-token flow with proactive refresh.
+/// Refresh proactively when the token is within this window of expiry.
+const REFRESH_BEFORE_EXPIRY_SECS: u64 = 1800; // 30 minutes
 struct ClientBundle {
     client: Arc<AtprotoOAuthClient>,
     metadata: AtprotoClientMetadata,
@@ -501,6 +516,85 @@ impl AtprotoManager {
         }
     }
 
+    /// Shelve a book onto a reading status: write the shelf record and the
+    /// bookShelving record to the account's own repository.
+    pub(crate) async fn shelve_book(
+        &self,
+        book_uri: &str,
+        index_title: &str,
+        status: ReadingStatus,
+    ) -> Result<ShelvedBook, AtprotoError> {
+        let did_str = self.get_current_did().await?;
+        let did = did_str.parse::<Did>().map_err(|e| AtprotoError::Keyring {
+            message: e.to_string(),
+        })?;
+        self.ensure_fresh(&did).await?;
+        let session = self.restore_session(&did).await?;
+        let now = atrium_api::types::string::Datetime::now()
+            .as_str()
+            .to_string();
+
+        let shelf_uri = status_shelf_uri(did.as_str(), status);
+        let shelf_rkey = status.as_str().to_string();
+        let shelf_body = shelf_record(status, &now);
+        let request = put_record_request(
+            did.as_str(),
+            SHELF_COLLECTION,
+            &shelf_rkey,
+            &shelf_body,
+            true,
+        );
+        let written_shelf: PutProfileRecordOutput =
+            self.send_put_record(&session, &request, "shelf").await?;
+
+        let book_rkey = derive_rkey(book_uri)
+            .ok_or_else(|| {
+                AtprotoError::authorization(format!(
+                    "book reference is not an at:// record URI: {book_uri}"
+                ))
+            })?
+            .to_string();
+        let shelving_body = book_shelving_record(&shelf_uri, book_uri, index_title, status, &now);
+        let request = put_record_request(
+            did.as_str(),
+            BOOK_SHELVING_COLLECTION,
+            &book_rkey,
+            &shelving_body,
+            true,
+        );
+        let written: PutProfileRecordOutput = self
+            .send_put_record(&session, &request, "bookShelving")
+            .await?;
+
+        Ok(ShelvedBook {
+            record_uri: written.uri,
+            shelf_uri: written_shelf.uri,
+        })
+    }
+
+    async fn send_put_record(
+        &self,
+        session: &AtprotoSession,
+        request: &XrpcRequest<(), PutProfileRecordInput>,
+        label: &str,
+    ) -> Result<PutProfileRecordOutput, AtprotoError> {
+        let output: atrium_xrpc::OutputDataOrBytes<PutProfileRecordOutput> = session
+            .send_xrpc::<(), PutProfileRecordInput, PutProfileRecordOutput, serde_json::Value>(
+                request,
+            )
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, %label, "ATProto shelf write failed");
+                AtprotoError::authorization(format!("{label} write failed: {error}"))
+            })?;
+        match output {
+            atrium_xrpc::OutputDataOrBytes::Data(written) => Ok(written),
+            atrium_xrpc::OutputDataOrBytes::Bytes(_) => Err(AtprotoError::authorization(
+                "unexpected binary response to putRecord",
+            )),
+        }
+    }
+
     async fn read_profile_record(
         &self,
         session: &AtprotoSession,
@@ -602,14 +696,31 @@ impl AtprotoManager {
             return Err(AtprotoError::NotSignedIn);
         };
 
-        if let Some(expires_at) = &stored.token_set.expires_at
-            && expires_at > &atrium_api::types::string::Datetime::now()
-        {
-            tracing::debug!(
-                expires_at = expires_at.as_str(),
-                "ATProto token still valid"
-            );
-            return Ok(());
+        let now = atrium_api::types::string::Datetime::now();
+        if let Some(expires_at) = &stored.token_set.expires_at {
+            if *expires_at > now {
+                // Proactive refresh: when token expires within REFRESH_BEFORE_EXPIRY_SECS.
+                let boundary_ts = now.as_ref().timestamp() + REFRESH_BEFORE_EXPIRY_SECS as i64;
+                if expires_at.as_ref().timestamp() <= boundary_ts {
+                    tracing::info!(
+                        did = did.as_str(),
+                        expires_at = expires_at.as_str(),
+                        "ATProto token expires soon; forcing proactive session refresh"
+                    );
+                } else {
+                    tracing::debug!(
+                        expires_at = expires_at.as_str(),
+                        "ATProto token still valid (proactive window not reached)"
+                    );
+                    return Ok(());
+                }
+            } else {
+                tracing::debug!(
+                    expires_at = expires_at.as_str(),
+                    "ATProto token still valid"
+                );
+                return Ok(());
+            }
         }
         tracing::info!(
             did = did.as_str(),
@@ -704,6 +815,15 @@ struct PutProfileRecordInput {
     validate: bool,
 }
 
+/// Result of publishing a shelving record.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ShelvedBook {
+    /// `at://` URI of the shelving record now in the account's repository.
+    pub record_uri: String,
+    /// `at://` URI of the shelf record the shelving record points at.
+    pub shelf_uri: String,
+}
+
 #[derive(serde::Deserialize)]
 struct PutProfileRecordOutput {
     uri: String,
@@ -726,6 +846,29 @@ fn get_profile_record_request(did: &str) -> XrpcRequest<GetProfileRecordParams, 
 }
 
 /// Create or update the profile record.
+/// Generic `com.atproto.repo.putRecord` request for any collection/rkey.
+fn put_record_request(
+    did: &str,
+    collection: &str,
+    rkey: &str,
+    record: &serde_json::Value,
+    validate: bool,
+) -> XrpcRequest<(), PutProfileRecordInput> {
+    XrpcRequest {
+        method: Method::POST,
+        nsid: "com.atproto.repo.putRecord".to_string(),
+        parameters: None,
+        input: Some(atrium_xrpc::InputDataOrBytes::Data(PutProfileRecordInput {
+            repo: did.to_string(),
+            collection: collection.to_string(),
+            rkey: rkey.to_string(),
+            record: record.clone(),
+            validate,
+        })),
+        encoding: Some("application/json".to_string()),
+    }
+}
+
 fn put_profile_record_request(
     did: &str,
     record: &serde_json::Value,

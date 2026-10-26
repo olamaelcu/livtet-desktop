@@ -2,6 +2,7 @@ pub(crate) mod client_metadata;
 pub(crate) mod http_log;
 pub(crate) mod loopback;
 pub(crate) mod manager;
+pub(crate) mod shelf_records;
 pub(crate) mod store;
 pub mod types;
 

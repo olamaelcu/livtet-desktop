@@ -5,14 +5,7 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }))
 
-import {
-  chapterAt,
-  formatTimestamp,
-  loadListeningProgress,
-  loadReaderPublication,
-  openReader,
-  saveListeningProgress,
-} from './reader'
+import { chapterAt, formatTimestamp, loadReaderPublication, openReader } from './reader'
 
 describe('reader wrappers', () => {
   beforeEach(() => invoke.mockReset())
@@ -32,27 +25,6 @@ describe('reader wrappers', () => {
     invoke.mockResolvedValueOnce(null)
     await expect(openReader('e')).resolves.toBeNull()
     expect(invoke).toHaveBeenCalledWith('open_reader', { editionId: 'e' })
-  })
-
-  it('reads and writes listening progress', async () => {
-    invoke.mockResolvedValueOnce(null)
-    await expect(loadListeningProgress('e')).resolves.toBeNull()
-    expect(invoke).toHaveBeenCalledWith('get_listening_progress', { editionId: 'e' })
-
-    invoke.mockResolvedValueOnce({
-      edition_id: 'e',
-      position_seconds: 10,
-      duration_seconds: 100,
-    })
-    await expect(saveListeningProgress('e', 10)).resolves.toEqual({
-      edition_id: 'e',
-      position_seconds: 10,
-      duration_seconds: 100,
-    })
-    expect(invoke).toHaveBeenCalledWith('save_listening_progress', {
-      editionId: 'e',
-      positionSeconds: 10,
-    })
   })
 })
 

@@ -344,6 +344,7 @@ mod tests {
             "iss": "https://pds.example",
             "dpop_key": jwk(),
             "verifier": verifier,
+            "redirect_uri": "net.olamaelcu.livtet:/oauth-redirect",
             "app_state": null,
         }))
         .expect("state fixture")

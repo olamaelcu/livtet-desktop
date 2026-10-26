@@ -26,8 +26,11 @@ use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use livtet_core::data::entities::{digital_inventory, editions};
-use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
+use livtet_core::data::entities::{digital_inventory, editions, reading_progress};
+use livtet_core::data::orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set,
+};
+use livtet_types::now_primitive;
 use livtet_types::{DbId, KnownFormats};
 
 use crate::error::EpubError;
@@ -840,11 +843,462 @@ pub async fn reader_resource(
     resource_text_for_edition(&state.db.db_conn(), &state.readers, &edition_id, &href).await
 }
 
+/// Upsert per-edition progress into `reading_progress`.
+///
+/// One writer serves every reader family that shares the table. `kind` is
+/// `epub` (stores `locator`), `pdf` (stores `page_number`), or `audio`
+/// (stores `position_seconds`, clamped to the edition's duration). Rows are
+/// keyed by `(edition_id, format_id)`.
+///
+/// Kept free of Tauri state so it can be unit-tested against a `TestDb`.
+pub(crate) async fn store_reader_position(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    edition_id: DbId,
+    kind: &str,
+    locator: Option<String>,
+    page_number: Option<u32>,
+    position_seconds: Option<f64>,
+    annotations: Option<String>,
+) -> Result<(), ReaderError> {
+    let unit = reader_progress_unit(kind)?;
+    let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
+        return Err(ReaderError::new("not-found", "edition not found"));
+    };
+    let format_id = edition
+        .format_id
+        .ok_or_else(|| ReaderError::new("invalid-format", "edition has no format_id"))?;
+
+    let (progress, last_location) = match unit {
+        "epub" => (0.0, locator),
+        "pdf" => (page_number.map_or(0.0, f64::from), None),
+        // `timestamp`: audiobook playback seconds, clamped to the duration.
+        _ => {
+            if edition.format_id != Some(KnownFormats::Audiobook.into()) {
+                return Err(ReaderError::new(
+                    "unsupported",
+                    "listening progress is for audiobook editions only",
+                ));
+            }
+            let raw = position_seconds.ok_or_else(|| {
+                ReaderError::new("invalid", "position seconds are required for audio")
+            })?;
+            if !raw.is_finite() {
+                return Err(ReaderError::new("invalid", "position must be finite"));
+            }
+            let position = match edition_duration_seconds(&edition) {
+                Some(total) => raw.clamp(0.0, total),
+                None => raw.max(0.0),
+            };
+            (position, Some(position.to_string()))
+        }
+    };
+
+    let existing = reading_progress::Entity::find()
+        .filter(reading_progress::Column::EditionId.eq(edition_id))
+        .filter(reading_progress::Column::FormatId.eq(format_id))
+        .one(db)
+        .await?;
+    match existing {
+        Some(row) => {
+            let mut active = row.into_active_model();
+            active.progress = Set(progress);
+            active.progress_unit = Set(Some(unit.to_string()));
+            active.last_location = Set(last_location);
+            active.annotations = Set(annotations);
+            active.update(db).await?;
+        }
+        None => {
+            reading_progress::ActiveModel {
+                id: Set(DbId::new()),
+                edition_id: Set(edition_id),
+                format_id: Set(format_id),
+                progress: Set(progress),
+                progress_unit: Set(Some(unit.to_string())),
+                last_location: Set(last_location),
+                total_reading_time_secs: Set(0),
+                annotations: Set(annotations),
+                created_at: Set(now_primitive()),
+            }
+            .insert(db)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Map a caller-facing kind onto the `reading_progress.progress_unit` value.
+/// `audio` persists as `timestamp`, matching the audiobook writer and
+/// `fetch_reader_position`.
+fn reader_progress_unit(kind: &str) -> Result<&'static str, ReaderError> {
+    match kind {
+        "epub" => Ok("epub"),
+        "pdf" => Ok("pdf"),
+        "audio" | "timestamp" => Ok("timestamp"),
+        _ => Err(ReaderError::new(
+            "invalid-kind",
+            "kind must be 'epub', 'pdf' or 'audio'",
+        )),
+    }
+}
+
+/// Total audiobook duration in seconds from the edition's format metadata.
+fn edition_duration_seconds(edition: &editions::Model) -> Option<f64> {
+    edition
+        .format_metadata
+        .as_ref()?
+        .get("duration_seconds")?
+        .as_i64()
+        .map(|duration| duration as f64)
+}
+
+/// Save a reader position (upsert) using the `reading_progress` table.
+#[tauri::command]
+#[specta::specta]
+pub async fn save_reader_position(
+    edition_id: String,
+    kind: String,
+    locator: Option<String>,
+    page_number: Option<u32>,
+    position_seconds: Option<f64>,
+    annotations: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), ReaderError> {
+    let edition_id_db = edition_id
+        .parse::<DbId>()
+        .map_err(|_| ReaderError::new("invalid-id", "edition id is invalid"))?;
+    store_reader_position(
+        &state.db.db_conn(),
+        edition_id_db,
+        &kind,
+        locator,
+        page_number,
+        position_seconds,
+        annotations,
+    )
+    .await
+}
+
+/// Persisted reading position for one edition, read from `reading_progress`.
+///
+/// Covers all three reader families that share the table: EPUB (locator),
+/// PDF (page), and audiobook (playback seconds, `progress_unit = "timestamp"`).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct ReaderPosition {
+    /// Reader family: `"epub"`, `"pdf"` or `"audio"`.
+    pub kind: String,
+    /// Serialized Readium locator, for EPUB editions.
+    pub locator: Option<String>,
+    /// Current page, for PDF editions.
+    pub page_number: Option<u32>,
+    /// Playback position in seconds, for audiobook editions.
+    pub position_seconds: Option<f64>,
+    /// Serialized JSON array of user annotations.
+    pub annotations: Option<String>,
+}
+
+/// Read the persisted position for an edition. `Ok(None)` when the edition is
+/// unknown, has no row, or carries a `progress_unit` this reader does not
+/// recognize.
+///
+/// Kept free of Tauri state so it can be unit-tested against a `TestDb`.
+pub(crate) async fn fetch_reader_position(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    edition_id: DbId,
+) -> Result<Option<ReaderPosition>, ReaderError> {
+    let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
+        return Ok(None);
+    };
+    let Some(format_id) = edition.format_id else {
+        return Ok(None);
+    };
+    let Some(row) = reading_progress::Entity::find()
+        .filter(reading_progress::Column::EditionId.eq(edition_id))
+        .filter(reading_progress::Column::FormatId.eq(format_id))
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    match row.progress_unit.as_deref() {
+        Some("epub") => Ok(Some(ReaderPosition {
+            kind: "epub".to_string(),
+            locator: row.last_location,
+            annotations: row.annotations,
+            page_number: None,
+            position_seconds: None,
+        })),
+        Some("pdf") => Ok(Some(ReaderPosition {
+            kind: "pdf".to_string(),
+            locator: None,
+            annotations: row.annotations,
+            page_number: Some(row.progress.max(0.0) as u32),
+            position_seconds: None,
+        })),
+        Some("timestamp") => Ok(Some(ReaderPosition {
+            kind: "audio".to_string(),
+            locator: None,
+            annotations: row.annotations,
+            page_number: None,
+            position_seconds: Some(row.progress.max(0.0)),
+        })),
+        _ => Ok(None),
+    }
+}
+
+/// Fetch the persisted reader position for an edition. `Ok(None)` when none
+/// has been stored (or the edition is unknown).
+#[tauri::command]
+#[specta::specta]
+pub async fn get_reader_position(
+    edition_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<ReaderPosition>, ReaderError> {
+    let id = edition_id
+        .parse::<DbId>()
+        .map_err(|_| ReaderError::new("invalid-id", "edition id is invalid"))?;
+    fetch_reader_position(&state.db.db_conn(), id).await
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use livtet_core::data::{Kind, TestDb};
+
+    #[tokio::test]
+    async fn reader_position_upserts_locator_and_page() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"x\":1}".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("save epub locator");
+        let saved = reading_progress::Entity::find()
+            .filter(reading_progress::Column::EditionId.eq(id))
+            .one(&db)
+            .await
+            .expect("query")
+            .expect("row written");
+        assert_eq!(saved.progress_unit.as_deref(), Some("epub"));
+        assert_eq!(saved.last_location.as_deref(), Some("{\"x\":1}"));
+
+        // Same edition, saving again updates in place (upsert, not a second row).
+        store_reader_position(&db, id, "pdf", None, Some(7), None, None)
+            .await
+            .expect("save pdf page");
+        let saved = reading_progress::Entity::find()
+            .filter(reading_progress::Column::EditionId.eq(id))
+            .one(&db)
+            .await
+            .expect("query")
+            .expect("row remains");
+        assert_eq!(saved.progress, 7.0);
+        assert_eq!(saved.progress_unit.as_deref(), Some("pdf"));
+
+        // Read back what the DB persisted.
+        let saved_pos = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        assert_eq!(saved_pos.kind, "pdf");
+        assert_eq!(saved_pos.page_number, Some(7));
+        assert_eq!(saved_pos.locator, None);
+
+        let error = store_reader_position(&db, id, "video", None, None, None, None)
+            .await
+            .expect_err("unknown kind");
+        assert_eq!(error.code, "invalid-kind");
+    }
+
+    #[tokio::test]
+    async fn reader_position_reads_back_from_the_database() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let epub = epub_fixture(&db).await;
+        let id = epub.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        // No row yet.
+        assert!(
+            fetch_reader_position(&db, id)
+                .await
+                .expect("read")
+                .is_none()
+        );
+
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c3\"}".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("save epub locator");
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("epub row");
+        assert_eq!(saved.kind, "epub");
+        assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c3\"}"));
+        assert_eq!(saved.page_number, None);
+
+        // Save as PDF; the row is replaced in place.
+        store_reader_position(&db, id, "pdf", None, Some(12), None, None)
+            .await
+            .expect("save pdf page");
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("pdf row");
+        assert_eq!(saved.kind, "pdf");
+        assert_eq!(saved.page_number, Some(12));
+
+        // Unknown edition reads as None rather than erroring.
+        assert!(
+            fetch_reader_position(&db, DbId::new())
+                .await
+                .expect("read")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn reader_position_round_trips_annotations() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        let annotations = r#"[{"id":"a1","text":"Key point","locator":"{\"href\":\"c1\"}"}]"#;
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c1\"}".to_string()),
+            None,
+            None,
+            Some(annotations.to_string()),
+        )
+        .await
+        .expect("save with annotations");
+
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        assert_eq!(saved.annotations.as_deref(), Some(annotations));
+        assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c1\"}"));
+    }
+
+    #[tokio::test]
+    async fn reader_position_reads_back_an_audiobook_position() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Audiobook).await;
+        let format_id = editions::Entity::find_by_id(id)
+            .one(&db)
+            .await
+            .expect("query")
+            .expect("edition")
+            .format_id
+            .expect("format id");
+
+        // Audiobook rows carry seconds under the `timestamp` unit.
+        reading_progress::ActiveModel {
+            id: Set(DbId::new()),
+            edition_id: Set(id),
+            format_id: Set(format_id),
+            progress: Set(37.5),
+            progress_unit: Set(Some("timestamp".to_string())),
+            last_location: Set(Some("37.5".to_string())),
+            total_reading_time_secs: Set(0),
+            annotations: Set(None),
+            created_at: Set(now_primitive()),
+        }
+        .insert(&db)
+        .await
+        .expect("insert audiobook progress");
+
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("audio row");
+        assert_eq!(saved.kind, "audio");
+        assert_eq!(saved.position_seconds, Some(37.5));
+        assert_eq!(saved.page_number, None);
+        assert_eq!(saved.locator, None);
+    }
+
+    #[tokio::test]
+    async fn audio_positions_clamp_to_the_duration() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let fixture = audiobook_fixture(&db).await;
+        let id = fixture.edition_id;
+        mark_audiobook(
+            &db,
+            id,
+            Some(serde_json::json!({ "duration_seconds": 7200 })),
+        )
+        .await;
+
+        store_reader_position(&db, id, "audio", None, None, Some(99_999.0), None)
+            .await
+            .expect("save audio");
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        assert_eq!(saved.kind, "audio");
+        assert_eq!(saved.position_seconds, Some(7200.0));
+
+        store_reader_position(&db, id, "audio", None, None, Some(-12.0), None)
+            .await
+            .expect("save audio");
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        assert_eq!(saved.position_seconds, Some(0.0));
+    }
+
+    #[tokio::test]
+    async fn audio_position_requires_an_audiobook_edition() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        mark_format(&db, edition.edition_id, KnownFormats::Epub).await;
+
+        let error = store_reader_position(
+            &db,
+            edition.edition_id,
+            "audio",
+            None,
+            None,
+            Some(1.0),
+            None,
+        )
+        .await
+        .expect_err("audio on an EPUB is unsupported");
+        assert_eq!(error.code, "unsupported");
+    }
 
     #[test]
     fn library_fence_accepts_linked_and_copied_entries() {

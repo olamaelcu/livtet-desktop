@@ -1,5 +1,6 @@
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
+import { onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
 import { page } from '$app/state'
 import AudioPlayer from '$lib/components/AudioPlayer.svelte'
@@ -7,12 +8,8 @@ import ChapterList from '$lib/components/ChapterList.svelte'
 import PlayerProgress from '$lib/components/PlayerProgress.svelte'
 import ScrollRegion from '$lib/layout/ScrollRegion.svelte'
 import { readerKeys } from '$lib/query/keys'
-import {
-  formatTimestamp,
-  loadListeningProgress,
-  loadReaderPublication,
-  saveListeningProgress,
-} from '$lib/reader'
+import { formatTimestamp, loadReaderPublication } from '$lib/reader'
+import { loadProgress, saveProgress } from '$lib/reader/progress'
 import { coverUrlFor, loadEditionCovers, loadEditionDetail } from '$lib/search'
 import ReaderLayout from '../../ReaderLayout.svelte'
 
@@ -29,11 +26,6 @@ const coverUrl = $derived(coverUrlFor(covers.data?.[0]?.cover_path))
 const publicationQuery = createQuery(() => ({
   queryKey: readerKeys.publication(editionId),
   queryFn: () => loadReaderPublication(editionId),
-  enabled: editionId !== '',
-}))
-const progressQuery = createQuery(() => ({
-  queryKey: readerKeys.progress(editionId),
-  queryFn: () => loadListeningProgress(editionId),
   enabled: editionId !== '',
 }))
 const editionDetailQuery = createQuery(() => ({
@@ -55,16 +47,19 @@ let rate = $state(1)
 let isPlaying = $derived(!audio?.paused)
 let lastSaved = $state(0)
 let resumed = $state(false)
+let metadataReady = $state(false)
+let savedPosition = $state<number | null>(null)
+let savedReady = $state(false)
 
 async function persist(force = false): Promise<void> {
   if (!editionId) return
   if (!force && Math.abs(position - lastSaved) < 1) return
-  try {
-    await saveListeningProgress(editionId, position)
-    lastSaved = position
-  } catch {
-    toast.error('Could not save listening progress')
-  }
+  const saved = await saveProgress(editionId, {
+    kind: 'audio',
+    audio: { positionSeconds: position },
+  })
+  if (saved) lastSaved = position
+  else toast.error('Could not save listening progress')
 }
 
 function onTimeUpdate(): void {
@@ -74,16 +69,34 @@ function onTimeUpdate(): void {
 }
 
 function onLoadedMetadata(): void {
-  if (!audio || resumed) return
+  if (!audio) return
+  metadataReady = true
+}
+
+/// Read the saved position back from SQLite. Resolved alongside metadata
+/// loading; the resume effect below applies whichever arrives last so a fast
+/// `loadedmetadata` event cannot race past the database read.
+async function loadSaved(): Promise<void> {
+  const progress = await loadProgress(editionId)
+  savedPosition = progress?.kind === 'audio' ? (progress.audio?.positionSeconds ?? 0) : 0
+  savedReady = true
+}
+
+$effect(() => {
+  if (!metadataReady || !savedReady || resumed || !audio) return
   resumed = true
-  const saved = progressQuery.data?.position_seconds ?? 0
+  const saved = savedPosition ?? 0
   const total = audio.duration || duration
   if (saved > 5 && saved < total) {
     audio.currentTime = saved
     position = saved
   }
   lastSaved = position
-}
+})
+
+onMount(() => {
+  void loadSaved()
+})
 
 function seekTo(seconds: number): void {
   if (!audio) return

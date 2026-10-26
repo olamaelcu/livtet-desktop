@@ -8,11 +8,12 @@ import { catalogKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
 import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
-import { fileName, formatFileSize, formatIdentifier } from './format'
+import { formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
+import ShelfSelection from './ShelfSelection.svelte'
 
 interface Props {
-  editionId: string | null
+  editionId: string
   open: boolean
   onclose: () => void
 }
@@ -34,6 +35,7 @@ const queryClient = useQueryClient()
 const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf', 'm4b', 'm4a'] }]
 let relinking = $state(false)
 let listening = $state(false)
+let selectedShelf = $state<string>('to-read')
 
 const isAudiobook = $derived(book?.format?.toLowerCase() === 'audiobook')
 const canListen = $derived(isAudiobook && book?.file != null && book.file.file_status !== 'missing')
@@ -214,6 +216,13 @@ async function revealFile(path: string) {
           <p>{@html book.description}</p>
         </section>
       {/if}
+
+      <ShelfSelection
+        { editionId }
+        shelfKey={selectedShelf}
+        bookTitle={book.title ?? ''}
+        onChange={(k) => (selectedShelf = k)}
+      />
 
       {#if book.notes}
         <section class="section">

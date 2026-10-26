@@ -58,7 +58,6 @@ export const pluginKeys = {
 export const readerKeys = {
   all: ['reader'] as const,
   publication: (editionId: string) => [...readerKeys.all, 'publication', { editionId }] as const,
-  progress: (editionId: string) => [...readerKeys.all, 'progress', { editionId }] as const,
 }
 
 export const catalogKeys = {

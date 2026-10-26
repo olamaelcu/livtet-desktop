@@ -54,7 +54,7 @@ pdf_oxide = { git = "https://github.com/yfedoseev/pdf_oxide", branch = "main" }
 atrium-api = "0.25"
 atrium-common = "0.1"
 atrium-identity = { version = "0.1", default-features = false }
-atrium-oauth = { version = "0.1", default-features = false }
+atrium-oauth = { version = "0.1.7", default-features = false }
 atrium-xrpc = "0.12"
 tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = "2"

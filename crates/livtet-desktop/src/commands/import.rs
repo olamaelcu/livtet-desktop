@@ -15,14 +15,17 @@ use specta::Type;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use livtet_core::data::entities::{
-    authors, digital_inventory, edition_authors, edition_identifiers, edition_publishers,
-    edition_subjects, editions, formats, identifiers, languages, publishers, subjects, works,
+use livtet_core::data::{
+    entities::{
+        authors, digital_inventory, edition_authors, edition_identifiers, edition_publishers,
+        edition_subjects, editions, formats, identifiers, languages, publishers, subjects, works,
+    },
+    orm::{
+        ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
+        QueryFilter, Set, TransactionTrait,
+    },
 };
-use livtet_core::data::orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
-    QueryFilter, Set, TransactionTrait,
-};
+use livtet_core::shelf::ReadingStatus;
 use livtet_importer::{
     AudiobookImporter, EpubImporter, Importer, ImporterContributor, ImporterMeta, MobiImporter,
     PdfImporter,
@@ -31,8 +34,10 @@ use livtet_types::{
     CommonLanguages, DbId, FormatMetadataSchema, Isbn, KnownFormats, Urn, now_primitive,
 };
 
-use super::catalog::{EditionFile, FileStatus};
-use super::importers::remote_importer_metadata;
+use super::{
+    catalog::{EditionFile, FileStatus},
+    importers::remote_importer_metadata,
+};
 use crate::types::AppState;
 
 #[derive(Debug, Clone, Serialize, Type)]
@@ -3264,4 +3269,201 @@ mod tests {
             );
         }
     }
+}
+
+/// Outcome of moving a book onto a shelf.
+#[derive(Debug, Clone, Serialize, Type)]
+pub struct ShelfSync {
+    /// `at://` URI of the shelving record now in the account's repository.
+    pub record_uri: Option<String>,
+    /// Why the record was not published, when it was not.
+    pub error: Option<String>,
+}
+
+/// Place an edition on a shelf: write the local row, then publish the
+/// shelving record (`net.olamaelcu.livtet.biblio.bookShelving`) to the
+/// account's own repository.
+///
+/// The edition reference comes from the book index, which mints the edition
+/// records the shelving record points at; the index title is written to the
+/// record so it renders without a lookup.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_shelf_placement(
+    edition_id: String,
+    shelf_key: String,
+    title: String,
+    state: State<'_, AppState>,
+) -> Result<ShelfSync, ImportError> {
+    let status = ReadingStatus::from_key(&shelf_key)
+        .ok_or_else(|| ImportError::new("shelf", format!("unknown shelf `{shelf_key}`")))?;
+    let app = state.inner();
+
+    let did = match app.atproto.get_current_did().await {
+        Ok(did) => did,
+        Err(crate::error::AtprotoError::NotSignedIn) => String::new(),
+        Err(error) => return Err(ImportError::new("atproto", error)),
+    };
+    tracing::info!(
+        edition_id = %edition_id,
+        shelf = status.as_str(),
+        signed_in = !did.is_empty(),
+        "shelf move requested"
+    );
+
+    // 1. Local row. One shelving row per book per account, so a move retargets
+    // the existing row instead of adding a shelf-shaped duplicate.
+    let conn = app.db.db_conn();
+    let local_shelf_uri = format!("shelf:{}", status.as_str());
+    livtet_core::shelf::ensure_shelf(&conn, &local_shelf_uri, status.shelf_name())
+        .await
+        .map_err(|e| ImportError::new("db", format!("creating shelf: {e}")))?;
+    let row =
+        livtet_core::shelf::upsert_book_shelf(&conn, &did, &local_shelf_uri, &edition_id, status)
+            .await
+            .map_err(|e| ImportError::new("db", format!("writing shelf row: {e}")))?;
+    tracing::info!(
+        uri = %row.uri,
+        shelf = %row.shelf_uri,
+        status = %row.status,
+        "shelf row written"
+    );
+
+    // 2. Publish. Without a signed-in account or an edition record there is
+    // nothing to point the shelving record at, so report rather than guess.
+    if did.is_empty() {
+        return Ok(ShelfSync {
+            record_uri: None,
+            error: Some("Sign in to ATProto to publish shelves".to_string()),
+        });
+    }
+    if title.trim().is_empty() {
+        return Ok(ShelfSync {
+            record_uri: None,
+            error: Some("This edition has no title to look up in the book index".to_string()),
+        });
+    }
+    let (book_uri, index_title) = match resolve_edition_record(&app.opds_http, &title).await {
+        Ok(found) => found,
+        Err(error) => {
+            tracing::warn!(%error, title = %title, "could not resolve the edition record");
+            return Ok(ShelfSync {
+                record_uri: None,
+                error: Some(error),
+            });
+        }
+    };
+
+    match app
+        .atproto
+        .shelve_book(&book_uri, &index_title, status)
+        .await
+    {
+        Ok(shelved) => {
+            tracing::info!(
+                record = %shelved.record_uri,
+                shelf = %shelved.shelf_uri,
+                "shelf published to the PDS"
+            );
+            Ok(ShelfSync {
+                record_uri: Some(shelved.record_uri),
+                error: None,
+            })
+        }
+        Err(error) => {
+            tracing::warn!(%error, "publishing the shelf record failed");
+            Ok(ShelfSync {
+                record_uri: None,
+                error: Some(error.to_string()),
+            })
+        }
+    }
+}
+
+/// Read the shelf an edition currently sits on.
+#[tauri::command]
+#[specta::specta]
+/// Read current shelf placement for an edition.
+pub async fn get_shelf_placement(
+    edition_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, ImportError> {
+    let conn = state.inner().db.db_conn();
+    let row = livtet_core::shelf::shelf_of_book(&conn, &edition_id)
+        .await
+        .map_err(|e| ImportError::new("db", format!("reading shelf: {e}")))?;
+    Ok(row.map(|r| r.status))
+}
+
+/// The book index that mints edition records.
+const APPVIEW_EDITIONS_NSID: &str = "community.lexicon.book.searchEditions";
+/// Edition records live in this collection.
+const EDITION_COLLECTION: &str = "community.lexicon.book.edition";
+
+#[derive(Deserialize)]
+struct EditionSearch {
+    items: Vec<EditionHit>,
+}
+
+#[derive(Deserialize)]
+struct EditionHit {
+    uri: String,
+    title: Option<String>,
+}
+
+/// Look up the edition record for `title` and return it with the index title.
+///
+/// Matching is exact (case- and whitespace-insensitive): writing a shelving
+/// record for a near-match would shelve the wrong book, so a miss is an error
+/// the caller shows instead.
+async fn resolve_edition_record(
+    http: &reqwest::Client,
+    title: &str,
+) -> Result<(String, String), String> {
+    let url = format!(
+        "{}/xrpc/{APPVIEW_EDITIONS_NSID}",
+        crate::atproto::APPVIEW_URL
+    );
+    let response = http
+        .get(&url)
+        .query(&[("q", title), ("limit", "10")])
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| format!("could not reach the book index: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!(
+            "the book index answered {} for `{title}`",
+            response.status()
+        ));
+    }
+    let found: EditionSearch = response
+        .json()
+        .await
+        .map_err(|e| format!("the book index returned an unreadable response: {e}"))?;
+
+    let wanted = normalize_title(title);
+    let hit = found
+        .items
+        .into_iter()
+        .find(|item| {
+            item.uri.contains(&format!("/{EDITION_COLLECTION}/"))
+                && item
+                    .title
+                    .as_deref()
+                    .map(normalize_title)
+                    .is_some_and(|candidate| candidate == wanted)
+        })
+        .ok_or_else(|| format!("no edition record titled `{title}` in the book index"))?;
+
+    let found_title = hit.title.unwrap_or_else(|| title.to_string());
+    Ok((hit.uri, found_title))
+}
+
+/// Case- and whitespace-insensitive title key.
+fn normalize_title(raw: &str) -> String {
+    raw.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
 }

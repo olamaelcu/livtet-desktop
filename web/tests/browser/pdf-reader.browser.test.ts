@@ -45,12 +45,19 @@ function fakeDocument(pageCount = 2) {
   }
 }
 
-function stubPublication() {
-  invoke.mockResolvedValue({
-    kind: 'Pdf',
-    edition_id: '01hzzzzzzzzzzzzzzzzzzzzzzz',
-    title: 'A Scanned Book',
-    pdf_url: 'http://127.0.0.1:9000/pdf/01hzzzzzzzzzzzzzzzzzzzzzzz?t=tok',
+function stubPublication(progress?: { page_number: number | null }) {
+  // The route asks IPC for both the publication and the stored position;
+  // dispatch on the command name so each gets the right shape.
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'get_reader_position') {
+      return progress ? { kind: 'pdf', locator: null, page_number: progress.page_number } : null
+    }
+    return {
+      kind: 'Pdf',
+      edition_id: '01hzzzzzzzzzzzzzzzzzzzzzzz',
+      title: 'A Scanned Book',
+      pdf_url: 'http://127.0.0.1:9000/pdf/01hzzzzzzzzzzzzzzzzzzzzzzz?t=tok',
+    }
   })
   getDocument.mockReturnValue({
     promise: Promise.resolve(fakeDocument()),
@@ -93,6 +100,16 @@ test('the PDF route reaches the ready phase and reports the page count', async (
       standardFontDataUrl: '/pdfjs/standard_fonts/',
     }),
   )
+})
+
+test('reopening a PDF restores the last page from stored progress', async () => {
+  stubPublication({ page_number: 2 })
+  const { container } = await render(PdfReaderFixture)
+
+  await vi.waitFor(() => {
+    expect(container.textContent).toContain('2 / 2')
+  })
+  expect(container.querySelector('.error')).toBeNull()
 })
 
 test('the PDF route carries no navigation chrome', async () => {

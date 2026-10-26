@@ -6,8 +6,11 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { onDestroy, onMount } from 'svelte'
 import { page } from '$app/state'
 import ActionButton from '$lib/components/ActionButton.svelte'
+import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
 import { createLoadSession } from '$lib/reader/loadSession'
 import { canvasMetrics, clampPage, createRenderGate, fitToWidthScale } from '$lib/reader/pdf'
+import type { Annotation } from '$lib/reader/progress'
+import { debouncedSave, loadProgress, saveProgress } from '$lib/reader/progress'
 import { loadPdfReaderPublication } from '$lib/reader/read'
 import ReaderLayout from '../../ReaderLayout.svelte'
 
@@ -39,6 +42,26 @@ let failure = $state('')
 let title = $state('Reader')
 let pageNumber = $state(1)
 let pageCount = $state(0)
+
+// Annotations loaded from the edition's saved progress; appended on demand.
+let annotations = $state<Annotation[]>([])
+let composerOpen = $state(false)
+
+/** Whether the note cards are revealed over the page by the FAB. */
+let notesVisible = $state(false)
+
+/** Whether the note list is open. A jump closes it. */
+let panelOpen = $state(false)
+
+// Debounced save for pdf page changes
+const savePdfProgress = debouncedSave(
+  () => editionId,
+  () => ({
+    kind: 'pdf' as const,
+    pdf: { pageNumber },
+    annotations,
+  }),
+)
 
 function messageOf(error: unknown): string {
   if (error !== null && typeof error === 'object') {
@@ -128,6 +151,12 @@ async function load() {
     loadingTask = task
     pdfDocument = instance
     pageCount = instance.numPages
+    // Restore last-read page if one was saved
+    const progress = await loadProgress(editionId)
+    if (progress?.pdf?.pageNumber !== undefined && progress.pdf.pageNumber <= pageCount) {
+      pageNumber = progress.pdf.pageNumber
+    }
+    if (progress?.annotations) annotations = progress.annotations
     pageNumber = clampPage(pageNumber, pageCount)
     await render()
     if (!session.isCurrent(generation)) return
@@ -142,12 +171,54 @@ async function load() {
   }
 }
 
+/**
+ * Record the composer draft as a note on the current page.
+ *
+ * PDF annotations are page-tied: there is no text layer to anchor a span
+ * selection to, so the note belongs to whatever page is on screen. WebKitGTK
+ * implements no `window.prompt`, so text is collected in an in-page composer.
+ */
+function saveAnnotation(text: string) {
+  const annotation: Annotation = {
+    id: crypto.randomUUID(),
+    text,
+    pageNumber,
+  }
+  annotations = [...annotations, annotation]
+  void saveProgress(editionId, {
+    kind: 'pdf',
+    pdf: { pageNumber },
+    annotations,
+  })
+  closeComposer()
+  notesVisible = true
+}
+
+/**
+ * Go to the page a note was written on, then dismiss the list so the page it
+ * points at is not hidden behind it.
+ */
+function jumpTo(note: Annotation) {
+  panelOpen = false
+  if (note.pageNumber !== undefined) void goTo(note.pageNumber)
+}
+
+function openComposer() {
+  composerOpen = true
+}
+
+function closeComposer() {
+  composerOpen = false
+}
+
 async function goTo(target: number) {
   const next = clampPage(target, pageCount)
   if (next === pageNumber) return
   pageNumber = next
   try {
     await render()
+    // Debounced save after successful navigation
+    savePdfProgress()
   } catch (error) {
     phase = 'error'
     failure = messageOf(error)
@@ -190,6 +261,11 @@ onMount(() => {
 onDestroy(() => {
   session.invalidate()
   gate.cancel()
+  // Save final page progress before teardown
+  void saveProgress(editionId, {
+    kind: 'pdf',
+    pdf: { pageNumber },
+  })
   const task = loadingTask
   loadingTask = undefined
   pdfDocument = undefined
@@ -212,6 +288,10 @@ onDestroy(() => {
         Next
         <wa-icon name="chevron-right"></wa-icon>
       </ActionButton>
+      <ActionButton onclick={openComposer} disabled={phase !== 'ready'}>
+        <wa-icon name="comment"></wa-icon>
+        Annotate
+      </ActionButton>
       <ActionButton onclick={() => void close()}>Close</ActionButton>
     </div>
   </header>
@@ -225,10 +305,59 @@ onDestroy(() => {
     </div>
   {/if}
 
-  <!-- Pane grows this; the rendered page scrolls inside it. -->
-  <div class="viewport" data-scroll-region bind:this={container}>
-    <canvas bind:this={canvas}></canvas>
+  {#if composerOpen}
+    <AnnotationComposer
+      placeholder={`Note text for page ${pageNumber}`}
+      onsave={saveAnnotation}
+      oncancel={closeComposer}
+    />
+  {/if}
+
+  <div class="stage">
+    <!-- Pane grows this; the rendered page scrolls inside it. -->
+    <div class="viewport" data-scroll-region bind:this={container}>
+      <canvas bind:this={canvas}></canvas>
+    </div>
+
+    {#if annotations.length > 0 && phase === 'ready'}
+      <div class="fab">
+        <ActionButton
+          variant="brand"
+          onclick={() => {
+            // A jump closes the list; while the layer is still on, the FAB
+            // reopens it instead of turning everything off.
+            if (notesVisible && !panelOpen) {
+              panelOpen = true
+              return
+            }
+            notesVisible = !notesVisible
+            panelOpen = notesVisible
+          }}
+          aria-pressed={notesVisible}
+          aria-haspopup="dialog"
+          aria-expanded={panelOpen}
+        >
+          <wa-icon name="comment-dots"></wa-icon>
+          Notes ({annotations.length})
+        </ActionButton>
+      </div>
+    {/if}
+
+    {#if notesVisible && panelOpen && annotations.length > 0}
+      <div class="notes" role="dialog" aria-label="Notes">
+        <p class="notes-heading">Notes ({annotations.length})</p>
+        {#each annotations as note (note.id)}
+          <button type="button" class="note" onclick={() => jumpTo(note)}>
+            {#if note.pageNumber !== undefined}
+              <span class="note-page">Page {note.pageNumber}</span>
+            {/if}
+            <span class="note-text">{note.text}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
+
 </ReaderLayout>
 
 <style>
@@ -274,6 +403,78 @@ onDestroy(() => {
   }
 
   .error p {
+    margin: 0;
+  }
+
+  /* Positioning context for the FAB and the floating note cards. */
+  .stage {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .fab {
+    position: absolute;
+    inset-block-end: var(--wa-space-m);
+    inset-inline-end: var(--wa-space-m);
+    z-index: 2;
+  }
+
+  /*
+    The list floats over the page and never takes layout space. PDF notes are
+    page-tied, so each entry names its page and jumps there on click.
+  */
+  .notes {
+    position: absolute;
+    z-index: 2;
+    inset-block-start: var(--wa-space-m);
+    inset-inline-end: var(--wa-space-m);
+    width: min(20rem, calc(100% - 2 * var(--wa-space-m)));
+    max-height: 60%;
+    overflow: auto;
+    padding: var(--wa-space-s);
+    border-radius: var(--wa-border-radius-m, 0.5rem);
+    border: 1px solid var(--wa-color-border);
+    background: var(--wa-color-surface);
+    box-shadow: var(--wa-shadow-m, 0 4px 12px rgb(0 0 0 / 0.18));
+  }
+
+  .notes-heading {
+    margin: 0 0 var(--wa-space-2xs);
+    font-size: var(--wa-font-size-xs, 0.8125rem);
+    color: var(--wa-color-text-secondary);
+  }
+
+  /* A note entry: click jumps to the page the note was written on. */
+  .note {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    width: 100%;
+    padding: var(--wa-space-2xs) 0;
+    border: 0;
+    border-block-start: 1px solid var(--wa-color-border);
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: var(--wa-font-size-s);
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .note:hover,
+  .note:focus-visible {
+    background: var(--wa-color-surface-lowered, rgb(0 0 0 / 0.04));
+  }
+
+  .note-page {
+    font-size: var(--wa-font-size-2xs, 0.75rem);
+    color: var(--wa-color-text-muted);
+  }
+
+  .note-text {
     margin: 0;
   }
 

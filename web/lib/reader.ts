@@ -1,12 +1,7 @@
-import {
-  commands,
-  type ListeningProgress,
-  type ReaderChapter,
-  type ReaderPublication,
-} from './bindings'
+import { commands, type ReaderChapter, type ReaderPublication } from './bindings'
 
 // Strict re-export of generated contract — single source of truth
-export type { ListeningProgress, ReaderChapter, ReaderPublication }
+export type { ReaderChapter, ReaderPublication }
 
 /** Unwrap a command envelope, throwing the backend error on failure. */
 function unwrap<T>(result: { status: 'ok' | 'error'; data?: T; error?: unknown }): T {
@@ -20,17 +15,6 @@ export async function loadReaderPublication(editionId: string): Promise<ReaderPu
 
 export async function openReader(editionId: string): Promise<null> {
   return unwrap(await commands.openReader(editionId))
-}
-
-export async function loadListeningProgress(editionId: string): Promise<ListeningProgress | null> {
-  return unwrap(await commands.getListeningProgress(editionId))
-}
-
-export async function saveListeningProgress(
-  editionId: string,
-  positionSeconds: number,
-): Promise<ListeningProgress> {
-  return unwrap(await commands.saveListeningProgress(editionId, positionSeconds))
 }
 
 /** Format seconds as `H:MM:SS`; non-finite input renders as zero. */
