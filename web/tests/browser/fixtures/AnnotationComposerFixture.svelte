@@ -1,20 +1,27 @@
 <script lang="ts">
 import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
+import type { HighlightColor } from '$lib/reader/highlights'
 
 interface Props {
   quote?: string
-  saved: string[]
+  showColors?: boolean
+  initialText?: string
+  initialColor?: HighlightColor
+  saved: Array<{ text: string; color: HighlightColor | undefined }>
 }
 
-let { quote, saved }: Props = $props()
+let { quote, showColors = false, initialText, initialColor, saved }: Props = $props()
 </script>
 
 <AnnotationComposer
   {quote}
-  onsave={(text) => {
-    saved.push(text)
+  {showColors}
+  {initialText}
+  {initialColor}
+  onsave={(text, color) => {
+    saved.push({ text, color })
   }}
   oncancel={() => {
-    saved.push('<cancel>')
+    saved.push({ text: '<cancel>', color: undefined })
   }}
 />

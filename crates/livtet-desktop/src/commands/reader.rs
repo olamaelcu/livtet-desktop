@@ -904,7 +904,12 @@ pub(crate) async fn store_reader_position(
             active.progress = Set(progress);
             active.progress_unit = Set(Some(unit.to_string()));
             active.last_location = Set(last_location);
-            active.annotations = Set(annotations);
+            // `None` means "this writer does not own annotations": a position
+            // save must never blank notes written by another save. Callers that
+            // own the list always send one (an empty array clears it).
+            if let Some(annotations) = annotations {
+                active.annotations = Set(Some(annotations));
+            }
             active.update(db).await?;
         }
         None => {
@@ -1203,6 +1208,49 @@ mod tests {
             .expect("row");
         assert_eq!(saved.annotations.as_deref(), Some(annotations));
         assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c1\"}"));
+    }
+
+    #[tokio::test]
+    async fn position_saves_never_blank_annotations() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        let annotations = r#"[{"id":"a1","text":"Key point"}]"#;
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c1\"}".to_string()),
+            None,
+            None,
+            Some(annotations.to_string()),
+        )
+        .await
+        .expect("save with annotations");
+
+        // A position-only writer (the debounced save on open) must not own the
+        // column: without this, opening a book silently deleted every note.
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c2\"}".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("save position only");
+
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        assert_eq!(saved.annotations.as_deref(), Some(annotations));
+        assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c2\"}"));
     }
 
     #[tokio::test]

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ANNOTATION_STYLE, buildAnnotationDecorations, isAnchorable } from './decorations'
+import { HIGHLIGHTS } from './highlights'
 
 const selectionLocator = (highlight: string) =>
   JSON.stringify({
@@ -62,7 +63,10 @@ describe('annotation decorations', () => {
 
     expect(decorations.map((d) => d.id)).toEqual(['a1', 'a2'])
     expect(decorations[0]?.locator.href).toBe('ch01.xhtml')
-    expect(decorations[0]?.style).toEqual(ANNOTATION_STYLE)
+    expect(decorations[0]?.style).toEqual({
+      ...ANNOTATION_STYLE,
+      tint: HIGHLIGHTS.yellow.tint,
+    })
   })
 
   it('skips position-only annotations so the navigator never warns', () => {
@@ -90,5 +94,43 @@ describe('annotation decorations', () => {
     ])
 
     expect(decorations).toEqual([])
+  })
+})
+
+describe('highlight colours', () => {
+  it('tints each note with its own colour', () => {
+    const decorations = buildAnnotationDecorations([
+      { id: 'y', text: 'one', locator: selectionLocator('first'), color: 'yellow' },
+      { id: 'g', text: 'two', locator: selectionLocator('second'), color: 'green' },
+      { id: 'b', text: 'three', locator: selectionLocator('third'), color: 'blue' },
+    ])
+
+    expect(decorations.map((d) => d.style)).toEqual([
+      { ...ANNOTATION_STYLE, tint: HIGHLIGHTS.yellow.tint },
+      { ...ANNOTATION_STYLE, tint: HIGHLIGHTS.green.tint },
+      { ...ANNOTATION_STYLE, tint: HIGHLIGHTS.blue.tint },
+    ])
+  })
+
+  it('falls back to the default colour for notes without one', () => {
+    const decorations = buildAnnotationDecorations([
+      { id: 'none', text: 'no colour', locator: selectionLocator('text') },
+    ])
+
+    expect(decorations[0]?.style).toEqual({ ...ANNOTATION_STYLE, tint: HIGHLIGHTS.yellow.tint })
+  })
+
+  it('ignores a colour key that is no longer in the palette', () => {
+    const decorations = buildAnnotationDecorations([
+      {
+        id: 'stale',
+        text: 'old palette',
+        locator: selectionLocator('text'),
+        // A note written by an older/newer palette must still render.
+        color: 'chartreuse' as never,
+      },
+    ])
+
+    expect(decorations[0]?.style).toEqual({ ...ANNOTATION_STYLE, tint: HIGHLIGHTS.yellow.tint })
   })
 })

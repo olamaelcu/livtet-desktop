@@ -1,18 +1,17 @@
 import type { Decoration } from '@readium/navigator'
 import { Locator } from '@readium/shared'
+import { DEFAULT_HIGHLIGHT, HIGHLIGHTS } from './highlights'
 import type { Annotation } from './progress'
 
 /**
- * Styling for the highlight drawn over annotated text.
+ * Styling for the highlight drawn over annotated text; the tint is per note.
  *
  * `enforceContrast` defaults to true, which darkens the tint until it meets a
- * contrast ratio — muting a deliberate colour. Keep it off so the tint lands
- * exactly as authored. A 6-digit hex plus alpha keeps the text legible over
- * both light and dark reader themes.
+ * contrast ratio — muting a deliberately chosen colour. Keep it off so the
+ * palette lands exactly as authored.
  */
 export const ANNOTATION_STYLE = {
   type: 'highlight' as const,
-  tint: 'rgba(255, 213, 79, 0.55)',
   enforceContrast: false,
 }
 
@@ -80,6 +79,7 @@ export function buildAnnotationDecorations(annotations: Annotation[]): Decoratio
       return []
     }
     if (!locator) return []
-    return [{ id: annotation.id, locator, style: ANNOTATION_STYLE }]
+    const tint = HIGHLIGHTS[annotation.color ?? DEFAULT_HIGHLIGHT]?.tint ?? HIGHLIGHTS.yellow.tint
+    return [{ id: annotation.id, locator, style: { ...ANNOTATION_STYLE, tint } }]
   })
 }

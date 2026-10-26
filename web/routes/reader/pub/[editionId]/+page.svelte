@@ -6,8 +6,11 @@ import { onDestroy, onMount } from 'svelte'
 import { page } from '$app/state'
 import ActionButton from '$lib/components/ActionButton.svelte'
 import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
+import NotesPanel from '$lib/components/NotesPanel.svelte'
+import { type Quote, readingPositionQuote, selectedQuote } from '$lib/reader/anchor'
 import { buildAnnotationDecorations } from '$lib/reader/decorations'
 import { ReaderFetcher } from '$lib/reader/fetcher'
+import type { HighlightColor } from '$lib/reader/highlights'
 import { createLoadSession } from '$lib/reader/loadSession'
 import type { Annotation } from '$lib/reader/progress'
 import { debouncedSave, loadProgress, saveProgress } from '$lib/reader/progress'
@@ -30,10 +33,15 @@ let title = $state('Reader')
 // Annotations loaded from the edition's saved progress; appended on demand.
 let annotations = $state<Annotation[]>([])
 
-/** Whether the annotation layer (highlights) is revealed by the FAB. */
-let notesVisible = $state(false)
+/**
+ * Whether `annotations` reflects the stored list.
+ *
+ * Until it does, a save must not carry a list: the backend reads `null` as
+ * "leave the column alone", but an empty array would blank every note.
+ */
+let annotationsLoaded = $state(false)
 
-/** Whether the note list is open. A jump closes it but keeps the highlights. */
+/** Whether the note list is open. Highlights are always drawn regardless. */
 let panelOpen = $state(false)
 
 /** Note card floating over the clicked highlight, in stage coordinates. */
@@ -42,6 +50,17 @@ let activeNote = $state<{ annotation: Annotation; top: number; left: number } | 
 // Text currently selected in the publication, captured by `textSelected`.
 let selection = $state<{ text: string; locator?: string } | null>(null)
 let composerOpen = $state(false)
+
+/**
+ * Anchor captured when the dialog opens.
+ *
+ * The dialog is modal, so the page cannot move underneath it: one capture
+ * serves both the quoted preview and the saved locator.
+ */
+let pendingQuote = $state<Quote | undefined>(undefined)
+
+/** Note being edited by the dialog; `null` while writing a new one. */
+let editingId = $state<string | null>(null)
 
 // Track the latest locator received from positionChanged
 let latestLoc: Locator | undefined
@@ -54,39 +73,31 @@ function messageOf(error: unknown): string {
 const saveEpubProgress = debouncedSave(
   () => editionId,
   () => {
-    if (!latestLoc) return { kind: 'epub' as const, annotations }
+    const owned = annotationsLoaded ? annotations : undefined
+    if (!latestLoc) return { kind: 'epub' as const, annotations: owned }
     return {
       kind: 'epub' as const,
       epub: { locator: JSON.stringify(latestLoc) },
-      annotations,
+      annotations: owned,
     }
   },
   250,
 )
 
-/** Push the current annotation highlights into the navigator, or clear them. */
+/**
+ * Push every anchored annotation into the navigator as a highlight.
+ *
+ * Highlights are not tied to the note list: annotated text stays marked while
+ * the reader reads, and the FAB only opens the list.
+ */
 function syncDecorations() {
-  navigator?.applyDecorations(
-    notesVisible ? buildAnnotationDecorations(annotations) : [],
-    ANNOTATION_GROUP,
-  )
+  navigator?.applyDecorations(buildAnnotationDecorations(annotations), ANNOTATION_GROUP)
 }
 
-/**
- * Reveal or hide the annotation layer, with its note list.
- *
- * A jump hides the list but keeps the highlights; while those are still on,
- * the FAB reopens the list instead of tearing the layer down.
- */
-function toggleNotes() {
-  if (notesVisible && !panelOpen) {
-    panelOpen = true
-    return
-  }
-  notesVisible = !notesVisible
-  panelOpen = notesVisible
-  if (!notesVisible) activeNote = null
-  syncDecorations()
+/** Open or close the note list. Highlights are unaffected. */
+function togglePanel() {
+  panelOpen = !panelOpen
+  if (!panelOpen) activeNote = null
 }
 
 /**
@@ -189,7 +200,9 @@ async function load() {
 
     // Load saved progress and resume to last position
     const progress = await loadProgress(editionId)
-    if (progress?.annotations) annotations = progress.annotations
+    annotations = progress?.annotations ?? []
+    annotationsLoaded = true
+    syncDecorations()
     if (progress?.epub?.locator) {
       try {
         const locator = Locator.deserialize(JSON.parse(progress.epub.locator))
@@ -217,34 +230,91 @@ async function load() {
  * waiting for the debounced position save. WebKitGTK implements no
  * `window.prompt`, so the text is collected in an in-page composer instead.
  */
-function saveAnnotation(text: string) {
-  const position = latestLoc ? JSON.stringify(latestLoc) : undefined
-  const annotation: Annotation = {
-    id: crypto.randomUUID(),
-    text,
-    quote: selection?.text,
-    locator: selection?.locator ?? position,
-  }
-  annotations = [...annotations, annotation]
+/** Write the current note list through immediately, with the reading position. */
+function persistNotes() {
   void saveProgress(editionId, {
     kind: 'epub',
-    epub: position ? { locator: position } : undefined,
+    epub: latestLoc ? { locator: JSON.stringify(latestLoc) } : undefined,
     annotations,
   })
-  selection = null
-  closeComposer()
-  // A note written mid-read is already anchored: reveal its highlight.
-  notesVisible = true
+  // Highlights follow the list: new tint, edited text, or a removal.
   syncDecorations()
 }
 
-/** Open the composer, keeping any selection captured by `textSelected`. */
+function saveAnnotation(text: string, color?: HighlightColor) {
+  if (editingId) {
+    // Keep the anchor and creation time; only the reader's words and colour change.
+    annotations = annotations.map((item) =>
+      item.id === editingId ? { ...item, text, color: color ?? item.color } : item,
+    )
+    editingId = null
+    closeComposer()
+    persistNotes()
+    return
+  }
+
+  const annotation: Annotation = {
+    id: crypto.randomUUID(),
+    text,
+    quote: pendingQuote?.highlight ?? selection?.text,
+    locator: locatorForNote(pendingQuote),
+    color,
+    createdAt: new Date().toISOString(),
+  }
+  annotations = [...annotations, annotation]
+  selection = null
+  closeComposer()
+  persistNotes()
+}
+
+/** Change one note's highlight colour without opening the dialog. */
+function recolorNote(note: Annotation, color: HighlightColor) {
+  if (note.color === color) return
+  annotations = annotations.map((item) => (item.id === note.id ? { ...item, color } : item))
+  persistNotes()
+}
+
+/** Open the dialog on an existing note, pre-filled. */
+function editNote(note: Annotation) {
+  pendingQuote = undefined
+  editingId = note.id
+  composerOpen = true
+}
+
+/**
+ * Merge a text anchor into the reading position's locator.
+ *
+ * Without one, a note carries only a progression, which the decorator cannot
+ * resolve — so it could never be highlighted. The quote (plus its surrounding
+ * context) pins the decoration to the text the reader picked while keeping the
+ * position itself intact.
+ */
+function locatorForNote(quote: Quote | undefined): string | undefined {
+  if (!latestLoc) return undefined
+  const raw = latestLoc.serialize() as { text?: Record<string, unknown> }
+  if (!quote) return JSON.stringify(raw)
+  return JSON.stringify({ ...raw, text: { ...raw.text, ...quote } })
+}
+
+/**
+ * Open the dialog, capturing the anchor now.
+ *
+ * The selection is read from the page's DOM rather than the `textSelected`
+ * event: the DOM range carries the surrounding context that pins a repeated
+ * phrase to the occurrence the reader actually picked.
+ */
 function openComposer() {
+  pendingQuote = container
+    ? (selectedQuote(container) ?? readingPositionQuote(container))
+    : undefined
+  editingId = null
   composerOpen = true
 }
 
 function closeComposer() {
   composerOpen = false
+  pendingQuote = undefined
+  editingId = null
 }
 
 function previous() {
@@ -272,12 +342,35 @@ onDestroy(() => {
     void saveProgress(editionId, {
       kind: 'epub',
       epub: { locator: JSON.stringify(latestLoc) },
-      annotations,
+      annotations: annotationsLoaded ? annotations : undefined,
     })
   }
   latestLoc = undefined
   void instance?.destroy().catch(() => {})
 })
+
+/**
+ * Remove a note, persist the remaining list immediately, and drop its highlight.
+ *
+ * There is no undo and WebKitGTK implements no `window.confirm`, so the list
+ * carries an explicit Delete button per note rather than a confirmation dialog.
+ * Writing synchronously (not through the debounce) keeps a quick close from
+ * resurrecting the note.
+ */
+function deleteNote(note: Annotation) {
+  annotations = annotations.filter((item) => item.id !== note.id)
+  if (activeNote?.annotation.id === note.id) activeNote = null
+
+  void saveProgress(editionId, {
+    kind: 'epub',
+    epub: latestLoc ? { locator: JSON.stringify(latestLoc) } : undefined,
+    annotations,
+  })
+
+  // Nothing left to list: close it. `syncDecorations` drops the highlight.
+  if (annotations.length === 0) panelOpen = false
+  syncDecorations()
+}
 </script>
 
 <ReaderLayout>
@@ -292,7 +385,7 @@ onDestroy(() => {
         Next
         <wa-icon name="chevron-right"></wa-icon>
       </ActionButton>
-      <ActionButton onclick={openComposer} disabled={phase !== 'ready'}>
+      <ActionButton onclick={openComposer} disabled={phase !== 'ready' || !annotationsLoaded}>
         <wa-icon name="comment"></wa-icon>
         Annotate
       </ActionButton>
@@ -311,8 +404,12 @@ onDestroy(() => {
 
   {#if composerOpen}
     <AnnotationComposer
-      placeholder="Note text"
-      quote={selection?.text}
+      quote={pendingQuote?.highlight ?? selection?.text}
+      showColors
+      initialText={editingId ? annotations.find((item) => item.id === editingId)?.text : undefined}
+      initialColor={editingId
+        ? annotations.find((item) => item.id === editingId)?.color
+        : undefined}
       onsave={saveAnnotation}
       oncancel={closeComposer}
     />
@@ -326,8 +423,8 @@ onDestroy(() => {
       <div class="fab">
         <ActionButton
           variant="brand"
-          onclick={toggleNotes}
-          aria-pressed={notesVisible}
+          onclick={togglePanel}
+          aria-pressed={panelOpen}
           aria-haspopup="dialog"
           aria-expanded={panelOpen || activeNote !== null}
         >
@@ -337,18 +434,15 @@ onDestroy(() => {
       </div>
     {/if}
 
-    {#if notesVisible && panelOpen && annotations.length > 0}
-      <div class="panel" role="dialog" aria-label="Notes">
-        <p class="panel-heading">Notes ({annotations.length})</p>
-        {#each annotations as note (note.id)}
-          <button type="button" class="panel-note" onclick={() => jumpTo(note)}>
-            {#if note.quote}
-              <span class="note-quote">{note.quote}</span>
-            {/if}
-            <span class="note-text">{note.text}</span>
-          </button>
-        {/each}
-      </div>
+    {#if panelOpen && annotations.length > 0}
+      <NotesPanel
+        notes={annotations}
+        onvisit={jumpTo}
+        onedit={editNote}
+        ondelete={deleteNote}
+        onrecolor={recolorNote}
+        onclose={togglePanel}
+      />
     {/if}
 
     {#if activeNote}
@@ -441,58 +535,15 @@ onDestroy(() => {
     padding: var(--wa-space-s);
     border-radius: var(--wa-border-radius-m, 0.5rem);
     border: 1px solid var(--wa-color-border);
-    background: var(--wa-color-surface);
+    background: var(--wa-color-surface-default);
     box-shadow: var(--wa-shadow-m, 0 4px 12px rgb(0 0 0 / 0.18));
     transform: translate(0, 0.5rem);
-  }
-
-  /* Floating list of notes; a click jumps to where the note was written. */
-  .panel {
-    position: absolute;
-    z-index: 2;
-    inset-block-end: var(--wa-space-m);
-    inset-inline-start: var(--wa-space-m);
-    width: min(18rem, calc(100% - 2 * var(--wa-space-m)));
-    max-height: 40%;
-    overflow: auto;
-    padding: var(--wa-space-s);
-    border-radius: var(--wa-border-radius-m, 0.5rem);
-    border: 1px solid var(--wa-color-border);
-    background: var(--wa-color-surface);
-    box-shadow: var(--wa-shadow-m, 0 4px 12px rgb(0 0 0 / 0.18));
-  }
-
-  .panel-heading {
-    margin: 0 0 var(--wa-space-2xs);
-    font-size: var(--wa-font-size-xs, 0.8125rem);
-    color: var(--wa-color-text-secondary);
-  }
-
-  .panel-note {
-    display: flex;
-    flex-direction: column;
-    gap: 0.125rem;
-    width: 100%;
-    padding: var(--wa-space-2xs) 0;
-    border: 0;
-    border-block-start: 1px solid var(--wa-color-border);
-    background: none;
-    color: inherit;
-    font: inherit;
-    font-size: var(--wa-font-size-s);
-    text-align: start;
-    cursor: pointer;
-  }
-
-  .panel-note:hover,
-  .panel-note:focus-visible {
-    background: var(--wa-color-surface-lowered, rgb(0 0 0 / 0.04));
   }
 
   .note-quote {
     display: block;
     margin: 0 0 var(--wa-space-2xs);
-    padding-inline-start: var(--wa-space-2xs);
+    padding: var(--wa-space-2xs);
     border-inline-start: 2px solid var(--wa-color-border);
     color: var(--wa-color-text-secondary);
     font-style: italic;
@@ -500,6 +551,7 @@ onDestroy(() => {
 
   .note-text {
     margin: 0 0 var(--wa-space-2xs);
+    padding: var(--wa-space-2xs);
   }
 
   .note-actions {

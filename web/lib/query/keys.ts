@@ -64,6 +64,9 @@ export const catalogKeys = {
   all: ['catalog'] as const,
   editionDetail: (editionId: string) =>
     [...catalogKeys.all, 'edition-detail', { editionId }] as const,
+  /** Reader annotations for an edition (kept in `reading_progress`). */
+  editionReaderNotes: (editionId: string) =>
+    [...catalogKeys.all, 'edition-reader-notes', { editionId }] as const,
   editionCovers: (editionIds: string[]) =>
     [...catalogKeys.all, 'edition-covers', { editionIds }] as const,
 }

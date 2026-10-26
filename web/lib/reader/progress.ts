@@ -1,4 +1,5 @@
 import { commands } from '$lib/bindings'
+import type { HighlightColor } from './highlights'
 
 /** One user annotation tied to a location in a book. */
 export interface Annotation {
@@ -12,6 +13,10 @@ export interface Annotation {
   locator?: string
   /** 1-based page number, for PDF editions. */
   pageNumber?: number
+  /** Highlight colour key; absent means the palette default. */
+  color?: HighlightColor
+  /** ISO timestamp of when the note was written; absent on notes that predate it. */
+  createdAt?: string
 }
 
 export interface ReaderProgress {
@@ -21,6 +26,22 @@ export interface ReaderProgress {
   pdf?: { pageNumber: number }
   audio?: { positionSeconds: number }
   annotations?: Annotation[]
+}
+
+/** Date a note was written, in the reader's locale. */
+const noteDate = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
+
+/**
+ * Human-readable date for a note, or `undefined` when it has none.
+ *
+ * Notes written before `createdAt` was stored, and any timestamp the platform
+ * cannot parse, render as absent rather than "Invalid Date".
+ */
+export function formatNoteDate(createdAt: string | undefined): string | undefined {
+  if (!createdAt) return undefined
+  const parsed = new Date(createdAt)
+  if (Number.isNaN(parsed.getTime())) return undefined
+  return noteDate.format(parsed)
 }
 
 /** Decode the `annotations` JSON column, tolerating absent or malformed data. */
@@ -61,6 +82,23 @@ export async function loadProgress(editionId: string): Promise<ReaderProgress | 
     return null
   } catch {
     return null
+  }
+}
+
+/**
+ * Stored annotations for an edition.
+ *
+ * Read directly rather than through {@link loadProgress}, which returns `null`
+ * when the row's reader kind does not match — a book with notes but no stored
+ * position would otherwise appear note-less.
+ */
+export async function loadAnnotations(editionId: string): Promise<Annotation[]> {
+  try {
+    const result = await commands.getReaderPosition(editionId)
+    if (result.status !== 'ok' || !result.data) return []
+    return parseAnnotations(result.data.annotations) ?? []
+  } catch {
+    return []
   }
 }
 

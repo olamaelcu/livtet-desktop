@@ -11,7 +11,7 @@ vi.mock('$lib/bindings', () => ({
   },
 }))
 
-import { debouncedSave, loadProgress, saveProgress } from './progress'
+import { debouncedSave, formatNoteDate, loadProgress, saveProgress } from './progress'
 
 describe('progress store', () => {
   const editionId = '01ABCDEF'
@@ -172,5 +172,21 @@ describe('progress store', () => {
     const loaded = await loadProgress(editionId)
     expect(loaded?.pdf?.pageNumber).toBe(2)
     expect(loaded?.annotations).toBeUndefined()
+  })
+})
+
+describe('note dates', () => {
+  it('formats a stored timestamp', () => {
+    const formatted = formatNoteDate('2026-10-26T14:05:00.000Z')
+    expect(formatted).toBeTruthy()
+    expect(formatted).toContain('2026')
+  })
+
+  it('reports no date for notes written before dates were stored', () => {
+    expect(formatNoteDate(undefined)).toBeUndefined()
+  })
+
+  it('reports no date for an unparseable timestamp', () => {
+    expect(formatNoteDate('not a date')).toBeUndefined()
   })
 })

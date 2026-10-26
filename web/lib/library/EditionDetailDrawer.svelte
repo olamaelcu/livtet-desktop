@@ -6,6 +6,9 @@ import { toast } from 'svelte-sonner'
 import ActionButton from '../components/ActionButton.svelte'
 import { catalogKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
+import { DEFAULT_HIGHLIGHT, HIGHLIGHTS } from '../reader/highlights'
+import { filterNotes } from '../reader/notes'
+import { formatNoteDate, loadAnnotations } from '../reader/progress'
 import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { formatFileSize, formatIdentifier } from './format'
@@ -27,6 +30,18 @@ const detail = createQuery(() => ({
 }))
 
 const book = $derived(detail.data ?? null)
+
+/**
+ * Reader annotations live in `reading_progress`, not in the catalog record, so
+ * they are a second query against the same edition.
+ */
+const readerNotes = createQuery(() => ({
+  queryKey: catalogKeys.editionReaderNotes(editionId ?? ''),
+  queryFn: async () => (editionId ? loadAnnotations(editionId) : []),
+  enabled: open && editionId !== null,
+}))
+let searchQuery = $state('')
+const visibleNotes = $derived(filterNotes(readerNotes.data ?? [], searchQuery))
 const coverUrl = $derived(coverUrlFor(book?.file?.cover_path))
 let failedCoverId = $state<string | null>(null)
 const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
@@ -224,9 +239,41 @@ async function revealFile(path: string) {
         onChange={(k) => (selectedShelf = k)}
       />
 
+      {#if readerNotes.data && readerNotes.data.length > 0}
+        <section class="section">
+          <h3 class="section-title">Reader notes ({visibleNotes.length}/{readerNotes.data.length})</h3>
+          <div class="search-row">
+            <wa-input class="search" type="search" placeholder="Search notes…" value={searchQuery} oninput={(e) => (searchQuery = (e.target as HTMLInputElement).value)}></wa-input>
+          </div>
+          <ul class="notes">
+            {#each visibleNotes as note (note.id)}
+              <li class="note">
+                {#if note.quote}
+                  <blockquote
+                    class="note-quote"
+                    style:background={HIGHLIGHTS[note.color ?? DEFAULT_HIGHLIGHT]?.tint}
+                  >
+                    {note.quote}
+                  </blockquote>
+                {/if}
+                <p class="note-text">{note.text}</p>
+                {#if formatNoteDate(note.createdAt)}
+                  <time class="note-date" datetime={note.createdAt}>
+                    {formatNoteDate(note.createdAt)}
+                  </time>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if visibleNotes.length === 0 && (readerNotes.data?.length ?? 0) > 0}
+            <p class="empty">No notes match “{searchQuery || ''}”.</p>
+          {/if}
+        </section>
+      {/if}
+
       {#if book.notes}
         <section class="section">
-          <h3 class="section-title">Notes</h3>
+          <h3 class="section-title">Catalog notes</h3>
           <p>{book.notes}</p>
         </section>
       {/if}
@@ -385,8 +432,58 @@ async function revealFile(path: string) {
     overflow-wrap: anywhere;
   }
 
+  .notes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-s);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .note {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-3xs);
+    padding-block-start: var(--wa-space-s);
+    border-block-start: 1px solid var(--wa-color-border-default);
+  }
+
+  .note-quote {
+    margin: 0;
+    padding: var(--wa-space-2xs);
+    border-inline-start: 2px solid var(--wa-color-border-default);
+    color: var(--wa-color-text-secondary);
+    font-style: italic;
+  }
+
+  .note-text {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .note-date {
+    font-size: var(--wa-font-size-2xs, 0.75rem);
+    color: var(--wa-color-text-muted);
+  }
+
   .muted {
     color: var(--wa-color-text-secondary);
+  }
+
+  .search-row {
+    margin-block-start: var(--wa-space-2xs);
+  }
+
+  .search {
+    --wa-input-width: 100%;
+  }
+
+  .empty {
+    margin: 0;
+    padding: var(--wa-space-xs);
+    color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-s);
   }
 
   .error {
