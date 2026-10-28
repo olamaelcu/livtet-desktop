@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "livtet-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "net.olamaelcu.livtet",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -44,7 +44,17 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0",
+          "libayatana-appindicator3-1"
+        ],
+        "files": {}
+  }
+  }
   }
 ,
   "plugins": {

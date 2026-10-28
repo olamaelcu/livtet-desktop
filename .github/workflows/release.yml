@@ -443,14 +443,14 @@ jobs:
             --generate-static-deltas --prune --prune-depth=1 --title=Livtet \
             pages/flatpak/repo
           key_b64="$(gpg --export "$KEYID" | base64 -w0)"
-          cat > pages/flatpak/livtet.flatpakrepo <<EOF
-[Flatpak Repo]
-Title=Livtet
-Url=https://olamaelcu.github.io/livtet-desktop/flatpak/repo/
-Homepage=https://github.com/olamaelcu/livtet-desktop
-Comment=Livtet desktop releases
-GPGKey=${key_b64}
-EOF
+          printf '%s\n' \
+            '[Flatpak Repo]' \
+            'Title=Livtet' \
+            'Url=https://olamaelcu.github.io/livtet-desktop/flatpak/repo/' \
+            'Homepage=https://github.com/olamaelcu/livtet-desktop' \
+            'Comment=Livtet desktop releases' \
+            "GPGKey=${key_b64}" \
+            > pages/flatpak/livtet.flatpakrepo
       - name: Commit and push
         run: |
           set -euo pipefail
