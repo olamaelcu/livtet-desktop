@@ -26,6 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      # The APT/Flatpak publishing and Homebrew tap steps need secrets that may
+      # not be configured. A job-level `if` cannot read `secrets`, so decide
+      # here and expose the answer as an output instead of failing the release
+      # on an unconfigured distribution channel.
+      homebrew_token: ${{ steps.channels.outputs.homebrew_token }}
+      packages_key: ${{ steps.channels.outputs.packages_key }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,6 +47,25 @@ jobs:
           fi
           git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null
           echo "version=$version" >> "$GITHUB_OUTPUT"
+      - id: channels
+        name: Detect optional distribution secrets
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -n "$HOMEBREW_TAP_TOKEN" ]; then
+            echo "homebrew_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "homebrew_token=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew tap update"
+          fi
+          if [ -n "$PACKAGES_GPG_KEY" ]; then
+            echo "packages_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "packages_key=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::PACKAGES_GPG_KEY is not set; skipping the APT and Flatpak repositories"
+          fi
 
   linux:
     name: Linux ${{ matrix.arch }}
@@ -110,14 +135,48 @@ jobs:
         run: |
           bash .mise/tasks/secrets-decrypt
           bash .mise/tasks/secrets-export-env
+      - name: Seed the frontend dist directory
+        # `tauri::generate_context!()` fails to compile while `build/` is absent,
+        # and the bindings binary links the crate that invokes it — yet the real
+        # frontend build needs the bindings that binary produces. Seeding the
+        # path satisfies the macro; the frontend build replaces it further down
+        # and tauri-build's rerun-if-changed recompiles the crate with the real
+        # assets.
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ ! -f build/index.html ]; then
+            printf '<!doctype html>\n' > build/index.html
+          fi
+
       - name: Generate IPC bindings
         # Build in release, for the same --target, so the dependency graph and
         # the app's own artifacts are reused by `tauri build` below. A debug run
         # (or a build without --target, which lands in target/release) would
         # compile the workspace a second time with lto+codegen-units=1.
         run: cargo run --release --target "${{ matrix.target }}" --bin generate-bindings
+
+      # The frontend is built here rather than inside `tauri build` so it can be
+      # cached across runs and so a broken web build fails before the expensive
+      # Rust link. It has to come after the bindings step: web/lib/bindings.ts is
+      # generated and imported by the app sources.
+      - name: Cache frontend build
+        id: frontend
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            .svelte-kit
+          key: frontend-${{ runner.os }}-${{ hashFiles('web/**', 'static/**', 'scripts/**', 'svelte.config.js', 'vite.config.js', 'tsconfig.json', 'package.json', 'pnpm-lock.yaml') }}
+
+      - name: Build frontend
+        if: steps.frontend.outputs.cache-hit != 'true'
+        run: pnpm build
+
       - name: Build bundles
-        run: pnpm tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
+        # `build/` is already in place, so stop tauri from re-running the
+        # beforeBuildCommand (`pnpm build`) from tauri.conf.json.
+        run: pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
@@ -222,11 +281,34 @@ jobs:
         run: |
           bash .mise/tasks/secrets-decrypt
           bash .mise/tasks/secrets-export-env
+      - name: Seed the frontend dist directory
+        # See the Linux job: generate_context!() will not compile without this.
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ ! -f build/index.html ]; then
+            printf '<!doctype html>\n' > build/index.html
+          fi
+
       - name: Generate IPC bindings
         # Same reasoning as the Linux job: release plus the matrix --target, so
         # the DMG build reuses target/${{ matrix.target }}/release instead of
         # rebuilding every crate.
         run: cargo run --release --target "${{ matrix.target }}" --bin generate-bindings
+
+      - name: Cache frontend build
+        id: frontend
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            .svelte-kit
+          key: frontend-${{ runner.os }}-${{ hashFiles('web/**', 'static/**', 'scripts/**', 'svelte.config.js', 'vite.config.js', 'tsconfig.json', 'package.json', 'pnpm-lock.yaml') }}
+
+      - name: Build frontend
+        if: steps.frontend.outputs.cache-hit != 'true'
+        run: pnpm build
+
       - name: Build DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -237,7 +319,9 @@ jobs:
           for var in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!var:-}" ]; then unset "$var"; fi
           done
-          pnpm tauri build --target "${{ matrix.target }}" --bundles dmg
+          # `build/` was produced and cached by the frontend step, so suppress
+          # the beforeBuildCommand that tauri would otherwise run again.
+          pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles dmg
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
@@ -341,6 +425,7 @@ jobs:
   homebrew:
     name: Update Homebrew tap
     needs: [validate, release]
+    if: needs.validate.outputs.homebrew_token == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -384,6 +469,7 @@ jobs:
   publish-pages:
     name: Publish APT and Flatpak repositories
     needs: [validate, release, linux, flatpak]
+    if: needs.validate.outputs.packages_key == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
