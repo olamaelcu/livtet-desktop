@@ -47,4 +47,11 @@ static/pdfjs/
 /flatpak-repo/
 /build-dir/
 .vitest
-vendor/
+
+# Vendored crates.io sources referenced from `[patch.crates-io]` in Cargo.toml.
+# Committed, not gitignored or submoduled: CI checks out tags without
+# submodules, so a path dependency here must exist in the tree or the build
+# cannot even resolve the workspace.
+vendor/*
+!vendor/atrium-oauth/
+!vendor/tauri-plugin-deep-link/
