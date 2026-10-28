@@ -17,6 +17,15 @@ default-run = "livtet-desktop"
 name = "livtet_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# A dev tool, not part of the app: it writes web/lib/bindings.ts. Declared here
+# with `required-features` so cargo (and tauri's bundler) only build it when
+# asked for. Without the gate, the bundler sweeps every entry of `src/bin/` into
+# /usr/bin — which shipped this codegen binary inside the .deb.
+[[bin]]
+name = "generate-bindings"
+path = "src/bin/generate-bindings.rs"
+required-features = ["bindings-export"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 config = "0.15"
@@ -97,6 +106,7 @@ tauri-plugin-single-instance = { workspace = true, features = ["deep-link"] }
 [features]
 default = ["tauri/custom-protocol"]
 e2e-testing = []
+bindings-export = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -22,7 +22,7 @@ RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
 [tasks.generate-bindings]
 depends = ["secrets-export-env"]
-run = "cargo run --bin generate-bindings"
+run = "cargo run --features bindings-export --bin generate-bindings"
 
 [tasks."dev:atproto"]
 description = "Dev app with ATProto OAuth logging (identity, authorize URL, callback, token exchange, appview)"

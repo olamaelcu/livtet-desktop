@@ -154,7 +154,7 @@ jobs:
         # the app's own artifacts are reused by `tauri build` below. A debug run
         # (or a build without --target, which lands in target/release) would
         # compile the workspace a second time with lto+codegen-units=1.
-        run: cargo run --release --target "${{ matrix.target }}" --bin generate-bindings
+        run: cargo run --release --target "${{ matrix.target }}" --features bindings-export --bin generate-bindings
 
       # The frontend is built here rather than inside `tauri build` so it can be
       # cached across runs and so a broken web build fails before the expensive
@@ -294,7 +294,7 @@ jobs:
         # Same reasoning as the Linux job: release plus the matrix --target, so
         # the DMG build reuses target/${{ matrix.target }}/release instead of
         # rebuilding every crate.
-        run: cargo run --release --target "${{ matrix.target }}" --bin generate-bindings
+        run: cargo run --release --target "${{ matrix.target }}" --features bindings-export --bin generate-bindings
 
       - name: Cache frontend build
         id: frontend
