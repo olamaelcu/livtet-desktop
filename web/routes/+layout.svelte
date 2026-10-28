@@ -120,6 +120,6 @@ onMount(() => {
   {/if}
 
   {#if showDevtools}
-    <SvelteQueryDevtools />
+    <SvelteQueryDevtools buttonPosition="top-right"/>
   {/if}
 </QueryClientProvider>

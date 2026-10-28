@@ -2,7 +2,7 @@
 name = "livtet-desktop"
 version = "0.1.0"
 description = "A Tauri-powered application for showing the Livtet experience"
-authors = ["Jacky Alcine <yo@jacky.wtf>"]
+authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license = "MPL-2.0"

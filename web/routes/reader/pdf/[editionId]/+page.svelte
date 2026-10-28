@@ -7,6 +7,8 @@ import { onDestroy, onMount } from 'svelte'
 import { page } from '$app/state'
 import ActionButton from '$lib/components/ActionButton.svelte'
 import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
+import type { Bookmark } from '$lib/reader/bookmark'
+import { addBookmark, isBookmarked, loadBookmarks, removeBookmark } from '$lib/reader/bookmark'
 import { createLoadSession } from '$lib/reader/loadSession'
 import { canvasMetrics, clampPage, createRenderGate, fitToWidthScale } from '$lib/reader/pdf'
 import type { Annotation } from '$lib/reader/progress'
@@ -46,6 +48,16 @@ let pageCount = $state(0)
 // Annotations loaded from the edition's saved progress; appended on demand.
 let annotations = $state<Annotation[]>([])
 let composerOpen = $state(false)
+
+// Page bookmarks: markers on a page with no note text and no colour.
+let bookmarks = $state<Bookmark[]>([])
+let bookmarksLoaded = $state(false)
+
+/** Whether a bookmark save is in flight, so a second click cannot duplicate it. */
+let bookmarking = $state(false)
+
+/** Whether the page on screen already carries a bookmark. */
+const pageBookmarked = $derived(isBookmarked(bookmarks, { kind: 'pdf', pageNumber }))
 
 /** Whether the note cards are revealed over the page by the FAB. */
 let notesVisible = $state(false)
@@ -157,6 +169,8 @@ async function load() {
       pageNumber = progress.pdf.pageNumber
     }
     if (progress?.annotations) annotations = progress.annotations
+    bookmarks = await loadBookmarks(editionId)
+    bookmarksLoaded = true
     pageNumber = clampPage(pageNumber, pageCount)
     await render()
     if (!session.isCurrent(generation)) return
@@ -192,6 +206,40 @@ function saveAnnotation(text: string) {
   })
   closeComposer()
   notesVisible = true
+}
+
+/**
+ * Bookmark the page on screen.
+ *
+ * PDF bookmarks are page-tied, so the page number is the whole position.
+ * Bookmarking only ever adds: a bookmarked page has its button disabled, and
+ * the panel owns removal.
+ */
+async function bookmarkCurrentPage() {
+  if (!bookmarksLoaded || bookmarking) return
+  if (isBookmarked(bookmarks, { kind: 'pdf', pageNumber })) return
+  bookmarking = true
+  try {
+    const added = await addBookmark(editionId, { kind: 'pdf', pageNumber })
+    if (added) {
+      bookmarks = [...bookmarks, added]
+      notesVisible = true
+    }
+  } finally {
+    bookmarking = false
+  }
+}
+
+/** Move to the page a bookmark points at, then dismiss the list. */
+function jumpToBookmark(bookmark: Bookmark) {
+  panelOpen = false
+  if (bookmark.pageNumber !== undefined) void goTo(bookmark.pageNumber)
+}
+
+/** Drop a bookmark without moving the reader. */
+async function removeBookmarkEntry(bookmark: Bookmark) {
+  if (!(await removeBookmark(bookmark.id))) return
+  bookmarks = bookmarks.filter((item) => item.id !== bookmark.id)
 }
 
 /**
@@ -292,6 +340,15 @@ onDestroy(() => {
         <wa-icon name="comment"></wa-icon>
         Annotate
       </ActionButton>
+      <ActionButton
+        onclick={() => void bookmarkCurrentPage()}
+        disabled={phase !== 'ready' || !bookmarksLoaded || bookmarking || pageBookmarked}
+        variant={pageBookmarked ? 'brand' : undefined}
+        aria-pressed={pageBookmarked}
+      >
+        <wa-icon name="bookmark"></wa-icon>
+        {pageBookmarked ? 'Bookmarked' : 'Bookmark'}
+      </ActionButton>
       <ActionButton onclick={() => void close()}>Close</ActionButton>
     </div>
   </header>
@@ -319,7 +376,7 @@ onDestroy(() => {
       <canvas bind:this={canvas}></canvas>
     </div>
 
-    {#if annotations.length > 0 && phase === 'ready'}
+    {#if (annotations.length > 0 || bookmarks.length > 0) && phase === 'ready'}
       <div class="fab">
         <ActionButton
           variant="brand"
@@ -338,14 +395,42 @@ onDestroy(() => {
           aria-expanded={panelOpen}
         >
           <wa-icon name="comment-dots"></wa-icon>
-          Notes ({annotations.length})
+          {#if annotations.length > 0}
+            Notes ({annotations.length})
+          {/if}
+          {#if annotations.length > 0 && bookmarks.length > 0}
+            ·
+          {/if}
+          {#if bookmarks.length > 0}
+            Bookmarks ({bookmarks.length})
+          {/if}
         </ActionButton>
       </div>
     {/if}
 
-    {#if notesVisible && panelOpen && annotations.length > 0}
-      <div class="notes" role="dialog" aria-label="Notes">
-        <p class="notes-heading">Notes ({annotations.length})</p>
+    {#if notesVisible && panelOpen && (annotations.length > 0 || bookmarks.length > 0)}
+      <div class="notes" role="dialog" aria-label="Notes and bookmarks">
+        {#if bookmarks.length > 0}
+          <p class="notes-heading">Bookmarks ({bookmarks.length})</p>
+          {#each bookmarks as bookmark (bookmark.id)}
+            <div class="bookmark-row">
+              <button type="button" class="note" onclick={() => jumpToBookmark(bookmark)}>
+                {#if bookmark.pageNumber !== undefined}
+                  <span class="note-page">Page {bookmark.pageNumber}</span>
+                {/if}
+              </button>
+              <!-- svelte-ignore a11y_click_events_have_key_events -->
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <wa-button size="s" onclick={() => void removeBookmarkEntry(bookmark)}>
+                <wa-icon name="trash"></wa-icon>
+                Remove
+              </wa-button>
+            </div>
+          {/each}
+        {/if}
+        {#if annotations.length > 0}
+          <p class="notes-heading">Notes ({annotations.length})</p>
+        {/if}
         {#each annotations as note (note.id)}
           <button type="button" class="note" onclick={() => jumpTo(note)}>
             {#if note.pageNumber !== undefined}
@@ -474,6 +559,12 @@ onDestroy(() => {
     color: var(--wa-color-text-muted);
   }
 
+  .bookmark-row {
+    display: flex;
+    align-items: center;
+    gap: var(--wa-space-2xs);
+  }
+
   .note-text {
     margin: 0;
   }
@@ -485,9 +576,7 @@ onDestroy(() => {
     justify-content: center;
     align-items: flex-start;
     width: 100%;
-    overflow: auto;
     padding: var(--wa-space-m);
-    background-color: var(--wa-color-surface-lowered, #f4f4f5);
   }
 
   canvas {

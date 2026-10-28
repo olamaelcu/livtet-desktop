@@ -1,34 +1,48 @@
 <script lang="ts">
-import { EpubNavigator } from '@readium/navigator'
-import { Locator, Manifest, Publication } from '@readium/shared'
+import { Locator } from '@readium/shared'
+import { createHotkeys } from '@tanstack/svelte-hotkeys'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { onDestroy, onMount } from 'svelte'
+import { onMount } from 'svelte'
 import { page } from '$app/state'
-import ActionButton from '$lib/components/ActionButton.svelte'
 import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
+import AnnotationDrawer from '$lib/components/AnnotationDrawer.svelte'
 import NotesPanel from '$lib/components/NotesPanel.svelte'
-import { type Quote, readingPositionQuote, selectedQuote } from '$lib/reader/anchor'
-import { buildAnnotationDecorations } from '$lib/reader/decorations'
-import { ReaderFetcher } from '$lib/reader/fetcher'
+import ReaderFab from '$lib/components/ReaderFab.svelte'
+import ReaderFrame from '$lib/components/ReaderFrame.svelte'
+import ReaderToolbar from '$lib/components/ReaderToolbar.svelte'
+import type { Quote } from '$lib/reader/anchor'
+import type { Bookmark } from '$lib/reader/bookmark'
+import {
+  addBookmark,
+  isBookmarked,
+  loadBookmarks,
+  locatorKey,
+  removeBookmark,
+} from '$lib/reader/bookmark'
 import type { HighlightColor } from '$lib/reader/highlights'
-import { createLoadSession } from '$lib/reader/loadSession'
 import type { Annotation } from '$lib/reader/progress'
-import { debouncedSave, loadProgress, saveProgress } from '$lib/reader/progress'
-import { loadEpubReaderPublication } from '$lib/reader/read'
+import { loadAnnotations, saveProgress } from '$lib/reader/progress'
 import ReaderLayout from '../../ReaderLayout.svelte'
 
 const editionId = $derived(page.params.editionId ?? '')
 
-const session = createLoadSession()
+/** The navigator lifecycle lives in `ReaderFrame`; this is its imperative surface. */
+type ReaderHandle = {
+  previous: () => void
+  next: () => void
+  go: (locator: Locator) => void
+  reload: () => void
+  currentLocator: () => Locator | undefined
+  quoteAtPosition: () => Quote | undefined
+}
 
-/** Decoration group owning every reader annotation highlight. */
-const ANNOTATION_GROUP = 'reader-annotations'
+let frame = $state<ReaderHandle | undefined>(undefined)
 
-let container = $state<HTMLElement | undefined>(undefined)
-let navigator = $state<EpubNavigator | undefined>(undefined)
-let phase = $state<'loading' | 'ready' | 'error'>('loading')
-let failure = $state('')
+/** Whether the publication is open; the frame owns the load it reports. */
+let ready = $state(false)
 let title = $state('Reader')
+/** Formatted progress through the publication, reported by the frame. */
+let pageProgress = $state('—')
 
 // Annotations loaded from the edition's saved progress; appended on demand.
 let annotations = $state<Annotation[]>([])
@@ -41,11 +55,33 @@ let annotations = $state<Annotation[]>([])
  */
 let annotationsLoaded = $state(false)
 
+// Page bookmarks for this edition, loaded alongside the notes. A bookmark holds
+// no text and no colour: it is only a place to come back to.
+let bookmarks = $state<Bookmark[]>([])
+let bookmarksLoaded = $state(false)
+
+/** Serialized locator of the page on screen, published by the frame. */
+let location = $state('')
+
+/** Fraction of the whole book at the page on screen, published by the frame. */
+let bookProgression = $state(0)
+
+/** Whether a bookmark save is in flight, so a second click cannot duplicate it. */
+let bookmarking = $state(false)
+
+/** Whether the page on screen already carries a bookmark. */
+const bookmarked = $derived(
+  location !== '' && isBookmarked(bookmarks, { kind: 'epub', locator: location }),
+)
+
 /** Whether the note list is open. Highlights are always drawn regardless. */
 let panelOpen = $state(false)
 
-/** Note card floating over the clicked highlight, in stage coordinates. */
-let activeNote = $state<{ annotation: Annotation; top: number; left: number } | null>(null)
+/** Note whose highlight the reader clicked, shown in the annotation drawer. */
+let activeNote = $state<Annotation | null>(null)
+
+/** Page the drawer opened on; a page turn dismisses it. */
+let drawerPage = ''
 
 // Text currently selected in the publication, captured by `textSelected`.
 let selection = $state<{ text: string; locator?: string } | null>(null)
@@ -62,36 +98,37 @@ let pendingQuote = $state<Quote | undefined>(undefined)
 /** Note being edited by the dialog; `null` while writing a new one. */
 let editingId = $state<string | null>(null)
 
-// Track the latest locator received from positionChanged
-let latestLoc: Locator | undefined
-
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : 'Could not open this book.'
+function handleTextSelect(selected: { text: string; locator?: string } | null) {
+  selection = selected
 }
 
-// Debounced save that uses the latest captured locator
-const saveEpubProgress = debouncedSave(
-  () => editionId,
-  () => {
-    const owned = annotationsLoaded ? annotations : undefined
-    if (!latestLoc) return { kind: 'epub' as const, annotations: owned }
-    return {
-      kind: 'epub' as const,
-      epub: { locator: JSON.stringify(latestLoc) },
-      annotations: owned,
-    }
-  },
-  250,
-)
+/** Open the drawer on the note a reader clicked inside the publication. */
+function activateNote(id: string): boolean {
+  const annotation = annotations.find((item) => item.id === id)
+  if (!annotation) return false
+  activeNote = annotation
+  drawerPage = locatorKey(location)
+  return true
+}
 
 /**
- * Push every anchored annotation into the navigator as a highlight.
- *
- * Highlights are not tied to the note list: annotated text stays marked while
- * the reader reads, and the FAB only opens the list.
+ * Dismiss the drawer once the page underneath it changes. The note belongs to
+ * the page it was opened on, so a sheet left open over other text reads as the
+ * wrong annotation. The page, not the raw locator: a tap republishes the
+ * locator without turning the page.
  */
-function syncDecorations() {
-  navigator?.applyDecorations(buildAnnotationDecorations(annotations), ANNOTATION_GROUP)
+$effect(() => {
+  if (locatorKey(location) !== drawerPage) activeNote = null
+})
+
+/** Turn back one page, through the frame's navigator. */
+function previous() {
+  frame?.previous()
+}
+
+/** Turn forward one page, through the frame's navigator. */
+function next() {
+  frame?.next()
 }
 
 /** Open or close the note list. Highlights are unaffected. */
@@ -113,132 +150,68 @@ function jumpTo(note: Annotation) {
     return
   }
   if (!locator) return
-  navigator?.go(locator, false, () => {})
+  frame?.go(locator)
   panelOpen = false
   activeNote = null
 }
 
-async function load() {
-  const generation = session.begin()
-  await navigator?.destroy().catch(() => {})
-  navigator = undefined
-  latestLoc = undefined
-  if (!session.isCurrent(generation)) return
-  phase = 'loading'
-  failure = ''
-  let instance: EpubNavigator | undefined
-  try {
-    if (!editionId) throw new Error('No edition id was provided to the reader.')
-    const { manifest, positions } = await loadEpubReaderPublication(editionId)
-    if (!session.isCurrent(generation)) return
-    const deserialized = Manifest.deserialize(manifest)
-    if (!deserialized) {
-      throw new Error(
-        `The publication manifest for edition ${editionId} is invalid. Try re-importing the file.`,
-      )
-    }
-    const publication = new Publication({
-      manifest: deserialized,
-      fetcher: new ReaderFetcher(editionId),
-    })
-    title = publication.metadata.title.getTranslation() || `Reader — ${editionId}`
-    const locators = (Array.isArray(positions) ? positions : [])
-      .map((item) => Locator.deserialize(item))
-      .filter((locator) => locator !== undefined)
-    const host = container
-    if (!host) throw new Error('The reader container is not available.')
-    instance = new EpubNavigator(
-      host,
-      publication,
-      {
-        frameLoaded: () => {},
-        positionChanged: (locator: Locator) => {
-          latestLoc = locator
-          // A selection belongs to the frame it was made in; drop it once the
-          // reader moves so a later note never quotes stale text.
-          selection = null
-          saveEpubProgress()
-        },
-        timelineItemChanged: () => {},
-        tap: () => false,
-        click: () => false,
-        zoom: () => {},
-        miscPointer: () => {},
-        scroll: () => {},
-        customEvent: () => {},
-        handleLocator: () => false,
-        textSelected: (selected: { text: string; locator?: Locator }) => {
-          selection = {
-            text: selected.text,
-            locator: selected.locator ? JSON.stringify(selected.locator) : undefined,
-          }
-        },
-        contentProtection: () => {},
-        contextMenu: () => {},
-        peripheral: () => {},
-      },
-      locators,
-    )
-
-    // Clicking a highlight floats its note over the text at the highlight rect.
-    instance.registerDecorationObserver(ANNOTATION_GROUP, {
-      onDecorationActivated: (event) => {
-        const annotation = annotations.find((item) => item.id === event.decoration.id)
-        if (!annotation) return false
-        activeNote = { annotation, top: event.rect.top, left: event.rect.left }
-        return true
-      },
-    })
-
-    await instance.load()
-    if (!session.isCurrent(generation)) {
-      await instance.destroy().catch(() => {})
-      return
-    }
-    navigator = instance
-    phase = 'ready'
-
-    // Load saved progress and resume to last position
-    const progress = await loadProgress(editionId)
-    annotations = progress?.annotations ?? []
-    annotationsLoaded = true
-    syncDecorations()
-    if (progress?.epub?.locator) {
-      try {
-        const locator = Locator.deserialize(JSON.parse(progress.epub.locator))
-        // `go(locator, animated, cb)` — the middle argument is a boolean, not
-        // the completion callback, so both trailing arguments are required.
-        if (locator) navigator.go(locator, false, () => {})
-      } catch {
-        // If parsing fails, just use the initial positions
-      }
-    }
-  } catch (error) {
-    if (instance) await instance.destroy().catch(() => {})
-    if (!session.isCurrent(generation)) return
-    navigator = undefined
-    phase = 'error'
-    failure = messageOf(error)
-  }
+/**
+ * Write the note list through immediately, without the reading position.
+ *
+ * The frame owns the position and persists it on its own schedule, so this
+ * leaves that column alone. Persisting synchronously (not through a debounce)
+ * keeps a quick close from resurrecting a note the reader just removed.
+ */
+function persistNotes() {
+  void saveProgress(editionId, { kind: 'epub', annotations })
 }
 
 /**
- * Record the composer's note text against the current selection, falling back
- * to the viewport locator when nothing is selected.
+ * Bookmark the page on screen.
  *
- * The note is persisted immediately so it survives a window close without
- * waiting for the debounced position save. WebKitGTK implements no
- * `window.prompt`, so the text is collected in an in-page composer instead.
+ * The frame publishes the same locator a note anchors to, so the bookmark lands
+ * on the page the reader is looking at rather than on a stored progression. The
+ * recorded number is the page's fraction of the whole book — the locator's own
+ * `progression` is relative to its chapter and would read as a book figure.
+ * Bookmarking only ever adds: a page that already carries a bookmark has its
+ * button disabled, and the panel owns removal.
  */
-/** Write the current note list through immediately, with the reading position. */
-function persistNotes() {
-  void saveProgress(editionId, {
-    kind: 'epub',
-    epub: latestLoc ? { locator: JSON.stringify(latestLoc) } : undefined,
-    annotations,
-  })
-  // Highlights follow the list: new tint, edited text, or a removal.
-  syncDecorations()
+async function bookmarkCurrentPage() {
+  if (!bookmarksLoaded || bookmarking || location === '') return
+  if (isBookmarked(bookmarks, { kind: 'epub', locator: location })) return
+  bookmarking = true
+  try {
+    const added = await addBookmark(editionId, {
+      kind: 'epub',
+      locator: location,
+      progress: bookProgression,
+    })
+    if (added) bookmarks = [...bookmarks, added]
+  } finally {
+    bookmarking = false
+  }
+}
+
+/** Move the reader to a bookmark and dismiss the list so the page shows. */
+function visitBookmark(bookmark: Bookmark) {
+  if (!bookmark.locator) return
+  let locator: Locator | undefined
+  try {
+    locator = Locator.deserialize(JSON.parse(bookmark.locator))
+  } catch {
+    return
+  }
+  if (!locator) return
+  frame?.go(locator)
+  panelOpen = false
+  activeNote = null
+}
+
+/** Drop a bookmark without moving the reader. */
+async function removeBookmarkEntry(bookmark: Bookmark) {
+  if (!(await removeBookmark(bookmark.id))) return
+  bookmarks = bookmarks.filter((item) => item.id !== bookmark.id)
+  if (bookmarks.length === 0 && annotations.length === 0) panelOpen = false
 }
 
 function saveAnnotation(text: string, color?: HighlightColor) {
@@ -282,7 +255,7 @@ function editNote(note: Annotation) {
 }
 
 /**
- * Merge a text anchor into the reading position's locator.
+ * Merge a text anchor into the current reading position's locator.
  *
  * Without one, a note carries only a progression, which the decorator cannot
  * resolve — so it could never be highlighted. The quote (plus its surrounding
@@ -290,23 +263,16 @@ function editNote(note: Annotation) {
  * position itself intact.
  */
 function locatorForNote(quote: Quote | undefined): string | undefined {
-  if (!latestLoc) return undefined
-  const raw = latestLoc.serialize() as { text?: Record<string, unknown> }
+  const current = frame?.currentLocator()
+  if (!current) return undefined
+  const raw = current.serialize() as { text?: Record<string, unknown> }
   if (!quote) return JSON.stringify(raw)
   return JSON.stringify({ ...raw, text: { ...raw.text, ...quote } })
 }
 
-/**
- * Open the dialog, capturing the anchor now.
- *
- * The selection is read from the page's DOM rather than the `textSelected`
- * event: the DOM range carries the surrounding context that pins a repeated
- * phrase to the occurrence the reader actually picked.
- */
+/** Open the dialog, capturing the anchor now. */
 function openComposer() {
-  pendingQuote = container
-    ? (selectedQuote(container) ?? readingPositionQuote(container))
-    : undefined
+  pendingQuote = frame?.quoteAtPosition()
   editingId = null
   composerOpen = true
 }
@@ -317,36 +283,87 @@ function closeComposer() {
   editingId = null
 }
 
-function previous() {
-  navigator?.goBackward(false, () => {})
-}
+/** Load the stored note list once the publication is open. */
+$effect(() => {
+  if (!ready || annotationsLoaded) return
+  void (async () => {
+    annotations = await loadAnnotations(editionId)
+    annotationsLoaded = true
+  })()
+})
 
-function next() {
-  navigator?.goForward(false, () => {})
-}
+/** Load the stored bookmarks once the publication is open. */
+$effect(() => {
+  if (!ready || bookmarksLoaded) return
+  void (async () => {
+    bookmarks = await loadBookmarks(editionId)
+    bookmarksLoaded = true
+  })()
+})
+
+createHotkeys([
+  {
+    hotkey: 'A',
+    callback: () => {
+      if (ready && annotationsLoaded && selection !== null && !composerOpen) openComposer()
+    },
+  },
+  {
+    hotkey: 'ArrowLeft',
+    callback: () => {
+      if (ready) previous()
+    },
+  },
+  {
+    hotkey: 'ArrowRight',
+    callback: () => {
+      if (ready) next()
+    },
+  },
+  {
+    hotkey: 'J',
+    callback: () => {
+      if (ready) previous()
+    },
+  },
+  {
+    hotkey: 'K',
+    callback: () => {
+      if (ready) next()
+    },
+  },
+  {
+    hotkey: 'H',
+    callback: () => {
+      if (ready) previous()
+    },
+  },
+  {
+    hotkey: 'L',
+    callback: () => {
+      if (ready) next()
+    },
+  },
+])
 
 async function close() {
   await getCurrentWindow().close()
 }
 
 onMount(() => {
-  void load()
-})
-
-onDestroy(() => {
-  session.invalidate()
-  const instance = navigator
-  navigator = undefined
-  // Save final progress before resetting latestLoc
-  if (instance && latestLoc) {
-    void saveProgress(editionId, {
-      kind: 'epub',
-      epub: { locator: JSON.stringify(latestLoc) },
-      annotations: annotationsLoaded ? annotations : undefined,
-    })
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'a' && ready && annotationsLoaded && selection !== null && !composerOpen) {
+      openComposer()
+    }
+    if (e.key === 'ArrowLeft' && ready) previous()
+    if (e.key === 'ArrowRight' && ready) next()
+    if (!composerOpen && (e.key === 'j' || e.key === 'J')) previous()
+    if (!composerOpen && (e.key === 'k' || e.key === 'K')) next()
+    if (!composerOpen && (e.key === 'h' || e.key === 'H')) previous()
+    if (!composerOpen && (e.key === 'l' || e.key === 'L')) next()
   }
-  latestLoc = undefined
-  void instance?.destroy().catch(() => {})
+  document.addEventListener('keydown', onKey)
+  return () => document.removeEventListener('keydown', onKey)
 })
 
 /**
@@ -359,52 +376,33 @@ onDestroy(() => {
  */
 function deleteNote(note: Annotation) {
   annotations = annotations.filter((item) => item.id !== note.id)
-  if (activeNote?.annotation.id === note.id) activeNote = null
+  if (activeNote?.id === note.id) activeNote = null
 
-  void saveProgress(editionId, {
-    kind: 'epub',
-    epub: latestLoc ? { locator: JSON.stringify(latestLoc) } : undefined,
-    annotations,
-  })
+  persistNotes()
 
-  // Nothing left to list: close it. `syncDecorations` drops the highlight.
+  // Nothing left to list: close it. The frame drops the highlight with the note.
   if (annotations.length === 0) panelOpen = false
-  syncDecorations()
 }
 </script>
 
 <ReaderLayout>
-  <header class="bar">
-    <h1 class="title">{title}</h1>
-    <div class="controls">
-      <ActionButton onclick={previous} disabled={phase !== 'ready'}>
-        <wa-icon name="chevron-left"></wa-icon>
-        Previous
-      </ActionButton>
-      <ActionButton onclick={next} disabled={phase !== 'ready'}>
-        Next
-        <wa-icon name="chevron-right"></wa-icon>
-      </ActionButton>
-      <ActionButton onclick={openComposer} disabled={phase !== 'ready' || !annotationsLoaded}>
-        <wa-icon name="comment"></wa-icon>
-        Annotate
-      </ActionButton>
-      <ActionButton onclick={() => void close()}>Close</ActionButton>
-    </div>
-  </header>
-
-  {#if phase === 'loading'}
-    <p class="muted">Loading…</p>
-  {:else if phase === 'error'}
-    <div class="error">
-      <p>Could not open this book: {failure}</p>
-      <ActionButton onclick={() => void load()}>Retry</ActionButton>
-    </div>
-  {/if}
+  <ReaderToolbar
+    {title}
+    {ready}
+    canAnnotate={annotationsLoaded}
+    {bookmarked}
+    canBookmark={bookmarksLoaded}
+    onprevious={previous}
+    onnext={next}
+    onannotate={openComposer}
+    onbookmark={() => void bookmarkCurrentPage()}
+    onclose={() => void close()}
+  />
 
   {#if composerOpen}
     <AnnotationComposer
       quote={pendingQuote?.highlight ?? selection?.text}
+      placeholder="Note text"
       showColors
       initialText={editingId ? annotations.find((item) => item.id === editingId)?.text : undefined}
       initialColor={editingId
@@ -416,168 +414,63 @@ function deleteNote(note: Annotation) {
   {/if}
 
   <div class="stage">
-    <!-- Pane grows this; the Readium iframe scrolls inside it. -->
-    <div class="viewport" data-scroll-region bind:this={container}></div>
+    <ReaderFrame
+      bind:this={frame}
+      bind:ready
+      bind:title
+      bind:progress={pageProgress}
+      {editionId}
+      {annotations}
+      bind:location
+      bind:progression={bookProgression}
+      keyboard={ready && !composerOpen}
+      ontextselect={handleTextSelect}
+      onannotationactivate={activateNote}
+    />
 
-    {#if annotations.length > 0 && phase === 'ready'}
-      <div class="fab">
-        <ActionButton
-          variant="brand"
-          onclick={togglePanel}
-          aria-pressed={panelOpen}
-          aria-haspopup="dialog"
-          aria-expanded={panelOpen || activeNote !== null}
-        >
-          <wa-icon name="comment-dots"></wa-icon>
-          {annotations.length} Note{#if annotations.length != 1}s{/if}
-        </ActionButton>
-      </div>
+    {#if (annotations.length > 0 || bookmarks.length > 0) && ready}
+      <ReaderFab
+        progress={pageProgress}
+        count={annotations.length}
+        bookmarks={bookmarks.length}
+        open={panelOpen}
+        expanded={panelOpen || activeNote !== null}
+        ontoggle={togglePanel}
+      />
     {/if}
 
-    {#if panelOpen && annotations.length > 0}
+    {#if panelOpen && (annotations.length > 0 || bookmarks.length > 0)}
       <NotesPanel
         notes={annotations}
+        {bookmarks}
         onvisit={jumpTo}
         onedit={editNote}
         ondelete={deleteNote}
         onrecolor={recolorNote}
+        onvisitbookmark={visitBookmark}
+        onremovebookmark={(bookmark) => void removeBookmarkEntry(bookmark)}
         onclose={togglePanel}
       />
     {/if}
 
     {#if activeNote}
-      <div
-        class="note"
-        role="dialog"
-        aria-label="Annotation"
-        style:top="{activeNote.top}px"
-        style:left="{activeNote.left}px"
-      >
-        {#if activeNote.annotation.quote}
-          <blockquote class="note-quote">{activeNote.annotation.quote}</blockquote>
-        {/if}
-        <p class="note-text">{activeNote.annotation.text}</p>
-        <div class="note-actions">
-          <ActionButton size="small" onclick={() => (activeNote = null)}>Close</ActionButton>
-        </div>
-      </div>
+      <AnnotationDrawer annotation={activeNote} onclose={() => (activeNote = null)} />
     {/if}
   </div>
 </ReaderLayout>
 
 <style>
-  .bar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--wa-space-s);
-    padding: var(--wa-space-s) var(--wa-space-m);
-  }
-
-  .title {
-    margin: 0;
-    font-size: var(--wa-font-size-m);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .controls {
-    display: flex;
-    gap: var(--wa-space-2xs);
-  }
-
-  .muted {
-    padding: 0 var(--wa-space-m);
-    color: var(--wa-color-text-secondary);
-  }
-
-  .error {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-s);
-    align-items: flex-start;
-    padding: 0 var(--wa-space-m);
-    color: var(--wa-color-danger);
-  }
-
-  .error p {
-    margin: 0;
-  }
-
-  /* Positioning context for the FAB and the floating note cards. */
+  /*
+    The pane is the positioning context for everything the reader layers over
+    the text: the frame, the reader bar, the note list, and the annotation
+    drawer. None of them takes layout space, so the book never reflows under
+    them.
+  */
   .stage {
     position: relative;
     display: flex;
     flex: 1;
     min-width: 0;
     min-height: 0;
-  }
-
-  .fab {
-    position: absolute;
-    inset-block-end: var(--wa-space-m);
-    inset-inline-end: var(--wa-space-m);
-    z-index: 2;
-  }
-
-  /*
-    The card floats over the text and never takes layout space. It is anchored
-    at the highlight rect reported by the navigator, clamped so it cannot leave
-    the reading pane.
-  */
-  .note {
-    position: absolute;
-    z-index: 2;
-    max-width: 20rem;
-    max-height: 16rem;
-    overflow: auto;
-    padding: var(--wa-space-s);
-    border-radius: var(--wa-border-radius-m, 0.5rem);
-    border: 1px solid var(--wa-color-border);
-    background: var(--wa-color-surface-default);
-    box-shadow: var(--wa-shadow-m, 0 4px 12px rgb(0 0 0 / 0.18));
-    transform: translate(0, 0.5rem);
-  }
-
-  .note-quote {
-    display: block;
-    margin: 0 0 var(--wa-space-2xs);
-    padding: var(--wa-space-2xs);
-    border-inline-start: 2px solid var(--wa-color-border);
-    color: var(--wa-color-text-secondary);
-    font-style: italic;
-  }
-
-  .note-text {
-    margin: 0 0 var(--wa-space-2xs);
-    padding: var(--wa-space-2xs);
-  }
-
-  .note-actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .viewport {
-    position: relative;
-    min-width: 0;
-    min-height: 0;
-    display: flex;
-    width: 100%!important;
-    border-top: 2rem solid #fff;
-    border-bottom: 2rem solid #fff;
-    background-color: #fff;
-
-    :global(iframe.readium-navigator-iframe) {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      max-width: 100%;
-      max-height: 100%;
-      margin: 0;
-      border: 0;
-    }
   }
 </style>

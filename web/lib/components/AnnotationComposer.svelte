@@ -6,7 +6,7 @@ import ActionButton from './ActionButton.svelte'
 
 interface Props {
   /** Placeholder for the note field. */
-  placeholder?: string
+  placeholder: string
   /** Text selected in the publication, shown as a quoted preview. */
   quote?: string
   /** Whether to offer the highlight palette. Only readers that can paint it. */
@@ -21,7 +21,7 @@ interface Props {
 }
 
 let {
-  placeholder = 'Note text',
+  placeholder,
   quote,
   showColors = false,
   initialText,
@@ -40,7 +40,6 @@ let color = $state<HighlightColor>(untrack(() => initialColor ?? DEFAULT_HIGHLIG
 
 function submit() {
   const text = draft.trim()
-  if (!text) return
   onsave(text, showColors ? color : undefined)
 }
 
@@ -73,16 +72,16 @@ function handleKeydown(event: KeyboardEvent) {
     {#if quote}
       <blockquote class="quote">{quote}</blockquote>
     {/if}
-    <wa-input
+    <wa-textarea
       role="textbox"
       tabindex="-1"
       {placeholder}
       value={draft}
       oninput={(event: Event) => {
-        draft = (event.target as HTMLInputElement).value
+        draft = (event.target as HTMLTextAreaElement).value
       }}
       onkeydown={handleKeydown}
-    ></wa-input>
+    ></wa-textarea>
     {#if showColors}
       <div class="colors" role="group" aria-label="Highlight colour">
         {#each HIGHLIGHT_COLORS as key (key)}
@@ -101,7 +100,7 @@ function handleKeydown(event: KeyboardEvent) {
     {/if}
     <div class="actions">
       <ActionButton onclick={oncancel}>Cancel</ActionButton>
-      <ActionButton variant="brand" onclick={submit} disabled={!draft.trim()}>
+      <ActionButton variant="brand" onclick={submit} disabled={false}>
         {editing ? 'Save changes' : 'Save note'}
       </ActionButton>
     </div>

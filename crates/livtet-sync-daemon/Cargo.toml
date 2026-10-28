@@ -1,6 +1,7 @@
 [package]
 name = "livtet-sync-daemon"
 version = "0.1.0"
+authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license = "MPL-2.0"

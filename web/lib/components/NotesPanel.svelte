@@ -1,4 +1,6 @@
 <script lang="ts">
+import type { Bookmark } from '$lib/reader/bookmark'
+import { bookmarkLabel } from '$lib/reader/bookmark'
 import type { HighlightColor } from '$lib/reader/highlights'
 import { DEFAULT_HIGHLIGHT, HIGHLIGHT_COLORS, HIGHLIGHTS } from '$lib/reader/highlights'
 import { filterNotes } from '$lib/reader/notes'
@@ -7,16 +9,32 @@ import { formatNoteDate } from '$lib/reader/progress'
 
 interface Props {
   notes: Annotation[]
+  /** Page bookmarks for this edition; listed apart from notes, without text. */
+  bookmarks: Bookmark[]
   /** Move the reader to the note's location. */
   onvisit: (note: Annotation) => void
   /** Open the composer on this note. */
   onedit: (note: Annotation) => void
   ondelete: (note: Annotation) => void
   onrecolor: (note: Annotation, color: HighlightColor) => void
+  /** Move the reader to the bookmark's location. */
+  onvisitbookmark: (bookmark: Bookmark) => void
+  /** Drop the bookmark; the page itself is unaffected. */
+  onremovebookmark: (bookmark: Bookmark) => void
   onclose: () => void
 }
 
-let { notes, onvisit, onedit, ondelete, onrecolor, onclose }: Props = $props()
+let {
+  notes,
+  bookmarks,
+  onvisit,
+  onedit,
+  ondelete,
+  onrecolor,
+  onvisitbookmark,
+  onremovebookmark,
+  onclose,
+}: Props = $props()
 
 let searchQuery = $state('')
 
@@ -27,9 +45,10 @@ const visibleNotes = $derived(filterNotes(notes, searchQuery))
 <!--
   Floats over the reading pane rather than taking layout space. Each row is a
   note with its quote, text, date, colour swatches, and the actions that act on
-  it; the reader never leaves the page to manage notes.
+  it; the reader never leaves the page to manage notes. Bookmarks are their own
+  list because they hold neither text nor colour.
 -->
-<div class="panel" role="dialog" aria-label="Notes">
+<div class="panel" role="dialog" aria-label="Notes and bookmarks">
   <div class="panel-heading">
     <span>
       Notes ({visibleNotes.length}{#if visibleNotes.length !== notes.length}/{notes.length}{/if})
@@ -66,7 +85,41 @@ const visibleNotes = $derived(filterNotes(notes, searchQuery))
     </wa-button>
   </div>
 
-  {#if visibleNotes.length === 0}
+  {#if bookmarks.length > 0}
+    <p class="section-heading">Bookmarks ({bookmarks.length})</p>
+    {#each bookmarks as bookmark (bookmark.id)}
+      <div class="bookmark-row">
+        <div class="bookmark-body">
+          <span class="bookmark-label">{bookmarkLabel(bookmark)}</span>
+          {#if formatNoteDate(bookmark.createdAt)}
+            <time class="note-date" datetime={bookmark.createdAt}>
+              {formatNoteDate(bookmark.createdAt)}
+            </time>
+          {/if}
+        </div>
+        <div class="row-actions">
+          <wa-button-group orientation="vertical">
+            <!--
+              `wa-button` keeps its interactive semantics in shadow DOM, which
+              Svelte's static a11y checks cannot see. Same suppression as
+              ActionButton.svelte.
+            -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <wa-button size="s" onclick={() => onvisitbookmark(bookmark)}>Visit</wa-button>
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <wa-button size="s" onclick={() => onremovebookmark(bookmark)}>
+              <wa-icon name="trash"></wa-icon>
+              Remove
+            </wa-button>
+          </wa-button-group>
+        </div>
+      </div>
+    {/each}
+  {/if}
+
+  {#if visibleNotes.length === 0 && searchQuery !== ''}
     <p class="empty">No notes match “{searchQuery}”.</p>
   {/if}
 
@@ -150,7 +203,7 @@ const visibleNotes = $derived(filterNotes(notes, searchQuery))
     font-size: var(--wa-font-size-xs, 0.8125rem);
     color: var(--wa-color-text-secondary);
 
-    .search { 
+    .search {
       flex: 1 1;
 
       [slot=end] {
@@ -160,12 +213,19 @@ const visibleNotes = $derived(filterNotes(notes, searchQuery))
     }
   }
 
+  .section-heading {
+    margin: var(--wa-space-s) 0 var(--wa-space-2xs);
+    font-size: var(--wa-font-size-xs, 0.8125rem);
+    color: var(--wa-color-text-secondary);
+  }
+
   .empty {
     margin: var(--wa-space-s) 0;
     color: var(--wa-color-text-secondary);
     font-size: var(--wa-font-size-s);
   }
 
+  .bookmark-row,
   .note-row {
     display: flex;
     flex-direction: row;
@@ -174,9 +234,15 @@ const visibleNotes = $derived(filterNotes(notes, searchQuery))
     border-block-start: 1px solid var(--wa-color-border-default);
   }
 
+  .bookmark-body,
   .note-body {
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  .bookmark-label {
+    display: block;
+    padding: var(--wa-space-2xs);
   }
 
   .note-body:hover,

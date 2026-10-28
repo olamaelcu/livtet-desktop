@@ -2,7 +2,7 @@
 name = "livtet-pdf"
 version = "0.1.0"
 edition.workspace = true
-authors = ["olamaelcu"]
+authors.workspace = true
 license = "MPL-2.0"
 description = "PDF metadata and cover extraction for Livtet imports"
 publish = false

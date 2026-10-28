@@ -17,4 +17,7 @@ pub enum ReaderError {
 
     #[error("unsupported EPUB: {0}")]
     Unsupported(String),
+
+    #[error("EPUB zip archive error: {0}")]
+    Zip(#[from] zip::result::ZipError),
 }

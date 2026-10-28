@@ -153,3 +153,53 @@ test('says so when nothing matches, and clears back to every note', async () => 
   await expect.poll(() => rows(container)).toHaveLength(2)
   expect(container.querySelector('.empty')).toBeNull()
 })
+
+test('lists bookmarks apart from notes, without note text', async () => {
+  const events: string[] = []
+  const { container } = await render(NotesPanelFixture, {
+    props: {
+      notes: [dated],
+      bookmarks: [
+        { id: 'b1', kind: 'pdf', pageNumber: 12, createdAt: '2026-10-26T05:57:38.074Z' },
+        { id: 'b2', kind: 'timestamp', positionSeconds: 2527 },
+      ],
+      events,
+    },
+  })
+
+  expect(container.querySelectorAll('.bookmark-row')).toHaveLength(2)
+  expect(container.textContent).toContain('Page 12')
+  expect(container.textContent).toContain('42:07')
+  expect(container.querySelector('.section-heading')?.textContent).toContain('Bookmarks (2)')
+  // Notes keep their own list and remain the only source of quote text.
+  expect(rows(container)).toHaveLength(1)
+})
+
+test('reports bookmark visits and removals', async () => {
+  const events: string[] = []
+  const { container } = await render(NotesPanelFixture, {
+    props: {
+      notes: [],
+      bookmarks: [{ id: 'b1', kind: 'pdf', pageNumber: 12 }],
+      events,
+    },
+  })
+
+  const [row] = [...container.querySelectorAll('.bookmark-row')]
+  const [visit, remove] = [...(row?.querySelectorAll('wa-button') ?? [])] as HTMLElement[]
+
+  visit?.click()
+  remove?.click()
+
+  expect(events).toEqual(['visitbookmark:b1', 'removebookmark:b1'])
+})
+
+test('does not claim there are no notes when the edition only has bookmarks', async () => {
+  const events: string[] = []
+  const { container } = await render(NotesPanelFixture, {
+    props: { notes: [], bookmarks: [{ id: 'b1', kind: 'pdf', pageNumber: 3 }], events },
+  })
+
+  expect(container.querySelector('.empty')).toBeNull()
+  expect(container.querySelector('.section-heading')?.textContent).toContain('Bookmarks (1)')
+})

@@ -26,9 +26,11 @@ use serde::Serialize;
 use specta::Type;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use livtet_core::data::entities::{digital_inventory, editions, reading_progress};
+use livtet_core::data::entities::{
+    digital_inventory, editions, reading_bookmarks, reading_progress,
+};
 use livtet_core::data::orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, Set,
 };
 use livtet_types::now_primitive;
 use livtet_types::{DbId, KnownFormats};
@@ -436,6 +438,10 @@ pub(crate) fn reader_pdf_window_path(edition_id: &DbId) -> String {
     format!("reader/pdf/{edition_id}")
 }
 
+pub(crate) fn reader_azw3_window_path(edition_id: &DbId) -> String {
+    format!("reader/pub/{edition_id}")
+}
+
 /// Base URL for an edition's publication resources. It always ends in `/`.
 ///
 /// Desktop WebViews resolve the `reader` custom scheme as
@@ -604,8 +610,8 @@ impl ReaderKind {
     /// Map a window focus/build failure onto this backend's error vocabulary.
     fn window_error(self, error: impl std::fmt::Display) -> ReaderError {
         match self {
-            Self::Audiobook | Self::Pdf => ReaderError::new("window", error),
-            Self::Epub => ReaderError::from(EpubError::publication(error)),
+            Self::Audiobook => ReaderError::new("window", error),
+            Self::Pdf | Self::Epub => ReaderError::from(EpubError::publication(error)),
         }
     }
 }
@@ -707,6 +713,7 @@ pub(crate) async fn plan_reader_window(
 }
 
 /// Open (or focus) the planned reader window for an edition.
+
 async fn open_reader_window(
     app: &AppHandle,
     state: &AppState,
@@ -1062,6 +1069,237 @@ pub async fn get_reader_position(
         .parse::<DbId>()
         .map_err(|_| ReaderError::new("invalid-id", "edition id is invalid"))?;
     fetch_reader_position(&state.db.db_conn(), id).await
+}
+
+/// One persisted page bookmark: a location the reader flagged, carrying no
+/// note text and no highlight colour.
+///
+/// The position is the same shape as [`ReaderPosition`], so a bookmark works
+/// for every reader family: an EPUB locator, a PDF or physical page number, or
+/// an audiobook playback position.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct ReaderBookmark {
+    /// Row id, as a ULID string; the handle to delete the bookmark with.
+    pub id: String,
+    /// Reader family the bookmark was taken in: `"epub"`, `"pdf"`, `"page"`
+    /// (physical books) or `"timestamp"` (audiobooks).
+    pub kind: String,
+    /// Serialized Readium locator, for EPUB bookmarks.
+    pub locator: Option<String>,
+    /// Bookmarked page, for PDF and physical book editions.
+    pub page_number: Option<u32>,
+    /// Bookmarked playback position in seconds, for audiobook editions.
+    pub position_seconds: Option<f64>,
+    /// Raw `reading_bookmarks.progress`, read in the unit its kind names: the
+    /// fraction of the whole publication for EPUB bookmarks (never the
+    /// fraction of the chapter), the page number for page bookmarks, and the
+    /// playback seconds for audiobooks.
+    pub progress: f64,
+    /// Creation time, in seconds since the Unix epoch. `f64` rather than an
+    /// integer because Specta refuses to export 64-bit integers to JS.
+    pub created_at: f64,
+}
+
+/// Map a caller-facing bookmark kind onto the `reading_bookmarks.progress_unit`
+/// value. `"pdf"` and `"page"` stay distinct so a physical book's page number
+/// is not mistaken for a PDF position.
+fn reader_bookmark_unit(kind: &str) -> Result<&'static str, ReaderError> {
+    match kind {
+        "epub" => Ok("epub"),
+        "pdf" => Ok("pdf"),
+        "page" => Ok("page"),
+        "audio" | "timestamp" => Ok("timestamp"),
+        _ => Err(ReaderError::new(
+            "invalid-kind",
+            "kind must be 'epub', 'pdf', 'page' or 'audio'",
+        )),
+    }
+}
+
+/// Turn a stored row into the reader-facing shape.
+fn bookmark_from_row(row: reading_bookmarks::Model) -> ReaderBookmark {
+    let kind = row.progress_unit.clone().unwrap_or_default();
+    let page = u32::try_from(row.progress.max(0.0) as u64).ok();
+    let (locator, page_number, position_seconds) = match kind.as_str() {
+        "epub" => (row.last_location, None, None),
+        "pdf" | "page" => (None, page, None),
+        "timestamp" => (None, None, Some(row.progress.max(0.0))),
+        // An unknown unit keeps its opaque locator so nothing is dropped from
+        // the reader's view while the UI ignores what it cannot render.
+        _ => (row.last_location, None, None),
+    };
+    ReaderBookmark {
+        id: row.id.to_string(),
+        kind,
+        locator,
+        page_number,
+        position_seconds,
+        progress: row.progress,
+        created_at: row.created_at.assume_utc().unix_timestamp() as f64,
+    }
+}
+
+/// Insert a bookmark for an edition. The stored number follows the kind: an EPUB
+/// bookmark keeps its locator and stores the fraction of the publication it
+/// names, a page bookmark stores its 1-based page, and an audiobook bookmark
+/// stores its playback seconds.
+///
+/// Kept free of Tauri state so it can be unit-tested against a `TestDb`.
+pub(crate) async fn store_reader_bookmark(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    edition_id: DbId,
+    kind: &str,
+    locator: Option<String>,
+    page_number: Option<u32>,
+    position_seconds: Option<f64>,
+    fraction: Option<f64>,
+) -> Result<ReaderBookmark, ReaderError> {
+    let unit = reader_bookmark_unit(kind)?;
+    let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
+        return Err(ReaderError::new("not-found", "edition not found"));
+    };
+    // A page number larger than the edition's own surface is still stored:
+    // the bookmark records where the reader was, not where the file ends.
+    let progress = match unit {
+        // An EPUB bookmark records where the page sits in the whole book: the
+        // locator's own `progression` is relative to its resource, so it would
+        // read as "40% through" for a page 25% into the book.
+        "epub" => {
+            let fraction = fraction.ok_or_else(|| {
+                ReaderError::new(
+                    "invalid",
+                    "a fraction of the publication is required for EPUB bookmarks",
+                )
+            })?;
+            if !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
+                return Err(ReaderError::new(
+                    "invalid",
+                    "the fraction must be between 0 and 1",
+                ));
+            }
+            fraction
+        }
+        "pdf" | "page" => f64::from(page_number.ok_or_else(|| {
+            ReaderError::new("invalid", "a page number is required for page bookmarks")
+        })?),
+        _ => {
+            if edition.format_id != Some(KnownFormats::Audiobook.into()) {
+                return Err(ReaderError::new(
+                    "unsupported",
+                    "listening bookmarks are for audiobook editions only",
+                ));
+            }
+            let raw = position_seconds.ok_or_else(|| {
+                ReaderError::new(
+                    "invalid",
+                    "position seconds are required for audio bookmarks",
+                )
+            })?;
+            if !raw.is_finite() {
+                return Err(ReaderError::new("invalid", "position must be finite"));
+            }
+            raw.max(0.0)
+        }
+    };
+    let last_location = match unit {
+        "epub" => Some(locator.ok_or_else(|| {
+            ReaderError::new("invalid", "a locator is required for EPUB bookmarks")
+        })?),
+        "timestamp" => Some(progress.to_string()),
+        _ => None,
+    };
+
+    let row = reading_bookmarks::ActiveModel {
+        id: Set(DbId::new()),
+        edition_id: Set(edition_id),
+        progress: Set(progress),
+        progress_unit: Set(Some(unit.to_string())),
+        last_location: Set(last_location),
+        created_at: Set(now_primitive()),
+    }
+    .insert(db)
+    .await?;
+    Ok(bookmark_from_row(row))
+}
+
+/// Delete one bookmark. `false` when the row was already gone, so a repeated
+/// click is not an error.
+pub(crate) async fn delete_reader_bookmark(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    bookmark_id: DbId,
+) -> Result<bool, ReaderError> {
+    let result = reading_bookmarks::Entity::delete_by_id(bookmark_id)
+        .exec(db)
+        .await?;
+    Ok(result.rows_affected > 0)
+}
+
+/// Every bookmark on an edition, oldest first — the order the reader made them
+/// in, so the list reads as a trail through the book.
+pub(crate) async fn fetch_reader_bookmarks(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    edition_id: DbId,
+) -> Result<Vec<ReaderBookmark>, ReaderError> {
+    let rows = reading_bookmarks::Entity::find()
+        .filter(reading_bookmarks::Column::EditionId.eq(edition_id))
+        .order_by_asc(reading_bookmarks::Column::CreatedAt)
+        .order_by_asc(reading_bookmarks::Column::Id)
+        .all(db)
+        .await?;
+    Ok(rows.into_iter().map(bookmark_from_row).collect())
+}
+
+/// Bookmark the reader's current location in an edition.
+#[tauri::command]
+#[specta::specta]
+pub async fn add_reader_bookmark(
+    edition_id: String,
+    kind: String,
+    locator: Option<String>,
+    page_number: Option<u32>,
+    position_seconds: Option<f64>,
+    fraction: Option<f64>,
+    state: State<'_, AppState>,
+) -> Result<ReaderBookmark, ReaderError> {
+    let edition_id_db = edition_id
+        .parse::<DbId>()
+        .map_err(|_| ReaderError::new("invalid-id", "edition id is invalid"))?;
+    store_reader_bookmark(
+        &state.db.db_conn(),
+        edition_id_db,
+        &kind,
+        locator,
+        page_number,
+        position_seconds,
+        fraction,
+    )
+    .await
+}
+
+/// Remove one bookmark by its id.
+#[tauri::command]
+#[specta::specta]
+pub async fn remove_reader_bookmark(
+    bookmark_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, ReaderError> {
+    let id = bookmark_id
+        .parse::<DbId>()
+        .map_err(|_| ReaderError::new("invalid-id", "bookmark id is invalid"))?;
+    delete_reader_bookmark(&state.db.db_conn(), id).await
+}
+
+/// Persisted bookmarks for an edition, oldest first.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_reader_bookmarks(
+    edition_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<ReaderBookmark>, ReaderError> {
+    let id = edition_id
+        .parse::<DbId>()
+        .map_err(|_| ReaderError::new("invalid-id", "edition id is invalid"))?;
+    fetch_reader_bookmarks(&state.db.db_conn(), id).await
 }
 
 #[cfg(test)]
@@ -2468,5 +2706,123 @@ mod tests {
                 .await
                 .expect_err("unknown edition");
         assert_eq!(error.code, "unknown-edition");
+    }
+
+    #[tokio::test]
+    async fn bookmarks_round_trip_per_reader_family() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+
+        let epub = store_reader_bookmark(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"ch1\"}".to_string()),
+            None,
+            None,
+            Some(0.25),
+        )
+        .await
+        .expect("store epub bookmark");
+        assert_eq!(epub.kind, "epub");
+        assert_eq!(epub.locator.as_deref(), Some("{\"href\":\"ch1\"}"));
+        // The number is the page's place in the whole book, not in its chapter.
+        assert_eq!(epub.progress, 0.25);
+        assert!(epub.created_at > 0.0, "creation time is recorded");
+
+        // PDF and physical books share the page column; only the unit differs.
+        let page = store_reader_bookmark(&db, id, "page", None, Some(42), None, None)
+            .await
+            .expect("store page bookmark");
+        assert_eq!(page.kind, "page");
+        assert_eq!(page.page_number, Some(42));
+        assert_eq!(page.position_seconds, None);
+
+        let listed = fetch_reader_bookmarks(&db, id).await.expect("list");
+        assert_eq!(listed.len(), 2, "both bookmarks are listed");
+        let ids: Vec<&str> = listed.iter().map(|b| b.id.as_str()).collect();
+        assert!(ids.contains(&epub.id.as_str()) && ids.contains(&page.id.as_str()));
+
+        let epub_id = epub.id.parse::<DbId>().expect("bookmark id parses");
+        assert!(delete_reader_bookmark(&db, epub_id).await.expect("delete"));
+        assert!(
+            !delete_reader_bookmark(&db, epub_id)
+                .await
+                .expect("second delete"),
+            "removing a bookmark twice is not an error, just not a change"
+        );
+
+        let listed = fetch_reader_bookmarks(&db, id).await.expect("list");
+        assert_eq!(listed.len(), 1, "only the page bookmark remains");
+        assert_eq!(listed[0].page_number, Some(42));
+    }
+
+    #[tokio::test]
+    async fn audio_bookmarks_store_seconds_and_need_an_audiobook() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+
+        let error = store_reader_bookmark(&db, id, "audio", None, None, Some(90.5), None)
+            .await
+            .expect_err("audio bookmark on a non-audiobook is unsupported");
+        assert_eq!(error.code, "unsupported");
+
+        mark_format(&db, id, KnownFormats::Audiobook).await;
+        let audio = store_reader_bookmark(&db, id, "audio", None, None, Some(90.5), None)
+            .await
+            .expect("store audio bookmark");
+        assert_eq!(audio.kind, "timestamp");
+        assert_eq!(audio.position_seconds, Some(90.5));
+    }
+
+    #[tokio::test]
+    async fn a_bookmark_needs_the_position_its_kind_names() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+
+        let error = store_reader_bookmark(&db, id, "pdf", None, None, None, None)
+            .await
+            .expect_err("a page bookmark needs a page");
+        assert_eq!(error.code, "invalid");
+
+        let error = store_reader_bookmark(&db, id, "epub", None, None, None, Some(0.5))
+            .await
+            .expect_err("an EPUB bookmark needs a locator");
+        assert_eq!(error.code, "invalid");
+
+        let error =
+            store_reader_bookmark(&db, id, "epub", Some("{}".to_string()), None, None, None)
+                .await
+                .expect_err("an EPUB bookmark needs the page's place in the book");
+        assert_eq!(error.code, "invalid");
+
+        let error = store_reader_bookmark(
+            &db,
+            id,
+            "epub",
+            Some("{}".to_string()),
+            None,
+            None,
+            Some(1.5),
+        )
+        .await
+        .expect_err("a fraction outside the book is rejected");
+        assert_eq!(error.code, "invalid");
+
+        let error = store_reader_bookmark(&db, id, "seance", None, Some(1), None, None)
+            .await
+            .expect_err("an unknown kind is rejected");
+        assert_eq!(error.code, "invalid-kind");
+
+        let error = store_reader_bookmark(&db, DbId::new(), "pdf", None, Some(1), None, None)
+            .await
+            .expect_err("an unknown edition is rejected");
+        assert_eq!(error.code, "not-found");
     }
 }

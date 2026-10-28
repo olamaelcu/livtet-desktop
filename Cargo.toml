@@ -6,12 +6,10 @@ members = ["crates/*"]
 unwrap_used = "deny"
 expect_used = "deny"
 
-# See clippy.toml for disallowed types / methods (time over chrono, camino over std::path,
-# fs_err over std::fs / tokio::fs).
-
 [workspace.package]
 edition = "2024"
 rust-version = "1.97.0"
+authors = ["Jacky Alcine <yo@jacky.wtf>"]
 
 [workspace.dependencies]
 livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }

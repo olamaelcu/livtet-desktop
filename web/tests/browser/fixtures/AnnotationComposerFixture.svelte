@@ -14,6 +14,7 @@ let { quote, showColors = false, initialText, initialColor, saved }: Props = $pr
 </script>
 
 <AnnotationComposer
+  placeholder="Note text"
   {quote}
   {showColors}
   {initialText}
