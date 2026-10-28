@@ -1,6 +1,6 @@
+use std::fs::File;
 use std::path::PathBuf;
 use std::process::Command;
-use std::fs::File;
 
 use clap::Parser;
 
@@ -33,7 +33,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn try_library(args: &Args) -> bool {
-    use boko::{Book, export::{EpubExporter, Exporter}};
+    use boko::{
+        Book,
+        export::{EpubExporter, Exporter},
+    };
     let input_path = args.input.to_string_lossy();
     let mut book = match Book::open(&*input_path) {
         Ok(b) => b,
