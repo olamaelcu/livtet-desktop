@@ -78,6 +78,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          # One cache per target: the amd64 and arm64 legs otherwise derive the
+          # same key from the shared `linux` job id and overwrite each other.
+          shared-key: ${{ matrix.target }}
+          # Keep the compiled deps when a later step fails, so a re-run resumes
+          # from the cache instead of rebuilding ~1000 crates from scratch.
+          cache-on-failure: true
       - uses: pnpm/action-setup@v4
         with:
           version: '10'
@@ -105,7 +111,9 @@ jobs:
           bash .mise/tasks/secrets-decrypt
           bash .mise/tasks/secrets-export-env
       - name: Generate IPC bindings
-        run: cargo run --bin generate-bindings
+        # Build in release so these artifacts are reused by `tauri build` below;
+        # a debug run would compile the whole workspace a second time.
+        run: cargo run --release --bin generate-bindings
       - name: Build bundles
         run: pnpm tauri build --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
       - name: Upload deb
@@ -182,6 +190,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: '. -> target'
+          # One cache per target: the two macOS legs would otherwise share the
+          # key derived from the `macos` job id and thrash each other.
+          shared-key: ${{ matrix.target }}
+          cache-on-failure: true
       - uses: pnpm/action-setup@v4
         with:
           version: '10'
@@ -209,7 +221,8 @@ jobs:
           bash .mise/tasks/secrets-decrypt
           bash .mise/tasks/secrets-export-env
       - name: Generate IPC bindings
-        run: cargo run --bin generate-bindings
+        # Build in release so these artifacts are reused by the DMG build below.
+        run: cargo run --release --bin generate-bindings
       - name: Build DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
