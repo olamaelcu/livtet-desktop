@@ -557,6 +557,12 @@ jobs:
           # settings reset cannot silently move the site back to the github.io
           # host. `PACKAGES_URL` is the single source for the domain.
           printf '%s\n' "${PACKAGES_URL#https://}" > pages/CNAME
+          # The downloads homepage ships with the repository so it is reviewed
+          # with everything else; a tag cut before it existed simply has none.
+          homepage="$GITHUB_WORKSPACE/packaging/pages/index.html"
+          if [ -f "$homepage" ]; then
+            install -D -m 644 "$homepage" pages/index.html
+          fi
       - name: Build APT repository
         run: |
           set -euo pipefail

@@ -37,6 +37,10 @@ and the pieces are kept in one place:
   file must be part of what the job writes; otherwise a Pages settings reset
   silently moves the site back to the `github.io` host.
 - The README's Debian and Flatpak instructions use the custom host.
+- The repository root document is `packaging/pages/index.html`, copied into the
+  branch by the publish job (skipped when the tag predates the file, as an
+  already-cut tag's tree cannot carry it). It is plain HTML with inline CSS and
+  no external requests, so the page renders without JavaScript or a CDN.
 
 Order matters: the DNS record must resolve before the custom domain is set,
 because the Let's Encrypt certificate is provisioned against it, and Pages

@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Livtet downloads</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #fbfaf8;
+        --fg: #1d1b19;
+        --muted: #5c5751;
+        --rule: #e2ddd6;
+        --accent: #7a4a2b;
+        --code-bg: #f1ede7;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #17161a;
+          --fg: #ece8e2;
+          --muted: #a09a92;
+          --rule: #322f36;
+          --accent: #e0a878;
+          --code-bg: #201e24;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 2.5rem 1.25rem 4rem;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      }
+      main {
+        max-width: 46rem;
+        margin: 0 auto;
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 1.9rem;
+        letter-spacing: -0.01em;
+      }
+      .lede {
+        margin: 0 0 2.5rem;
+        color: var(--muted);
+        font-size: 1.05rem;
+      }
+      section {
+        margin: 0 0 2.25rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--rule);
+      }
+      h2 {
+        margin: 0 0 0.75rem;
+        font-size: 1.15rem;
+      }
+      p {
+        margin: 0 0 0.75rem;
+      }
+      .note {
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+      pre {
+        margin: 0 0 0.75rem;
+        padding: 0.85rem 1rem;
+        overflow-x: auto;
+        background: var(--code-bg);
+        border-radius: 0.4rem;
+        font: 0.85rem/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      a {
+        color: var(--accent);
+      }
+      footer {
+        margin-top: 3rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--rule);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Livtet downloads</h1>
+      <p class="lede">
+        Signed package repositories for the Livtet desktop app. Both channels are
+        rebuilt from every release and signed by the same key.
+      </p>
+
+      <section>
+        <h2>Debian / Ubuntu (APT)</h2>
+        <p>
+          Add the repository key, point <code>apt</code> at the repository, then
+          install:
+        </p>
+        <pre><code>curl -fsSL https://download.livtet.olamaelcu.net/apt/livtet.asc \
+  | sudo tee /usr/share/keyrings/livtet.asc &gt;/dev/null
+echo "deb [signed-by=/usr/share/keyrings/livtet.asc] https://download.livtet.olamaelcu.net/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/livtet.list
+sudo apt update
+sudo apt install livtet-desktop</code></pre>
+        <p class="note">
+          Builds are published for <code>amd64</code> and <code>arm64</code>. The
+          key lives at <a href="apt/livtet.asc">apt/livtet.asc</a>; the repository
+          index is <a href="apt/dists/stable/InRelease">apt/dists/stable/InRelease</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>Flatpak</h2>
+        <p>
+          Livtet needs a runtime from Flathub, so add that remote first, then the
+          Livtet remote:
+        </p>
+        <pre><code>flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak remote-add --if-not-exists --from livtet https://download.livtet.olamaelcu.net/flatpak/livtet.flatpakrepo
+flatpak install livtet net.olamaelcu.livtet</code></pre>
+        <p class="note">
+          The remote description, including its signing key, is at
+          <a href="flatpak/livtet.flatpakrepo">flatpak/livtet.flatpakrepo</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>Direct downloads</h2>
+        <p>
+          Every release also ships the bundles themselves — <code>.deb</code>,
+          <code>.rpm</code>, AppImage, <code>.dmg</code> for macOS and a
+          <code>.flatpak</code> bundle — alongside a <code>SHA256SUMS.txt</code>:
+        </p>
+        <p>
+          <a href="https://github.com/olamaelcu/livtet-desktop/releases"
+            >github.com/olamaelcu/livtet-desktop/releases</a
+          >
+        </p>
+      </section>
+
+      <footer>
+        <p>
+          Signing key fingerprint:
+          <code>0728 B24D 4DF8 D0FC 1DD6 6D5A CB7F EC41 04A9 941D</code>
+        </p>
+        <p>
+          Source, issues and release notes:
+          <a href="https://github.com/olamaelcu/livtet-desktop"
+            >github.com/olamaelcu/livtet-desktop</a
+          >
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
