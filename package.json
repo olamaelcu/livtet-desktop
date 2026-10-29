@@ -32,7 +32,7 @@
     "@fontsource-variable/lora": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/work-sans": "^5.3.0",
-    "@olamaelcu/livtet-branding": "github:olamaelcu/livtet-branding#6c429abca492d59e01eb726c22d09ebdbe7e4c42",
+    "@olamaelcu/livtet-branding": "github:olamaelcu/livtet-branding#1bbcbf458e6b0a7e7ee0f9e908321b5c1bb42834",
     "@readium/css": "^2.0.5",
     "@readium/navigator": "^2.10.3",
     "@readium/navigator-html-injectables": "^2.8.3",
