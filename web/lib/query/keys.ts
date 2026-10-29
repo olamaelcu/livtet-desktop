@@ -83,3 +83,9 @@ export const atprotoKeys = {
   status: () => [...atprotoKeys.all, 'status'] as const,
   profile: () => [...atprotoKeys.all, 'profile'] as const,
 }
+
+export const shelfKeys = {
+  all: ['shelved-books'] as const,
+  /** The account's whole ATProto shelving, read from its repository. */
+  shelvedBooks: () => [...shelfKeys.all] as const,
+}

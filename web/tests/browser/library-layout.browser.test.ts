@@ -60,3 +60,14 @@ test('rail, toolbar and dock controls are all tab-reachable and the dock does no
   expect(document.activeElement).toBe(dock[0])
   expect(container.querySelectorAll('[data-scroll-region]')).toHaveLength(1)
 })
+
+test('the shelves entry is offered only to a signed-in ATProto account', async () => {
+  const items = (container: HTMLElement) =>
+    [...container.querySelectorAll('wa-dropdown-item')].map((item) => item.textContent?.trim())
+
+  const signedOut = await render(LibraryLayoutFixture)
+  expect(items(signedOut.container)).not.toContain('Add from your shelves')
+
+  const signedIn = await render(LibraryLayoutFixture, { atprotoSignedIn: true })
+  expect(items(signedIn.container)).toContain('Add from your shelves')
+})

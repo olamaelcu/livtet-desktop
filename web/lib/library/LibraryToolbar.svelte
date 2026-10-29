@@ -12,6 +12,10 @@ interface Props {
   onaddbook: () => void
   /** Opens the virtual-book drawer (catalog-only book, no file). */
   onaddvirtualbook: () => void
+  /** Opens the shelved-books drawer (the account's ATProto shelving). */
+  onshelvedbooks: () => void
+  /** Whether an ATProto account is signed in; the shelf entry hides otherwise. */
+  atprotoSignedIn: boolean
   activeFilterCount?: number
   /** Whether the filter popover is open; drives `aria-expanded`. */
   filtersExpanded?: boolean
@@ -28,6 +32,8 @@ interface Props {
 let {
   onaddbook,
   onaddvirtualbook,
+  onshelvedbooks,
+  atprotoSignedIn,
   activeFilterCount = 0,
   filtersExpanded = false,
   filtersButtonId,
@@ -49,11 +55,15 @@ function handleCoverSize(event: Event) {
   oncoversizechange(coverSizeFromIndex(value))
 }
 function handleSelect(event: CustomEvent) {
-  const value = (event.detail.item as HTMLElement).getAttribute('value')
+  // `wa-dropdown-item` exposes `value` as a property; WebAwesome never renders
+  // the attribute, so `getAttribute('value')` reads null here.
+  const { value } = event.detail.item as HTMLElement & { value?: string }
   if (value === 'add-book') {
     onaddbook()
   } else if (value === 'add-virtual') {
     onaddvirtualbook()
+  } else if (value === 'add-shelved') {
+    onshelvedbooks()
   }
 }
 </script>
@@ -90,6 +100,12 @@ function handleSelect(event: CustomEvent) {
         <wa-icon slot="icon" name="book"></wa-icon>
         Add virtual book
       </wa-dropdown-item>
+      {#if atprotoSignedIn}
+        <wa-dropdown-item value="add-shelved">
+          <wa-icon slot="icon" name="layer-group"></wa-icon>
+          Add from your shelves
+        </wa-dropdown-item>
+      {/if}
     </wa-dropdown>
   </wa-button-group>
   <wa-slider

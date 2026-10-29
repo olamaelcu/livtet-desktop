@@ -1,4 +1,5 @@
 pub mod atproto;
+pub mod atproto_shelves;
 pub mod bulk;
 pub mod byte_server;
 pub mod calibre;

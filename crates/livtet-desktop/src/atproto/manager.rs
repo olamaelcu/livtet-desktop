@@ -6,8 +6,8 @@ use crate::{
         http_log::LoggingHttpClient,
         review_records::{REVIEW_COLLECTION, review_record},
         shelf_records::{
-            BOOK_SHELVING_COLLECTION, SHELF_COLLECTION, book_shelving_record, derive_rkey,
-            shelf_record, status_shelf_uri,
+            BOOK_SHELVING_COLLECTION, SHELF_COLLECTION, ShelvingRecord, book_shelving_record,
+            derive_rkey, shelf_record, shelving_record_from_value, status_shelf_uri,
         },
         store::{AtprotoSessionStore, AtprotoStateStore, KeyValueBackend, KeyringBackend},
         types::{AtprotoLoginStart, AtprotoProfileView, AtprotoStatus},
@@ -54,6 +54,12 @@ type AtprotoSession = atrium_oauth::OAuthSession<
 /// upgrade is a robust refresh-token flow with proactive refresh.
 /// Refresh proactively when the token is within this window of expiry.
 const REFRESH_BEFORE_EXPIRY_SECS: u64 = 1800; // 30 minutes
+
+/// `com.atproto.repo.listRecords` page size; 100 is the PDS maximum.
+const LIST_RECORDS_PAGE_LIMIT: u32 = 100;
+/// Hard stop for the shelving walk, so a huge account cannot spin forever.
+/// Well above any account's shelving seen so far (~2 000 records).
+const MAX_SHELVING_RECORDS: usize = 10_000;
 struct ClientBundle {
     client: Arc<AtprotoOAuthClient>,
     metadata: AtprotoClientMetadata,
@@ -573,6 +579,64 @@ impl AtprotoManager {
         })
     }
 
+    /// Every shelving record in the account's own repository.
+    ///
+    /// One record per shelved edition, across every shelf, so a caller can offer
+    /// the account's whole shelving without knowing the shelf list. This reads
+    /// the PDS rather than the appview's shelf endpoints: the repository is the
+    /// source of truth, and the appview index lags behind it.
+    pub(crate) async fn list_shelving_records(&self) -> Result<Vec<ShelvingRecord>, AtprotoError> {
+        let did_str = self.get_current_did().await?;
+        let did = did_str.parse::<Did>().map_err(|e| AtprotoError::Keyring {
+            message: e.to_string(),
+        })?;
+        self.ensure_fresh(&did).await?;
+        let session = self.restore_session(&did).await?;
+
+        let mut records: Vec<ShelvingRecord> = Vec::new();
+        let mut cursor: Option<String> = None;
+        loop {
+            let request =
+                list_records_request(did.as_str(), BOOK_SHELVING_COLLECTION, cursor.as_deref());
+            let output: ListRecordsOutput = match session
+                .send_xrpc::<ListRecordsParams, (), ListRecordsOutput, serde_json::Value>(&request)
+                .await
+            {
+                Ok(atrium_xrpc::OutputDataOrBytes::Data(data)) => data,
+                Ok(atrium_xrpc::OutputDataOrBytes::Bytes(_)) => {
+                    return Err(AtprotoError::authorization(
+                        "unexpected binary response to listRecords",
+                    ));
+                }
+                Err(error) => {
+                    return Err(AtprotoError::authorization(format!(
+                        "listing shelving records failed: {error}"
+                    )));
+                }
+            };
+
+            records.extend(
+                output
+                    .records
+                    .iter()
+                    .filter_map(|entry| shelving_record_from_value(&entry.value)),
+            );
+
+            let next = output.cursor.filter(|next| !next.trim().is_empty());
+            // A repeated cursor would loop forever; treat it as end-of-list.
+            if next.is_none() || next == cursor || records.len() >= MAX_SHELVING_RECORDS {
+                break;
+            }
+            cursor = next;
+        }
+
+        tracing::info!(
+            count = records.len(),
+            "listed the account's shelving records"
+        );
+        Ok(records)
+    }
+
     /// Write a review record for a book edition to the account's repository.
     ///
     /// `rkey` is chosen by the caller — a local review's own id, or the rkey of
@@ -841,6 +905,29 @@ struct GetProfileRecordOutput {
 }
 
 #[derive(serde::Serialize)]
+struct ListRecordsParams {
+    repo: String,
+    collection: String,
+    limit: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListRecordsOutput {
+    #[serde(default)]
+    cursor: Option<String>,
+    #[serde(default)]
+    records: Vec<ListRecordsEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct ListRecordsEntry {
+    #[serde(default)]
+    value: serde_json::Value,
+}
+
+#[derive(serde::Serialize)]
 struct PutProfileRecordInput {
     repo: String,
     collection: String,
@@ -874,6 +961,26 @@ fn get_profile_record_request(did: &str) -> XrpcRequest<GetProfileRecordParams, 
             repo: did.to_string(),
             collection: PROFILE_COLLECTION.to_string(),
             rkey: PROFILE_RKEY.to_string(),
+        }),
+        input: None::<atrium_xrpc::InputDataOrBytes<()>>,
+        encoding: None,
+    }
+}
+
+/// One page of `com.atproto.repo.listRecords` for a collection of `did`.
+fn list_records_request(
+    did: &str,
+    collection: &str,
+    cursor: Option<&str>,
+) -> XrpcRequest<ListRecordsParams, ()> {
+    XrpcRequest {
+        method: Method::GET,
+        nsid: "com.atproto.repo.listRecords".to_string(),
+        parameters: Some(ListRecordsParams {
+            repo: did.to_string(),
+            collection: collection.to_string(),
+            limit: LIST_RECORDS_PAGE_LIMIT,
+            cursor: cursor.map(str::to_string),
         }),
         input: None::<atrium_xrpc::InputDataOrBytes<()>>,
         encoding: None,
@@ -1410,6 +1517,24 @@ mod tests {
         assert_eq!(input.collection, PROFILE_COLLECTION);
         assert_eq!(input.rkey, PROFILE_RKEY);
         assert!(!input.validate);
+    }
+
+    #[test]
+    fn shelving_requests_page_through_the_book_shelving_collection() {
+        let first = list_records_request(DID_A, BOOK_SHELVING_COLLECTION, None);
+        assert_eq!(first.nsid, "com.atproto.repo.listRecords");
+        assert_eq!(first.method, Method::GET);
+        let params = first.parameters.expect("parameters");
+        assert_eq!(params.repo, DID_A);
+        assert_eq!(params.collection, BOOK_SHELVING_COLLECTION);
+        assert_eq!(params.limit, LIST_RECORDS_PAGE_LIMIT);
+        assert_eq!(params.cursor, None);
+
+        let paged = list_records_request(DID_A, BOOK_SHELVING_COLLECTION, Some("ol.OL1M"));
+        assert_eq!(
+            paged.parameters.expect("parameters").cursor.as_deref(),
+            Some("ol.OL1M")
+        );
     }
 
     #[test]

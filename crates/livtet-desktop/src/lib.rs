@@ -404,6 +404,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::atproto::atproto_get_profile,
         commands::atproto::atproto_update_profile,
         commands::atproto::atproto_set_avatar,
+        commands::atproto_shelves::list_shelved_books,
+        commands::atproto_shelves::import_shelved_book,
         commands::reviews::save_local_review,
         commands::reviews::load_local_reviews,
         commands::reviews::remove_local_review,

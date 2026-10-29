@@ -8,6 +8,7 @@ import {
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { onDestroy, onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
+import { atprotoStatus } from '../../lib/atproto'
 import { registerSearchTarget } from '../../lib/hotkeys/searchTarget.svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
 import {
@@ -29,11 +30,12 @@ import FilterPanel from '../../lib/library/FilterPanel.svelte'
 import { activeChips, activeFilterCount, removeAxisId } from '../../lib/library/filterAxes'
 import LibraryToolbar from '../../lib/library/LibraryToolbar.svelte'
 import SelectionActionBar, { TAG_BUTTON_ID } from '../../lib/library/SelectionActionBar.svelte'
+import ShelvedBooksDrawer from '../../lib/library/ShelvedBooksDrawer.svelte'
 import { Selection } from '../../lib/library/selection.svelte'
 import { sentinel } from '../../lib/library/sentinel'
 import TagPicker from '../../lib/library/TagPicker.svelte'
 import VirtualBookDrawer from '../../lib/library/VirtualBookDrawer.svelte'
-import { catalogKeys, searchKeys } from '../../lib/query/keys'
+import { atprotoKeys, catalogKeys, searchKeys } from '../../lib/query/keys'
 import { openReaderWindow } from '../../lib/reader/read'
 import {
   coverUrlFor,
@@ -114,6 +116,15 @@ const filterOptions = createQuery(() => ({
   staleTime: 5 * 60 * 1000,
 }))
 
+// The shelf entry is only offered while an ATProto account is signed in.
+const atproto = createQuery(() => ({
+  queryKey: atprotoKeys.status(),
+  queryFn: atprotoStatus,
+  staleTime: 60 * 1000,
+}))
+
+const atprotoSignedIn = $derived((atproto.data ?? null) !== null)
+
 const chips = $derived(activeChips(filters, filterOptions.data))
 const activeCount = $derived(activeFilterCount(filters))
 
@@ -126,6 +137,7 @@ const showSuggestions = $derived(
 
 let addBookOpen = $state(false)
 let addVirtualBookOpen = $state(false)
+let addShelvedOpen = $state(false)
 let selectedEditionId = $state<string | null>(null)
 let detailOpen = $state(false)
 
@@ -273,6 +285,8 @@ function selectSuggestion(title: string) {
 <LibraryToolbar
   onaddbook={() => (addBookOpen = true)}
   onaddvirtualbook={() => (addVirtualBookOpen = true)}
+  onshelvedbooks={() => (addShelvedOpen = true)}
+  {atprotoSignedIn}
   activeFilterCount={activeCount}
   filtersExpanded={filtersOpen}
   filtersButtonId={FILTERS_BUTTON_ID}
@@ -432,6 +446,7 @@ function selectSuggestion(title: string) {
   open={addVirtualBookOpen}
   onclose={() => (addVirtualBookOpen = false)}
 />
+<ShelvedBooksDrawer open={addShelvedOpen} onclose={() => (addShelvedOpen = false)} />
 <EditionDetailDrawer
   editionId={selectedEditionId}
   open={detailOpen}

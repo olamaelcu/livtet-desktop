@@ -74,8 +74,67 @@ pub(crate) fn book_shelving_record(
     })
 }
 
+/// One shelved book, as the account's own repository holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShelvingRecord {
+    /// `at://` URI of the edition record the shelving record points at.
+    pub book_uri: String,
+    /// Title the account shelved the book under.
+    pub title: String,
+    /// Reading status key (`reading`, `read`, `to-read`, `dnf`) when the record
+    /// names one this app knows.
+    pub shelf_key: Option<&'static str>,
+    /// The record's `createdAt`, verbatim: when the book was shelved.
+    pub added_at: Option<String>,
+}
+
+/// Parse one `bookShelving` value from `com.atproto.repo.listRecords`.
+///
+/// A record without a `book.ref` or a non-empty title is skipped rather than
+/// guessed at. The reading status comes from `metadata.status`, falling back to
+/// the shelf URI's rkey: both name the shelf record the entry sits on, and a
+/// status this app does not have keeps the book importable without a shelf.
+pub(crate) fn shelving_record_from_value(value: &Value) -> Option<ShelvingRecord> {
+    let book_uri = value
+        .get("book")
+        .and_then(|book| book.get("ref"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|uri| uri.starts_with("at://"))?;
+    let title = value
+        .get("book")
+        .and_then(|book| book.get("title"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|title| !title.is_empty())?;
+    let status_key = value
+        .get("metadata")
+        .and_then(|metadata| metadata.get("status"))
+        .and_then(Value::as_str)
+        .or_else(|| {
+            value
+                .get("shelf")
+                .and_then(Value::as_str)
+                .and_then(derive_rkey)
+        });
+
+    Some(ShelvingRecord {
+        book_uri: book_uri.to_string(),
+        title: title.to_string(),
+        shelf_key: status_key
+            .and_then(ReadingStatus::from_key)
+            .map(|status| status.as_str()),
+        added_at: value
+            .get("createdAt")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::*;
 
     const DID: &str = "did:plc:e2ctbutx6kya6si4if5ngjmm";
@@ -146,5 +205,70 @@ mod tests {
         assert_eq!(derive_rkey("not-a-uri"), None);
         assert_eq!(derive_rkey("at://did:plc:abc/collection"), None);
         assert_eq!(derive_rkey("at://did:plc:abc/collection/"), None);
+    }
+
+    /// A record copied from the account's repository (`listRecords`).
+    fn stored_shelving_record() -> Value {
+        json!({
+            "$type": BOOK_SHELVING_COLLECTION,
+            "shelf": format!("at://{DID}/{SHELF_COLLECTION}/read"),
+            "book": {
+                "ref": "at://did:web:biblio.livtet.olamaelcu.net/community.lexicon.book.edition/ol.OL997340M",
+                "title": "Whores and other feminists",
+            },
+            "metadata": { "status": "read" },
+            "createdAt": NOW,
+            "updatedAt": NOW,
+        })
+    }
+
+    #[test]
+    fn parses_a_stored_shelving_record() {
+        let parsed = shelving_record_from_value(&stored_shelving_record()).expect("parsed");
+        assert_eq!(
+            parsed.book_uri,
+            "at://did:web:biblio.livtet.olamaelcu.net/community.lexicon.book.edition/ol.OL997340M"
+        );
+        assert_eq!(parsed.title, "Whores and other feminists");
+        assert_eq!(parsed.shelf_key, Some("read"));
+        assert_eq!(parsed.added_at.as_deref(), Some(NOW));
+    }
+
+    #[test]
+    fn falls_back_to_the_shelf_rkey_for_the_reading_status() {
+        let mut value = stored_shelving_record();
+        value.as_object_mut().expect("object").remove("metadata");
+        assert_eq!(
+            shelving_record_from_value(&value)
+                .expect("parsed")
+                .shelf_key,
+            Some("read")
+        );
+    }
+
+    #[test]
+    fn an_unknown_shelf_still_yields_the_book() {
+        let mut value = stored_shelving_record();
+        value["metadata"] = json!({ "status": "paused" });
+        value["shelf"] = json!(format!("at://{DID}/{SHELF_COLLECTION}/paused"));
+        let parsed = shelving_record_from_value(&value).expect("parsed");
+        assert_eq!(parsed.shelf_key, None);
+        assert_eq!(parsed.title, "Whores and other feminists");
+    }
+
+    #[test]
+    fn records_without_a_book_reference_or_title_are_skipped() {
+        let mut no_ref = stored_shelving_record();
+        no_ref["book"] = json!({ "title": "Untethered" });
+        assert_eq!(shelving_record_from_value(&no_ref), None);
+
+        let mut bad_ref = stored_shelving_record();
+        bad_ref["book"] = json!({ "ref": "ol.OL1M", "title": "Untethered" });
+        assert_eq!(shelving_record_from_value(&bad_ref), None);
+
+        let mut no_title = stored_shelving_record();
+        no_title["book"] =
+            json!({ "ref": "at://did:web:x/community.lexicon.book.edition/1", "title": "   " });
+        assert_eq!(shelving_record_from_value(&no_title), None);
     }
 }

@@ -9,10 +9,17 @@ interface Props {
   empty?: boolean
   chips?: number
   selecting?: boolean
+  atprotoSignedIn?: boolean
   onvisible?: () => void
 }
 
-let { empty = false, chips = 0, selecting = false, onvisible = () => {} }: Props = $props()
+let {
+  empty = false,
+  chips = 0,
+  selecting = false,
+  atprotoSignedIn = false,
+  onvisible = () => {},
+}: Props = $props()
 let scrollElement = $state<HTMLElement>()
 
 // AppFrame hosts the nav rail, which reads its badges through createQuery.
@@ -31,6 +38,8 @@ const client = new QueryClient({
         <LibraryToolbar
           onaddbook={() => {}}
           onaddvirtualbook={() => {}}
+          onshelvedbooks={() => {}}
+          {atprotoSignedIn}
           selectionMode={selecting}
           ontoggleselect={() => {}}
           coverSize="medium"
