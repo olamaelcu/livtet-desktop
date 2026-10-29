@@ -21,8 +21,8 @@ importers:
         specifier: ^5.3.0
         version: 5.3.0
       '@olamaelcu/livtet-branding':
-        specifier: github:olamaelcu/livtet-branding#3c574657b9d7abb3db9b911fda9127438f13b8d6
-        version: https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/3c574657b9d7abb3db9b911fda9127438f13b8d6(@awesome.me/webawesome@3.10.0(@floating-ui/utils@0.2.12)(@types/node@26.1.2)(@types/react@19.2.17))(svelte@5.56.8)
+        specifier: github:olamaelcu/livtet-branding#6f6ee01572c17987ae8138ee7a51e715c0fb2489
+        version: https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/6f6ee01572c17987ae8138ee7a51e715c0fb2489(@awesome.me/webawesome@3.10.0(@floating-ui/utils@0.2.12)(@types/node@26.1.2)(@types/react@19.2.17))(svelte@5.56.8)
       '@readium/css':
         specifier: ^2.0.5
         version: 2.0.5
@@ -419,8 +419,8 @@ packages:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
 
-  '@olamaelcu/livtet-branding@https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/3c574657b9d7abb3db9b911fda9127438f13b8d6':
-    resolution: {gitHosted: true, integrity: sha512-Igiw7nhxYUlBoM49hNEtrXwZlR6Hmqhfjt1tpNSvTJUZ1B3Fz8gsIpxFa6ULXDV4BohMGD4YR6jmI6dB3HlJ+w==, tarball: https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/3c574657b9d7abb3db9b911fda9127438f13b8d6}
+  '@olamaelcu/livtet-branding@https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/6f6ee01572c17987ae8138ee7a51e715c0fb2489':
+    resolution: {gitHosted: true, integrity: sha512-6BTEMuP7Gu/DJzYLsbC37cejYIHy6AIryDMOCedW0WJSaBEMRPn6MIhKVD/cfB/fxhzoWlqGVynwyVVR21A/Tg==, tarball: https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/6f6ee01572c17987ae8138ee7a51e715c0fb2489}
     version: 0.1.0
     peerDependencies:
       '@awesome.me/webawesome': ^3.0.0
@@ -2386,7 +2386,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.3
     optional: true
 
-  '@olamaelcu/livtet-branding@https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/3c574657b9d7abb3db9b911fda9127438f13b8d6(@awesome.me/webawesome@3.10.0(@floating-ui/utils@0.2.12)(@types/node@26.1.2)(@types/react@19.2.17))(svelte@5.56.8)':
+  '@olamaelcu/livtet-branding@https://codeload.github.com/olamaelcu/livtet-branding/tar.gz/6f6ee01572c17987ae8138ee7a51e715c0fb2489(@awesome.me/webawesome@3.10.0(@floating-ui/utils@0.2.12)(@types/node@26.1.2)(@types/react@19.2.17))(svelte@5.56.8)':
     dependencies:
       '@awesome.me/webawesome': 3.10.0(@floating-ui/utils@0.2.12)(@types/node@26.1.2)(@types/react@19.2.17)
       '@fontsource-variable/lora': 5.3.0

@@ -36,13 +36,24 @@ themes/default.css    (wa-theme layer, stock values)
 native.css
 ```
 
-The two layers are what make this safe: the generated token files write into
-`@layer wa-theme-overrides` and the theme into `@layer wa-theme`, the same layer
-Web Awesome's `default.css` writes to, so a later import wins by layer position —
-no `!important`, no specificity races, and nothing to add to the markup (the
-tokens target `:where(:root)` as well as `.wa-theme-livtet`/`.wa-palette-livtet`).
-That ordering is pinned by `web/tests/browser/theme.browser.test.ts`, which
-asserts the brand ramp value, the focus-ring mapping and both colour schemes.
+The two layers are what make this safe, and they behave differently:
+
+- The generated token files write into `@layer wa-theme-overrides`. A layer
+  declared after Web Awesome's own outranks it regardless of where the import
+  sits, so the tokens win by layer priority rather than source order — measured
+  by moving the import ahead of `default.css`, which changed nothing. No
+  `!important`, no specificity races, nothing to add to the markup: the tokens
+  target `:where(:root)` as well as `.wa-theme-livtet`/`.wa-palette-livtet`.
+- The component theme writes into `@layer wa-theme`, the same layer as
+  `default.css`, so within that layer the later declaration wins and the import
+  must follow `default.css`.
+
+`web/tests/browser/theme.browser.test.ts` pins the outcome by comparing the
+computed custom properties with the package's own `tokens.json` (brand ramp base
+colour, focus mapped onto the ramp, both colour schemes, font stacks), so a
+palette bump needs no test edit while a dropped import fails: removing the brand
+import turns the assertions into `white` and `ui-sans-serif`, which is how the
+guard was checked.
 
 `app.css` keeps one token override: `--wa-font-family-heading` names the static
 `Lora` family, but only `@fontsource-variable/lora` is installed and it registers
