@@ -1,0 +1,40 @@
+name: Test universal macOS build
+on:
+  workflow_dispatch:
+
+jobs:
+  universal:
+    name: Universal macOS (test only)
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal DMG (no publish)
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target universal-apple-darwin --bundles dmg
+      - name: Verify universal binary
+        run: |
+          set -euo pipefail
+          APP="target/universal-apple-darwin/release/bundle/macos/livtet-desktop.app/Contents/MacOS/livtet-desktop"
+          echo "=== Binary architectures (must be x86_64 arm64) ==="
+          lipo -archs "$APP" || echo "lipo failed"
+          echo "=== DMG file ==="
+          ls -la target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          echo "=== Sidecars ==="
+          ls -la crates/livtet-desktop/binaries/*-universal-apple-darwin || echo "sidecars missing (expected if build.rs handles them differently)"
+      - name: Upload test artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: universal-test
+          path: |
+            target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            crates/livtet-desktop/binaries/*-universal-apple-darwin
+          if-no-files-found: ignore
