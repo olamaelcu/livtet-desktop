@@ -238,14 +238,14 @@ test('shows the avatar and uploads a new one', async () => {
   profile = {
     did: DID,
     display_name: 'Reader',
-    avatar_url: 'https://livtet.olamaelcu.net/user/profileImage/' + DID,
+    avatar_url: `https://livtet.olamaelcu.net/user/profileImage/${DID}`,
   }
 
   const { container } = await render(AccountSettingsFixture)
 
   await expect.poll(() => container.querySelector('img.avatar')).not.toBeNull()
   expect(container.querySelector('img.avatar')?.getAttribute('src')).toBe(
-    'https://livtet.olamaelcu.net/user/profileImage/' + DID,
+    `https://livtet.olamaelcu.net/user/profileImage/${DID}`,
   )
 
   await clickButton(container, 'Change avatar')
