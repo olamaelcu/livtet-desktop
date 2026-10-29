@@ -45,9 +45,9 @@ brew install --cask livtet
 ### Debian / Ubuntu (signed APT repository)
 
 ```sh
-curl -fsSL https://olamaelcu.github.io/livtet-desktop/apt/livtet.asc \
+curl -fsSL https://download.livtet.olamaelcu.net/apt/livtet.asc \
   | sudo tee /usr/share/keyrings/livtet.asc >/dev/null
-echo "deb [signed-by=/usr/share/keyrings/livtet.asc] https://olamaelcu.github.io/livtet-desktop/apt stable main" \
+echo "deb [signed-by=/usr/share/keyrings/livtet.asc] https://download.livtet.olamaelcu.net/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/livtet.list
 sudo apt update
 sudo apt install livtet-desktop
@@ -57,7 +57,7 @@ sudo apt install livtet-desktop
 
 ```sh
 flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-flatpak remote-add --if-not-exists --from livtet https://olamaelcu.github.io/livtet-desktop/flatpak/livtet.flatpakrepo
+flatpak remote-add --if-not-exists --from livtet https://download.livtet.olamaelcu.net/flatpak/livtet.flatpakrepo
 flatpak install livtet net.olamaelcu.livtet
 ```
 
