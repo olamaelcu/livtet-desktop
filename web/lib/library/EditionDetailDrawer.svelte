@@ -1,10 +1,11 @@
 <script lang="ts">
 import { createQuery, useQueryClient } from '@tanstack/svelte-query'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
-import { revealItemInDir } from '@tauri-apps/plugin-opener'
+import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
+import { commands } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
-import { catalogKeys } from '../query/keys'
+import { atprotoKeys, catalogKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
 import { DEFAULT_HIGHLIGHT, HIGHLIGHTS } from '../reader/highlights'
 import { filterNotes } from '../reader/notes'
@@ -13,10 +14,9 @@ import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
-
-
-
 import ReviewInsert from './ReviewInsert.svelte'
+import ReviewsDrawer from './ReviewsDrawer.svelte'
+import ShelfSelection from './ShelfSelection.svelte'
 
 interface Props {
   editionId: string
@@ -55,10 +55,111 @@ let relinking = $state(false)
 let listening = $state(false)
 let selectedShelf = $state<string>('to-read')
 let showReviewDialog = $state(false)
+let showReviewsDrawer = $state(false)
+
+/**
+ * Whether a PDS account is signed in, asked only while the review form is
+ * open: it decides the publish switch's default and whether it can be used.
+ */
+const atprotoStatus = createQuery(() => ({
+  queryKey: atprotoKeys.status(),
+  queryFn: async () => {
+    const result = await commands.atprotoStatus()
+    // `null` is the signed-out answer, not a failure; only a real error throws.
+    if (result.status === 'error') throw new Error(JSON.stringify(result.error))
+    return result.data
+  },
+  enabled: showReviewDialog || showReviewsDrawer,
+}))
+// Tri-state on purpose: `undefined` until the status query answers, so the
+// form's switch does not flash off (and latch off) while it is loading.
+const signedIn = $derived(
+  atprotoStatus.data === undefined ? undefined : atprotoStatus.data !== null,
+)
 let reviewForm = $state<{ ok?: boolean; error?: string }>()
+let reviewSubmitting = $state(false)
+/** The reviewed book's page in the Livtet web app, once publishing resolved it. */
+let reviewPageUrl = $state<string | null>(null)
+/**
+ * How many reviews `ReviewsDrawer` has stored for this edition. Bound from the
+ * drawer so the trigger button can show it without fetching on its own.
+ */
+let localReviewCount = $state(0)
+// The drawer is reused across books; a page link from the previous edition
+// must not linger on the next one.
+$effect(() => {
+  void editionId
+  reviewPageUrl = null
+})
+
+/**
+ * Save the review locally, then publish it to the PDS in the background.
+ *
+ * The local write is the promise the reader gets: publishing is best effort,
+ * because a signed-out account or an unreachable index must not cost them the
+ * words they just typed.
+ */
+async function submitReview(text: string, rating: number, publish: boolean) {
+  if (!editionId || reviewSubmitting) return
+  const title = book?.title ?? ''
+  const stars = rating > 0 ? rating : null
+  try {
+    reviewSubmitting = true
+    reviewForm = undefined
+    const saved = await commands.saveLocalReview(editionId, text, stars)
+    if (saved.status === 'error') {
+      reviewForm = { error: saved.error.message }
+      return
+    }
+    reviewForm = { ok: true }
+    showReviewDialog = false
+    void queryClient.invalidateQueries({ queryKey: catalogKeys.editionReviews(editionId) })
+    if (!publish) {
+      toast.success('Review saved — not published to your PDS')
+      return
+    }
+    toast.success('Review saved')
+    // Publishing is best effort: the local row is already written, so a
+    // failure here downgrades to a warning instead of losing the review.
+    void commands
+      .putLocalReviewToPds(saved.data.id, title)
+      .then((sync) => {
+        const pageUrl = sync.status === 'ok' ? sync.data.book_page_url : null
+        if (pageUrl) reviewPageUrl = pageUrl
+        if (sync.status === 'error') {
+          toast.error(`Saved locally — publishing failed: ${sync.error.message}`)
+        } else if (sync.data.error) {
+          toast.error(`Saved locally — publishing failed: ${sync.data.error}`)
+        } else {
+          toast.success('Review published to your PDS', {
+            action: pageUrl
+              ? { label: 'View on Livtet', onClick: () => openPage(pageUrl) }
+              : undefined,
+          })
+        }
+      })
+      .catch((error: unknown) => {
+        toast.error(
+          `Saved locally — publishing failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+  } catch (error) {
+    reviewForm = { error: error instanceof Error ? error.message : 'Could not save the review' }
+  } finally {
+    reviewSubmitting = false
+  }
+}
+
+function openPage(url: string) {
+  void openUrl(url).catch((error: unknown) => {
+    toast.error(error instanceof Error ? error.message : 'Could not open the page')
+  })
+}
 
 const isAudiobook = $derived(book?.format?.toLowerCase() === 'audiobook')
-const canListen = $derived(isAudiobook && book?.file != null && book.file.file_status !== 'missing')
+const canListen = $derived(
+  isAudiobook && book?.file?.file_path != null && book.file.file_status !== 'missing',
+)
 
 async function listenBook() {
   if (!editionId || listening) return
@@ -193,39 +294,45 @@ async function revealFile(path: string) {
         {@const file = book.file}
         <section class="section">
           <h3 class="section-title">File</h3>
-          <div>
-            <ActionButton onclick={readBook} disabled={!canOpenInReader(file)}>
-              <wa-icon name="book-open"></wa-icon>
-              Read
-            </ActionButton>
-          </div>
-          <dl class="facts">
-            {#if file.file_size_bytes !== null}
-              {@const size = file.file_size_bytes}
-              <div class="fact">
-                <dt>Size</dt>
-                <dd>{formatFileSize(size)}</dd>
-              </div>
+          {#if !file.file_path}
+            <p class="muted">
+              Virtual book — this edition has no file on disk, so it cannot be read here.
+            </p>
+          {:else}
+            <div>
+              <ActionButton onclick={readBook} disabled={!canOpenInReader(file)}>
+                <wa-icon name="book-open"></wa-icon>
+                Read
+              </ActionButton>
+            </div>
+            <dl class="facts">
+              {#if file.file_size_bytes !== null}
+                {@const size = file.file_size_bytes}
+                <div class="fact">
+                  <dt>Size</dt>
+                  <dd>{formatFileSize(size)}</dd>
+                </div>
+              {/if}
+              {#if file.file_path}
+                {@const path = file.file_path}
+                <div class="fact">
+                  <dt>Path</dt>
+                  <dd class="path">
+                    <ActionButton
+                      onclick={() => revealFile(path)}
+                      disabled={file.file_status === 'missing'}
+                    >
+                      <wa-icon name="folder-open"></wa-icon>
+                      Open
+                    </ActionButton>
+                  </dd>
+                </div>
+              {/if}
+            </dl>
+            {#if file.file_status === 'missing'}
+              <p class="error">The linked file is missing — the original was moved or deleted.</p>
+              <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
             {/if}
-            {#if file.file_path}
-              {@const path = file.file_path}
-              <div class="fact">
-                <dt>Path</dt>
-                <dd class="path">
-                  <ActionButton
-                    onclick={() => revealFile(path)}
-                    disabled={file.file_status === 'missing'}
-                  >
-                    <wa-icon name="folder-open"></wa-icon>
-                    Open
-                  </ActionButton>
-                </dd>
-              </div>
-            {/if}
-          </dl>
-          {#if file.file_status === 'missing'}
-            <p class="error">The linked file is missing — the original was moved or deleted.</p>
-            <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
           {/if}
         </section>
       {/if}
@@ -244,26 +351,39 @@ async function revealFile(path: string) {
         onChange={(k) => (selectedShelf = k)}
       />
 
-{#if book}
-  <section class="section" id="review-section">
-    <h3 class="section-title">Write a Review</h3>
-    <ActionButton onclick={() => { showReviewDialog = true; }}>
-      <wa-icon name="square-pen"></wa-icon>
-      Write Review
-    </ActionButton>
-  </section>
-{/if}
+      <section class="section" id="review-section">
+        <h3 class="section-title">Write a Review</h3>
+        <div class="review-actions">
+          <ActionButton onclick={() => (showReviewDialog = true)}>
+            <wa-icon name="square-pen"></wa-icon>
+            Write Review
+          </ActionButton>
+          <ActionButton onclick={() => (showReviewsDrawer = true)}>
+            <wa-icon name="comments"></wa-icon>
+            Reviews{localReviewCount > 0 ? ` (${localReviewCount})` : ''}
+          </ActionButton>
+          {#if reviewPageUrl}
+            <ActionButton onclick={() => openPage(reviewPageUrl!)}>
+              <wa-icon name="arrow-up-right-from-square"></wa-icon>
+              View on Livtet
+            </ActionButton>
+          {/if}
+        </div>
+      </section>
 
-<wa-dialog id="review-dialog" open={showReviewDialog} label="Add new review" light-dismiss onwa-after-hide={() => { showReviewDialog = false; }}>
-  <section class="dialog-body" slot="main">
-    <h3 class="dialog-title">Add new review</h3>
-    <ReviewInsert
-      onSuccess={() => { showReviewDialog = false; }}
-      onClose={() => { showReviewDialog = false; }}
-      onSubmit={() => { showReviewDialog = false; }}
-    />
-  </section>
-</wa-dialog>
+      <wa-dialog
+        open={showReviewDialog}
+        label="Add new review"
+        onwa-after-hide={() => (showReviewDialog = false)}
+      >
+        <ReviewInsert
+          form={reviewForm}
+          {signedIn}
+          onSubmit={submitReview}
+          onClose={() => (showReviewDialog = false)}
+        />
+      </wa-dialog>
+
 
       {#if readerNotes.data && readerNotes.data.length > 0}
         <section class="section">
@@ -309,6 +429,16 @@ async function revealFile(path: string) {
   </div>
 </wa-drawer>
 
+<ReviewsDrawer
+  {editionId}
+  open={showReviewsDrawer}
+  enabled={open && editionId !== null}
+  bind:count={localReviewCount}
+  bookTitle={book?.title ?? ''}
+  {signedIn}
+  onclose={() => (showReviewsDrawer = false)}
+/>
+
 <style>
   .body {
     display: flex;
@@ -353,7 +483,7 @@ async function revealFile(path: string) {
     height: 100%;
     padding: var(--wa-space-s);
     font-size: var(--wa-font-size-xs);
-    color: var(--wa-color-text-secondary);
+    color: var(--wa-color-text-quiet);
     text-align: center;
   }
 
@@ -402,7 +532,7 @@ async function revealFile(path: string) {
   }
 
   .fact dt {
-    color: var(--wa-color-text-secondary);
+    color: var(--wa-color-text-quiet);
   }
 
   .fact dd {
@@ -428,7 +558,7 @@ async function revealFile(path: string) {
   .section-title {
     margin: 0;
     font-size: var(--wa-font-size-s);
-    color: var(--wa-color-text-secondary);
+    color: var(--wa-color-text-quiet);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -477,15 +607,19 @@ async function revealFile(path: string) {
 
   .note-quote {
     margin: 0;
-    padding: var(--wa-space-2xs);
+    padding: var(--wa-space-s);
     border-inline-start: 2px solid var(--wa-color-border-default);
-    color: var(--wa-color-text-secondary);
+    color: var(--wa-color-text-normal);
+    border-radius: var(--wa-space-2xs);
     font-style: italic;
+    font-size: 115%;
   }
 
   .note-text {
     margin: 0;
     overflow-wrap: anywhere;
+    color: var(--wa-color-text-quiet);
+    font-size: 85%;
   }
 
   .note-date {
@@ -494,7 +628,7 @@ async function revealFile(path: string) {
   }
 
   .muted {
-    color: var(--wa-color-text-secondary);
+    color: var(--wa-color-text-quiet);
   }
 
   .search-row {
@@ -508,7 +642,7 @@ async function revealFile(path: string) {
   .empty {
     margin: 0;
     padding: var(--wa-space-xs);
-    color: var(--wa-color-text-secondary);
+    color: var(--wa-color-text-quiet);
     font-size: var(--wa-font-size-s);
   }
 
@@ -516,21 +650,11 @@ async function revealFile(path: string) {
     color: var(--wa-color-danger);
   }
 
-  #review-dialog {
+  .review-actions {
     display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-m);
-  }
-
-  .dialog-title {
-    margin: 0;
-    font-size: var(--wa-font-size-m);
-  }
-
-  .dialog-actions {
-    display: flex;
-    justify-content: flex-end;
+    flex-wrap: wrap;
     gap: var(--wa-space-xs);
-    margin-top: var(--wa-space-xs);
+    margin: 0 auto;
   }
+
 </style>

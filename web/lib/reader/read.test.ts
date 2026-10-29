@@ -194,4 +194,9 @@ describe('canOpenInReader', () => {
     expect(canOpenInReader(undefined)).toBe(false)
     expect(canOpenInReader({})).toBe(false)
   })
+
+  it('rejects a virtual book, which keeps a format but no file path', () => {
+    expect(canOpenInReader({ file_path: null, file_format: 'epub' })).toBe(false)
+    expect(canOpenInReader({ file_format: 'pdf' })).toBe(false)
+  })
 })

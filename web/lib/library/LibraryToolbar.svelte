@@ -10,6 +10,8 @@ import {
 
 interface Props {
   onaddbook: () => void
+  /** Opens the virtual-book drawer (catalog-only book, no file). */
+  onaddvirtualbook: () => void
   activeFilterCount?: number
   /** Whether the filter popover is open; drives `aria-expanded`. */
   filtersExpanded?: boolean
@@ -25,6 +27,7 @@ interface Props {
 
 let {
   onaddbook,
+  onaddvirtualbook,
   activeFilterCount = 0,
   filtersExpanded = false,
   filtersButtonId,
@@ -69,6 +72,10 @@ function handleCoverSize(event: Event) {
     <ActionButton variant="brand" onclick={onaddbook}>
       <wa-icon name="plus"></wa-icon>
       Add book
+    </ActionButton>
+    <ActionButton onclick={onaddvirtualbook}>
+      <wa-icon name="book"></wa-icon>
+      Add virtual book
     </ActionButton>
   </wa-button-group>
   <wa-slider

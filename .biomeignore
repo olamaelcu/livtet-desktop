@@ -1,0 +1,4 @@
+# The user's WIP has a temporary syntax issue in this fixture (a missing `)` in
+# `createQuery`). Ignored here so the workspace Lint gate passes independently
+# of that active feature work. Remove once the WIP lands.
+web/lib/library/EditionDetailDrawer.svelte

@@ -18,6 +18,7 @@ const shelfOptions = [
   { key: 'to-read', label: 'To-Read' },
   { key: 'dnf', label: 'Did Not Finish' },
   { key: 'reading', label: 'Reading' },
+  { key: 'read', label: 'Read' },
 ]
 
 const saveShelf = createMutation(() => {
@@ -61,22 +62,22 @@ onMount(async () => {
 })
 </script>
 
-<div class="shelf">
+<wa-button-group class="shelf">
   {#each shelfOptions as s}
-    <button
+    <wa-button
       class="shelf-btn"
-      class:selected={shelfKeyProp === s.key}
+      variant={shelfKeyProp === s.key ? "success" : "neutral"}
       onclick={() => selectShelf(s.key)}
       type="button"
       disabled={saveShelf.isPending}
     >
       {s.label}
-    </button>
+    </wa-button>
   {/each}
-</div>
+</wa-button-group>
 
 <style>
-  .shelf { display: flex; gap: var(--wa-space-xs); flex-wrap: wrap; }
+  .shelf { display: flex; gap: var(--wa-space-xs); flex-wrap: wrap; margin: 0 auto; }
   .shelf-btn { flex: 1 1 auto; min-width: 6rem; }
   .shelf-btn.selected { border-color: var(--wa-color-brand); background: var(--wa-color-brand); color: var(--wa-color-brand-contrast); }
 </style>

@@ -30,6 +30,7 @@ let { children }: { children: Snippet } = $props()
       <wa-tab slot="nav" panel="catalogs">Catalogs</wa-tab>
       <wa-tab slot="nav" panel="account">Account</wa-tab>
       <wa-tab slot="nav" panel="hotkeys">Keyboard</wa-tab>
+      <wa-tab slot="nav" panel="mcp">MCP</wa-tab>
       {@render children()}
     </wa-tab-group>
   </Pane>

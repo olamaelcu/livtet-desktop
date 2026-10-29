@@ -4793,6 +4793,7 @@ dependencies = [
  "poem",
  "rand 0.10.3",
  "reqwest 0.12.28",
+ "rmcp",
  "rusqlite",
  "serde",
  "serde_json",

@@ -63,8 +63,8 @@ $effect(() => {
     <span
       class="file-badge {in_filesystem ? 'is-local' : 'is-remote'}"
       role="img"
-      aria-label={in_filesystem ? 'In filesystem' : 'Not in filesystem'}
-      title={in_filesystem ? 'In filesystem' : 'Not in filesystem'}
+      aria-label={in_filesystem ? 'In filesystem' : 'Virtual book'}
+      title={in_filesystem ? 'In filesystem' : 'Virtual book (no file on disk)'}
     >
       <wa-icon name={in_filesystem ? 'hard-drive' : 'cloud'}></wa-icon>
     </span>

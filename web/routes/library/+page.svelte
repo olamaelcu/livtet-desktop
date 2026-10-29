@@ -32,6 +32,7 @@ import SelectionActionBar, { TAG_BUTTON_ID } from '../../lib/library/SelectionAc
 import { Selection } from '../../lib/library/selection.svelte'
 import { sentinel } from '../../lib/library/sentinel'
 import TagPicker from '../../lib/library/TagPicker.svelte'
+import VirtualBookDrawer from '../../lib/library/VirtualBookDrawer.svelte'
 import { catalogKeys, searchKeys } from '../../lib/query/keys'
 import { openReaderWindow } from '../../lib/reader/read'
 import {
@@ -124,6 +125,7 @@ const showSuggestions = $derived(
 )
 
 let addBookOpen = $state(false)
+let addVirtualBookOpen = $state(false)
 let selectedEditionId = $state<string | null>(null)
 let detailOpen = $state(false)
 
@@ -270,6 +272,7 @@ function selectSuggestion(title: string) {
   {#snippet toolbar()}
 <LibraryToolbar
   onaddbook={() => (addBookOpen = true)}
+  onaddvirtualbook={() => (addVirtualBookOpen = true)}
   activeFilterCount={activeCount}
   filtersExpanded={filtersOpen}
   filtersButtonId={FILTERS_BUTTON_ID}
@@ -425,6 +428,10 @@ function selectSuggestion(title: string) {
 />
 
 <AddBookDrawer open={addBookOpen} onclose={() => (addBookOpen = false)} />
+<VirtualBookDrawer
+  open={addVirtualBookOpen}
+  onclose={() => (addVirtualBookOpen = false)}
+/>
 <EditionDetailDrawer
   editionId={selectedEditionId}
   open={detailOpen}

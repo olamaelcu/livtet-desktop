@@ -4,6 +4,7 @@ use crate::{
         MAX_AVATAR_BYTES, PLATFORM_AVATAR_BASE, PROFILE_COLLECTION, PROFILE_RKEY, REDIRECT_URI,
         client_metadata,
         http_log::LoggingHttpClient,
+        review_records::{REVIEW_COLLECTION, review_record},
         shelf_records::{
             BOOK_SHELVING_COLLECTION, SHELF_COLLECTION, book_shelving_record, derive_rkey,
             shelf_record, status_shelf_uri,
@@ -570,6 +571,40 @@ impl AtprotoManager {
             record_uri: written.uri,
             shelf_uri: written_shelf.uri,
         })
+    }
+
+    /// Write a review record for a book edition to the account's repository.
+    ///
+    /// `rkey` is chosen by the caller — a local review's own id, or the rkey of
+    /// the record it was already published as — so each local review owns one
+    /// record and re-publishing (or editing) that review upserts it in place.
+    /// `validate` stays off, matching `review-writer.ts`.
+    ///
+    /// The collection is `net.olamaelcu.livtet.bookReview` because that is the
+    /// scope the account's OAuth grant carries; any other collection fails with
+    /// `InsufficientScope`.
+    pub(crate) async fn write_review(
+        &self,
+        book_uri: &str,
+        book_cid: &str,
+        rkey: &str,
+        text: &str,
+        rating: Option<f64>,
+    ) -> Result<String, AtprotoError> {
+        let did_str = self.get_current_did().await?;
+        let did = did_str.parse::<Did>().map_err(|e| AtprotoError::Keyring {
+            message: e.to_string(),
+        })?;
+        self.ensure_fresh(&did).await?;
+        let session = self.restore_session(&did).await?;
+        let now = atrium_api::types::string::Datetime::now()
+            .as_str()
+            .to_string();
+
+        let body = review_record(book_uri, book_cid, text, rating, &now);
+        let request = put_record_request(did.as_str(), REVIEW_COLLECTION, rkey, &body, false);
+        let written = self.send_put_record(&session, &request, "review").await?;
+        Ok(written.uri)
     }
 
     async fn send_put_record(

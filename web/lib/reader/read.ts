@@ -125,7 +125,8 @@ export interface ReadableFile {
 const READABLE_FORMATS = ['epub', 'pdf']
 
 export function canOpenInReader(file: ReadableFile | null | undefined): boolean {
-  if (!file || file.file_status === 'missing') return false
+  // A virtual book keeps an inventory row with no file_path: nothing opens.
+  if (!file || file.file_status === 'missing' || !file.file_path) return false
   if (file.file_format) {
     return READABLE_FORMATS.includes(file.file_format.toLowerCase())
   }

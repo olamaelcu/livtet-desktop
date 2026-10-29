@@ -46,4 +46,7 @@ pub struct AppState {
 
     /// ATProto OAuth session and manager.
     pub(crate) atproto: Arc<crate::atproto::AtprotoManager>,
+    /// The localhost-only MCP endpoint: its persisted settings and the live
+    /// listener, so Settings can start, stop, or move it (ADR-0041).
+    pub mcp: Arc<crate::mcp::McpRuntime>,
 }

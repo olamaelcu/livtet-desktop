@@ -54,7 +54,7 @@ pub struct ImportOutcome {
 
 #[derive(Debug, Clone, Serialize, Type)]
 pub struct ImportError {
-    /// Stable machine code: `parse` | `database` | `index` | `io` | `importer` | `unsupported`.
+    /// Stable machine code: `parse` | `database` | `index` | `io` | `importer` | `network` | `unsupported`.
     pub(crate) code: String,
     pub(crate) message: String,
 }
@@ -1012,6 +1012,431 @@ pub(crate) async fn persist_import(
     })
 }
 
+/// One contributor on a manually created virtual book.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct VirtualAuthor {
+    pub name: String,
+    /// MARC relator code; empty defaults to `aut`.
+    #[serde(default)]
+    pub role: String,
+}
+
+/// Catalog metadata for a book that exists only in the database (no file on
+/// disk). Created by [`create_virtual_book`].
+///
+/// `language_id` and `format_id` are `formats.id` / `languages.id` values the
+/// caller picks from `filter_options`; the command fails closed on an unknown
+/// id.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct VirtualBookInput {
+    pub title: String,
+    #[serde(default)]
+    pub authors: Vec<VirtualAuthor>,
+    #[serde(default)]
+    pub publisher: Option<String>,
+    #[serde(default)]
+    pub language_id: Option<DbId>,
+    #[serde(default)]
+    pub format_id: Option<DbId>,
+    /// Free-form identifier values; ISBNs are canonicalized, the rest are
+    /// stored as `uuid` / `asin` / `other`.
+    #[serde(default)]
+    pub identifiers: Vec<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+}
+
+/// Write a virtual book: catalog rows plus a `digital_inventory` row with no
+/// `file_path`, so the edition is searchable and browsable but has no on-disk
+/// copy. A title and at least one named author are required. Kept free of Tauri
+/// state so it can be unit-tested against a `TestDb`.
+#[tracing::instrument(skip_all, ret, err)]
+pub(crate) async fn create_virtual_book_inner(
+    db: &livtet_core::data::SharedState,
+    input: VirtualBookInput,
+) -> Result<ImportOutcome, ImportError> {
+    let title = input.title.trim().to_string();
+    if title.is_empty() {
+        return Err(ImportError::new("invalid", "a virtual book needs a title"));
+    }
+    let author_bindings: Vec<(String, String)> = input
+        .authors
+        .iter()
+        .filter(|author| !author.name.trim().is_empty())
+        .map(|author| {
+            let (role, _) = normalize_contributor_role(Some(author.role.as_str()));
+            (author.name.trim().to_string(), role)
+        })
+        .collect();
+    if author_bindings.is_empty() {
+        return Err(ImportError::new(
+            "invalid",
+            "a virtual book needs at least one author",
+        ));
+    }
+
+    // Split identifiers into canonical ISBNs and non-ISBN values, mirroring
+    // `validate_importer_meta`: an ISBN-shaped value that fails to parse is
+    // demoted rather than failing the write.
+    let mut canonical_isbns = Vec::new();
+    let mut other_identifiers = Vec::new();
+    for raw in &input.identifiers {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match Isbn::parse(trimmed) {
+            Ok(canonical) => canonical_isbns.push(canonical.as_str().to_string()),
+            Err(_) => other_identifiers.push(trimmed.to_string()),
+        }
+    }
+    let isbn_strings = unique_preserving_order(&canonical_isbns);
+    let other_identifiers = unique_preserving_order(&other_identifiers);
+
+    let conn = db.db_conn();
+
+    // Resolve the chosen format/language, failing closed on an unknown id.
+    let format_name = match input.format_id {
+        Some(format_id) => Some(
+            formats::Entity::find_by_id(format_id)
+                .one(&conn)
+                .await?
+                .map(|format| format.name)
+                .ok_or_else(|| ImportError::new("invalid", "unknown format"))?,
+        ),
+        None => None,
+    };
+    if let Some(language_id) = input.language_id {
+        let exists = languages::Entity::find_by_id(language_id)
+            .one(&conn)
+            .await?
+            .is_some();
+        if !exists {
+            return Err(ImportError::new("invalid", "unknown language"));
+        }
+    }
+
+    let now = now_primitive();
+    let work_id = DbId::new();
+    let edition_id = DbId::new();
+    let inventory_id = DbId::new();
+
+    let txn = conn.begin().await?;
+    works::ActiveModel {
+        id: Set(work_id),
+        title: Set(title.clone()),
+        description: Set(input.description.clone()),
+        sort_title: Set(None),
+        series_type: Set(None),
+        language_id: Set(input.language_id),
+        preferred_edition_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(None),
+    }
+    .insert(&txn)
+    .await?;
+
+    editions::ActiveModel {
+        id: Set(edition_id),
+        work_id: Set(work_id),
+        group_id: Set(None),
+        title: Set(Some(title.clone())),
+        published_date: Set(None),
+        format_id: Set(input.format_id),
+        language_id: Set(input.language_id),
+        notes: Set(input.notes.clone()),
+        description: Set(input.description.clone()),
+        format_metadata: Set(None),
+        created_at: Set(now),
+        updated_at: Set(None),
+    }
+    .insert(&txn)
+    .await?;
+
+    for (name, role) in author_bindings {
+        let author_id = upsert_author(&txn, &name).await?;
+        edition_authors::ActiveModel {
+            edition_id: Set(edition_id),
+            author_id: Set(author_id),
+            role: Set(role),
+        }
+        .insert(&txn)
+        .await?;
+    }
+
+    if let Some(publisher) = input
+        .publisher
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        let publisher_id = upsert_publisher(&txn, publisher).await?;
+        edition_publishers::ActiveModel {
+            edition_id: Set(edition_id),
+            publisher_id: Set(publisher_id),
+        }
+        .insert(&txn)
+        .await?;
+    }
+
+    for (value, kind) in edition_identifier_rows(&isbn_strings, &other_identifiers) {
+        let identifier_id = upsert_identifier(&txn, &value, kind).await?;
+        edition_identifiers::ActiveModel {
+            edition_id: Set(edition_id),
+            identifier_id: Set(identifier_id),
+        }
+        .insert(&txn)
+        .await?;
+    }
+
+    // The `digital_inventory.file_format` column is NOT NULL with an `EPUB`
+    // default; a virtual book keeps a row so the edition stays 1:1 with its
+    // inventory, but `file_path` is NULL, which the search/badge layers read as
+    // "no file on disk".
+    digital_inventory::ActiveModel {
+        id: Set(inventory_id),
+        edition_id: Set(edition_id),
+        file_path: Set(None),
+        cover_path: Set(None),
+        blurhash: Set(None),
+        dominant_color: Set(None),
+        file_hash: Set(None),
+        file_size_bytes: Set(None),
+        file_format: Set(Some(format_name.unwrap_or_else(|| "unknown".to_string()))),
+        notes: Set(None),
+        added_at: Set(now),
+        updated_at: Set(None),
+    }
+    .insert(&txn)
+    .await?;
+
+    txn.commit().await?;
+
+    Ok(ImportOutcome {
+        work_id: work_id.to_string(),
+        edition_id: edition_id.to_string(),
+        title,
+        isbns: isbn_strings,
+        duplicate: false,
+    })
+}
+
+/// Create a virtual book: catalog metadata stored in the database with no
+/// on-disk file. The new edition is added to the search index so it appears in
+/// the library immediately.
+#[tauri::command]
+#[specta::specta]
+pub async fn create_virtual_book(
+    input: VirtualBookInput,
+    state: State<'_, AppState>,
+) -> Result<ImportOutcome, ImportError> {
+    create_virtual_book_and_index(&state.db, &state.search_index, input).await
+}
+
+/// Write a virtual book and add it to the search index, so it appears in the
+/// library immediately. Shared by the IPC command and the MCP bridge
+/// (`crate::mcp`), which reaches the same code without a Tauri state.
+pub(crate) async fn create_virtual_book_and_index(
+    db: &livtet_core::data::SharedState,
+    search_index: &tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+    input: VirtualBookInput,
+) -> Result<ImportOutcome, ImportError> {
+    let outcome = create_virtual_book_inner(db, input).await?;
+    let edition_id = outcome
+        .edition_id
+        .parse::<DbId>()
+        .map_err(|error| ImportError::new("index", error))?;
+    let conn = db.db_conn();
+    let guard = search_index.read().await;
+    if let Some(index) = guard.as_ref() {
+        index
+            .add_edition(&conn, edition_id)
+            .await
+            .map_err(|error| ImportError::new("index", error))?;
+    }
+    Ok(outcome)
+}
+
+/// One edition summary from the book index search (`searchEditions`).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct BiblioEdition {
+    /// `at://` record URI; absent only if the index omits it.
+    pub uri: Option<String>,
+    pub title: String,
+    pub cover_image_url: Option<String>,
+    pub published_year: Option<i32>,
+    pub language: Option<String>,
+    /// Contributors, with roles already normalized to MARC relator codes.
+    pub authors: Vec<BiblioContributorSummary>,
+    pub identifiers: Vec<BiblioIdentifierSummary>,
+}
+
+/// One contributor on a biblio edition summary.
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct BiblioContributorSummary {
+    pub name: String,
+    /// MARC relator code (`aut`, `edt`, `trl`, …).
+    pub role: String,
+}
+
+/// One external identifier on a biblio edition summary (e.g. OpenLibrary).
+#[derive(Debug, Clone, PartialEq, Serialize, Type)]
+pub struct BiblioIdentifierSummary {
+    pub resource: String,
+    pub uri: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct BiblioEditionSearchResponse {
+    #[serde(default)]
+    items: Vec<BiblioEditionRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BiblioEditionRef {
+    #[serde(default)]
+    uri: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default, rename = "coverImageUrl")]
+    cover_image_url: Option<String>,
+    #[serde(default, rename = "publishedYear")]
+    published_year: Option<i32>,
+    #[serde(default)]
+    language: Option<String>,
+    #[serde(default)]
+    contributors: Vec<BiblioContributorRef>,
+    #[serde(default)]
+    identifiers: Vec<BiblioIdentifierRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BiblioContributorRef {
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    role: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BiblioIdentifierRef {
+    #[serde(default)]
+    resource: Option<String>,
+    #[serde(default)]
+    uri: Option<String>,
+}
+
+/// Map a biblio contributor role to a MARC relator code the catalog stores.
+fn biblio_role_to_marc(role: Option<&str>) -> String {
+    match role
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "editor" | "edt" => "edt",
+        "translator" | "trl" => "trl",
+        "illustrator" | "ill" => "ill",
+        "narrator" | "nrt" => "nrt",
+        _ => "aut",
+    }
+    .to_string()
+}
+
+/// Fold one raw search item into the shape the drawer renders, dropping items
+/// with no title and contributors/identifiers with missing fields.
+fn map_biblio_edition(item: BiblioEditionRef) -> Option<BiblioEdition> {
+    let title = item.title.filter(|title| !title.trim().is_empty())?;
+    let authors = item
+        .contributors
+        .into_iter()
+        .filter_map(|contributor| {
+            let name = contributor.name.filter(|name| !name.trim().is_empty())?;
+            Some(BiblioContributorSummary {
+                name,
+                role: biblio_role_to_marc(contributor.role.as_deref()),
+            })
+        })
+        .collect();
+    let identifiers = item
+        .identifiers
+        .into_iter()
+        .filter_map(|identifier| {
+            Some(BiblioIdentifierSummary {
+                resource: identifier.resource?,
+                uri: identifier.uri?,
+            })
+        })
+        .collect();
+    Some(BiblioEdition {
+        uri: item.uri,
+        title,
+        cover_image_url: item.cover_image_url,
+        published_year: item.published_year,
+        language: item.language,
+        authors,
+        identifiers,
+    })
+}
+
+/// Query the book index's `searchEditions` XRPC for editions matching `query`.
+/// A blank query returns no results without hitting the network. Kept free of
+/// Tauri state so it can be unit-tested with an injected client.
+#[tracing::instrument(skip(http), fields(query = %query, limit), ret, err)]
+pub(crate) async fn search_biblio_editions_inner(
+    http: &reqwest::Client,
+    query: &str,
+    limit: i32,
+) -> Result<Vec<BiblioEdition>, ImportError> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let url = format!(
+        "{}/xrpc/{APPVIEW_EDITIONS_NSID}",
+        crate::atproto::APPVIEW_URL
+    );
+    let limit = limit.clamp(1, 50).to_string();
+    let response = http
+        .get(&url)
+        .query(&[("q", query), ("limit", limit.as_str())])
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await
+        .map_err(|e| ImportError::new("network", format!("could not reach the book index: {e}")))?;
+    if !response.status().is_success() {
+        return Err(ImportError::new(
+            "network",
+            format!("the book index answered {}", response.status()),
+        ));
+    }
+    let found: BiblioEditionSearchResponse = response.json().await.map_err(|e| {
+        ImportError::new(
+            "network",
+            format!("the book index returned an unreadable response: {e}"),
+        )
+    })?;
+    Ok(found
+        .items
+        .into_iter()
+        .filter_map(map_biblio_edition)
+        .collect())
+}
+
+/// Search the book index (`biblio.livtet.olamaelcu.net`) for editions. Powers
+/// the virtual-book drawer's search tab.
+#[tauri::command]
+#[specta::specta]
+pub async fn search_biblio_editions(
+    query: String,
+    limit: Option<i32>,
+    state: State<'_, AppState>,
+) -> Result<Vec<BiblioEdition>, ImportError> {
+    search_biblio_editions_inner(&state.opds_http, &query, limit.unwrap_or(20)).await
+}
+
 #[tauri::command]
 #[tracing::instrument(skip_all, ret, fields(count = paths.len()))]
 #[specta::specta]
@@ -1212,6 +1637,7 @@ mod tests {
         is_inside_dir, library_store_name, materialize_library_file, normalize_contributor_role,
         persist_import, relink_edition, validate_importer_meta,
     };
+    use super::{VirtualAuthor, VirtualBookInput, create_virtual_book_inner};
     use crate::commands::catalog::FileStatus;
     use livtet_core::data::orm::{ActiveModelTrait, Set};
     use sha2::Digest;
@@ -1521,6 +1947,182 @@ mod tests {
         let (covers, covers_dir) = temporary_covers_dir();
         let (books, books_dir) = temporary_books_dir();
         (test_db, state, covers, covers_dir, books, books_dir)
+    }
+
+    #[tokio::test]
+    async fn create_virtual_book_writes_an_edition_without_a_file() {
+        let (_db, state, _covers, _covers_dir, _books, _books_dir) = persist_fixture().await;
+        let input = VirtualBookInput {
+            title: "The Great Gatsby".to_string(),
+            authors: vec![VirtualAuthor {
+                name: "F. Scott Fitzgerald".to_string(),
+                role: "aut".to_string(),
+            }],
+            publisher: Some("Scribner".to_string()),
+            language_id: None,
+            format_id: None,
+            identifiers: vec!["9780743273565".to_string(), "abc".to_string()],
+            description: Some("A novel".to_string()),
+            notes: None,
+        };
+
+        let outcome = create_virtual_book_inner(&state, input)
+            .await
+            .expect("create virtual book");
+        assert!(!outcome.duplicate);
+        assert_eq!(outcome.title, "The Great Gatsby");
+
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+        let edition = editions::Entity::find_by_id(edition_id)
+            .one(&conn)
+            .await
+            .expect("query edition")
+            .expect("edition present");
+        assert_eq!(edition.title.as_deref(), Some("The Great Gatsby"));
+        assert!(edition.format_id.is_none());
+
+        let inventory = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(&conn)
+            .await
+            .expect("query inventory")
+            .expect("inventory row");
+        assert!(
+            inventory.file_path.is_none(),
+            "virtual book has no file path"
+        );
+        assert!(inventory.file_hash.is_none());
+        assert!(inventory.file_size_bytes.is_none());
+
+        let author_links = edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("query authors");
+        assert_eq!(author_links.len(), 1);
+        let publisher_links = edition_publishers::Entity::find()
+            .filter(edition_publishers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("query publishers");
+        assert_eq!(publisher_links.len(), 1);
+        let identifier_links = edition_identifiers::Entity::find()
+            .filter(edition_identifiers::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("query identifiers");
+        assert_eq!(
+            identifier_links.len(),
+            2,
+            "canonical ISBN + other identifier"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_virtual_book_requires_a_title_and_an_author() {
+        let (_db, state, ..) = persist_fixture().await;
+        let blank_title = VirtualBookInput {
+            title: "   ".to_string(),
+            authors: vec![VirtualAuthor {
+                name: "A".to_string(),
+                role: "aut".to_string(),
+            }],
+            publisher: None,
+            language_id: None,
+            format_id: None,
+            identifiers: vec![],
+            description: None,
+            notes: None,
+        };
+        assert!(
+            create_virtual_book_inner(&state, blank_title)
+                .await
+                .is_err()
+        );
+
+        let no_author = VirtualBookInput {
+            title: "A Title".to_string(),
+            authors: vec![],
+            publisher: None,
+            language_id: None,
+            format_id: None,
+            identifiers: vec![],
+            description: None,
+            notes: None,
+        };
+        assert!(create_virtual_book_inner(&state, no_author).await.is_err());
+    }
+
+    #[test]
+    fn map_biblio_edition_normalizes_roles_and_drops_blank_fields() {
+        let item = super::BiblioEditionRef {
+            uri: Some("at://did:web:biblio/community.lexicon.book.edition/ol.OL1M".to_string()),
+            title: Some("Dune".to_string()),
+            cover_image_url: Some("https://covers.example/1.jpg".to_string()),
+            published_year: Some(1965),
+            language: Some("eng".to_string()),
+            contributors: vec![
+                super::BiblioContributorRef {
+                    name: Some("Frank Herbert".to_string()),
+                    role: Some("author".to_string()),
+                },
+                super::BiblioContributorRef {
+                    name: Some("   ".to_string()),
+                    role: Some("editor".to_string()),
+                },
+                super::BiblioContributorRef {
+                    name: Some("Ed Itor".to_string()),
+                    role: Some("editor".to_string()),
+                },
+            ],
+            identifiers: vec![
+                super::BiblioIdentifierRef {
+                    resource: Some("openlibrary".to_string()),
+                    uri: Some("https://openlibrary.org/books/OL1M".to_string()),
+                },
+                super::BiblioIdentifierRef {
+                    resource: None,
+                    uri: Some("orphan".to_string()),
+                },
+            ],
+        };
+
+        let mapped = super::map_biblio_edition(item).expect("mapped");
+        assert_eq!(mapped.title, "Dune");
+        assert_eq!(mapped.published_year, Some(1965));
+        assert_eq!(mapped.authors.len(), 2, "blank name dropped");
+        assert_eq!(mapped.authors[0].role, "aut");
+        assert_eq!(mapped.authors[1].role, "edt");
+        assert_eq!(
+            mapped.identifiers.len(),
+            1,
+            "identifier missing resource dropped"
+        );
+        assert_eq!(mapped.identifiers[0].resource, "openlibrary");
+    }
+
+    #[test]
+    fn map_biblio_edition_drops_items_without_a_title() {
+        let item = super::BiblioEditionRef {
+            uri: None,
+            title: Some("   ".to_string()),
+            cover_image_url: None,
+            published_year: None,
+            language: None,
+            contributors: vec![],
+            identifiers: vec![],
+        };
+        assert!(super::map_biblio_edition(item).is_none());
+    }
+
+    #[tokio::test]
+    async fn search_biblio_editions_blank_query_skips_the_network() {
+        let http = reqwest::Client::new();
+        let results = super::search_biblio_editions_inner(&http, "   ", 10)
+            .await
+            .expect("blank query never touches the network");
+        assert!(results.is_empty());
     }
 
     #[test]
@@ -3416,7 +4018,7 @@ struct EditionHit {
 /// Matching is exact (case- and whitespace-insensitive): writing a shelving
 /// record for a near-match would shelve the wrong book, so a miss is an error
 /// the caller shows instead.
-async fn resolve_edition_record(
+pub(crate) async fn resolve_edition_record(
     http: &reqwest::Client,
     title: &str,
 ) -> Result<(String, String), String> {

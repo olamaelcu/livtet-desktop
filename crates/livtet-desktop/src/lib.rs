@@ -2,6 +2,7 @@ pub mod atproto;
 pub mod commands;
 mod error;
 mod http;
+mod mcp;
 mod paths;
 mod plugin_host;
 mod roles;
@@ -282,6 +283,13 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let opds_store: Arc<dyn commands::opds::CatalogStore> = opds_store;
 
+    // The MCP endpoint's settings, kept beside the OPDS catalog store so both
+    // live in the app's own store directory (ADR-0041).
+    let mcp_store = tauri_plugin_store::StoreBuilder::new(&*app, "mcp.json")
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let mcp_store: Arc<dyn mcp::McpSettingsStore> = mcp_store;
+
     // Loopback byte server for library files the webview must fetch:
     // `<audio>` playback (WebKitGTK routes media through GStreamer, which
     // cannot fetch the app's custom schemes) and ranged PDF reads.
@@ -307,23 +315,33 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         opds_store,
         secrets: Arc::new(secrets::KeyringSecretStore),
         readers: Arc::new(Mutex::new(HashMap::new())),
+        mcp: Arc::new(mcp::McpRuntime::new(mcp_store)),
     };
     {
         let mut guard = state.search_index.write().await;
         *guard = Some(search_index);
     }
 
+    // The MCP endpoint runs in this process over the same state, so a tool
+    // call executes the command code the webview reaches over IPC. It starts
+    // only when Settings has it on (or `LIVTET_MCP_PORT` forces it), and a
+    // failure is logged rather than failing app setup (ADR-0041).
+    let mcp_bridge = mcp::CommandBridge::from_state(&state);
+    mcp::start_from_settings(&state.mcp, mcp_bridge).await;
+
     app.manage(state);
 
     Ok(())
 }
 
-// `tauri::generate_context!` expands to code using `std::path::PathBuf`;
-// the allow is scoped here because the macro body cannot be edited.
-#[allow(clippy::disallowed_types)]
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
-    let specta_builder = Builder::<tauri::Wry>::new().commands(collect_commands![
+/// The single Specta builder: the command list every consumer shares.
+///
+/// `run` uses it for the invoke handler and the debug bindings export, and
+/// `bin/generate-bindings` uses it for the same export without booting the
+/// GUI. One list, so a new command cannot exist at runtime but be missing
+/// from the generated `bindings.ts`.
+pub fn specta_builder() -> Builder<tauri::Wry> {
+    Builder::<tauri::Wry>::new().commands(collect_commands![
         commands::catalog::get_edition_detail,
         commands::catalog::get_edition_covers,
         commands::search::search_editions,
@@ -336,6 +354,8 @@ pub fn run() {
         commands::bulk::matching_edition_ids,
         commands::import::import_file,
         commands::import::import_files,
+        commands::import::create_virtual_book,
+        commands::import::search_biblio_editions,
         commands::import::relink_edition_file,
         commands::import::get_shelf_placement,
         commands::import::sync_shelf_placement,
@@ -384,7 +404,21 @@ pub fn run() {
         commands::atproto::atproto_get_profile,
         commands::atproto::atproto_update_profile,
         commands::atproto::atproto_set_avatar,
-    ]);
+        commands::reviews::save_local_review,
+        commands::reviews::load_local_reviews,
+        commands::reviews::remove_local_review,
+        commands::reviews::put_local_review_to_pds,
+        commands::mcp::mcp_settings_get,
+        commands::mcp::mcp_settings_save,
+    ])
+}
+
+// `tauri::generate_context!` expands to code using `std::path::PathBuf`;
+// the allow is scoped here because the macro body cannot be edited.
+#[allow(clippy::disallowed_types)]
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    let specta_builder = specta_builder();
 
     let builder = tauri::Builder::default();
 

@@ -54,6 +54,10 @@ export const pluginKeys = {
   installed: () => [...pluginKeys.all, 'installed'] as const,
   remote: (registryUrl: string) => [...pluginKeys.all, 'remote', { registryUrl }] as const,
 }
+export const mcpKeys = {
+  all: ['mcp'] as const,
+  status: () => [...mcpKeys.all, 'status'] as const,
+}
 
 export const readerKeys = {
   all: ['reader'] as const,
@@ -67,6 +71,9 @@ export const catalogKeys = {
   /** Reader annotations for an edition (kept in `reading_progress`). */
   editionReaderNotes: (editionId: string) =>
     [...catalogKeys.all, 'edition-reader-notes', { editionId }] as const,
+  /** Reviews this desktop stored for an edition (the `reviews` table). */
+  editionReviews: (editionId: string) =>
+    [...catalogKeys.all, 'edition-reviews', { editionId }] as const,
   editionCovers: (editionIds: string[]) =>
     [...catalogKeys.all, 'edition-covers', { editionIds }] as const,
 }

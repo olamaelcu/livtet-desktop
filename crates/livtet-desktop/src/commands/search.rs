@@ -1,7 +1,9 @@
 use livtet_core::data::entities::{
-    authors, formats, genres, languages, publishers, subjects, tags,
+    authors, digital_inventory, formats, genres, languages, publishers, subjects, tags,
 };
-use livtet_core::data::orm::{DatabaseConnection, EntityTrait, QueryOrder};
+use livtet_core::data::orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
+};
 use livtet_core::search::model::{SearchHit, SearchOptions};
 use livtet_search::{SearchIndex, WorkFiltersQuery};
 use serde::Serialize;
@@ -137,10 +139,55 @@ pub(crate) async fn search_editions_inner(
         .await
         .map_err(SearchIndexError::other)? as i32;
 
+    let mut results: Vec<SearchResult> = hits.into_iter().map(SearchResult::from).collect();
+    apply_virtual_aware_has_file(db, &mut results).await?;
+
     Ok(SearchResponse {
-        hits: hits.into_iter().map(SearchResult::from).collect(),
+        hits: results,
         total,
     })
+}
+
+/// Recompute `has_file` from the source of truth. The index marks an edition as
+/// on-disk whenever it has a `digital_inventory` row, but a virtual book keeps a
+/// row with a NULL `file_path`, so only a non-empty path counts as a file.
+/// Work-kind hits carry no edition id and are left untouched.
+async fn apply_virtual_aware_has_file(
+    db: &DatabaseConnection,
+    hits: &mut [SearchResult],
+) -> Result<(), SearchIndexError> {
+    let edition_ids: Vec<DbId> = hits
+        .iter()
+        .filter_map(|hit| hit.edition_id.as_deref())
+        .filter_map(|id| id.parse::<DbId>().ok())
+        .collect();
+    if edition_ids.is_empty() {
+        return Ok(());
+    }
+    let rows = digital_inventory::Entity::find()
+        .filter(digital_inventory::Column::EditionId.is_in(edition_ids))
+        .all(db)
+        .await
+        .map_err(SearchIndexError::other)?;
+    let with_file: std::collections::HashSet<DbId> = rows
+        .into_iter()
+        .filter(|row| {
+            row.file_path
+                .as_deref()
+                .is_some_and(|path| !path.trim().is_empty())
+        })
+        .map(|row| row.edition_id)
+        .collect();
+    for hit in hits {
+        if let Some(id) = hit
+            .edition_id
+            .as_deref()
+            .and_then(|id| id.parse::<DbId>().ok())
+        {
+            hit.has_file = with_file.contains(&id);
+        }
+    }
+    Ok(())
 }
 
 /// One selectable value in a filter axis: a stable id plus its display label.
@@ -301,7 +348,7 @@ mod tests {
     use livtet_core::data::entities::{
         digital_inventory, edition_authors, edition_publishers, edition_tags, editions, works,
     };
-    use livtet_core::data::orm::{ActiveModelTrait, Set};
+    use livtet_core::data::orm::{ActiveModelTrait, ColumnTrait, QueryFilter, Set};
     use livtet_core::data::{Kind, TestDb};
     use livtet_search::HitKind;
     use livtet_types::{CommonLanguages, KnownFormats, SortField, now_primitive};
@@ -769,6 +816,44 @@ mod tests {
         assert_eq!(sorted_titles(&virtual_only), ["Dune", "Hyperion"]);
         assert_eq!(virtual_only.total, 2);
         assert!(virtual_only.hits.iter().all(|h| !h.has_file));
+    }
+
+    #[tokio::test]
+    async fn a_virtual_book_with_a_null_file_path_reports_no_file() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let mut spec = BookSpec::new("Virtual", "Someone", "no file on disk");
+        spec.with_file = true;
+        let book = seed_book(&db, spec).await;
+
+        // Keep the inventory row but clear its path: a virtual book.
+        let mut inventory: digital_inventory::ActiveModel = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(book.edition_id))
+            .one(&db)
+            .await
+            .expect("query inventory")
+            .expect("inventory row")
+            .into();
+        inventory.file_path = Set(None);
+        inventory.update(&db).await.expect("null the file path");
+
+        let mut hits = vec![SearchResult {
+            work_id: book.work_id.to_string(),
+            edition_id: Some(book.edition_id.to_string()),
+            title: "Virtual".to_string(),
+            authors: Vec::new(),
+            pub_date: None,
+            snippet_text: None,
+            kind: HitKind::Edition,
+            has_file: true,
+        }];
+        apply_virtual_aware_has_file(&db, &mut hits)
+            .await
+            .expect("override has_file");
+        assert!(
+            !hits[0].has_file,
+            "a virtual book keeps an inventory row but must report no file"
+        );
     }
 
     #[tokio::test]

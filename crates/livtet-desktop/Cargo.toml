@@ -54,6 +54,7 @@ livtet-search.workspace = true
 livtet-sync-server.workspace = true
 livtet-importer.workspace = true
 livtet-reader.workspace = true
+livtet-mcp-server.workspace = true
 livtet-opds-client.workspace = true
 livtet-opds-types.workspace = true
 stanchion.workspace = true
@@ -110,6 +111,12 @@ bindings-export = []
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+# An MCP client for the endpoint's wire-level test; the server side lives in
+# `livtet-mcp-server`.
+rmcp = { version = "3", features = [
+  "client",
+  "transport-streamable-http-client-reqwest",
+] }
 poem = { version = "3.1", default-features = false, features = [
   "server",
   "test",

@@ -627,6 +627,32 @@ pub(crate) async fn reader_dispatch(
     Ok(Some((id, ReaderKind::for_edition(&edition))))
 }
 
+/// Reject a virtual book: an inventory row that exists but carries no file
+/// path. A virtual book is catalog metadata only, so there is nothing to open,
+/// no position to save, and no page to bookmark. A *missing* inventory row is
+/// left to the caller's own `not-found` / `no-file` error so those codes stay
+/// unchanged.
+pub(crate) async fn ensure_not_virtual(
+    db: &livtet_core::data::orm::DatabaseConnection,
+    edition_id: DbId,
+) -> Result<(), ReaderError> {
+    let inventory = digital_inventory::Entity::find()
+        .filter(digital_inventory::Column::EditionId.eq(edition_id))
+        .one(db)
+        .await?;
+    let virtual_book = matches!(
+        inventory,
+        Some(row) if row.file_path.as_deref().is_none_or(|path| path.trim().is_empty())
+    );
+    if virtual_book {
+        return Err(ReaderError::new(
+            "virtual-book",
+            "virtual books have no file to read",
+        ));
+    }
+    Ok(())
+}
+
 /// The title carried by any publication variant.
 fn publication_title(publication: ReaderPublication) -> Option<String> {
     match publication {
@@ -661,6 +687,7 @@ pub(crate) async fn plan_reader_window(
     let (id, kind) = reader_dispatch(db, edition_id)
         .await?
         .ok_or_else(|| ReaderError::new("not-found", "edition not found"))?;
+    ensure_not_virtual(db, id).await?;
     let label = format!("{READER_WINDOW_PREFIX}{id}");
     let plan = match kind {
         ReaderKind::Audiobook => {
@@ -786,6 +813,7 @@ pub(crate) async fn publication_for_edition(
     let Some((id, kind)) = reader_dispatch(db, edition_id).await? else {
         return Ok(None);
     };
+    ensure_not_virtual(db, id).await?;
     match kind {
         ReaderKind::Audiobook => describe_publication(db, id, loopback).await,
         ReaderKind::Pdf => describe_pdf_publication(db, id, loopback).await.map(Some),
@@ -866,6 +894,7 @@ pub(crate) async fn store_reader_position(
     let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
         return Err(ReaderError::new("not-found", "edition not found"));
     };
+    ensure_not_virtual(db, edition_id).await?;
     let format_id = edition
         .format_id
         .ok_or_else(|| ReaderError::new("invalid-format", "edition has no format_id"))?;
@@ -1153,6 +1182,7 @@ pub(crate) async fn store_reader_bookmark(
     let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
         return Err(ReaderError::new("not-found", "edition not found"));
     };
+    ensure_not_virtual(db, edition_id).await?;
     // A page number larger than the edition's own surface is still stored:
     // the bookmark records where the reader was, not where the file ends.
     let progress = match unit {
@@ -1357,6 +1387,54 @@ mod tests {
             .await
             .expect_err("unknown kind");
         assert_eq!(error.code, "invalid-kind");
+    }
+
+    #[tokio::test]
+    async fn virtual_books_reject_progress_and_bookmarks() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        // Turn the edition into a virtual book: keep the inventory row, clear
+        // its file path.
+        let mut inventory: digital_inventory::ActiveModel = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(id))
+            .one(&db)
+            .await
+            .expect("query inventory")
+            .expect("inventory row")
+            .into();
+        inventory.file_path = Set(None);
+        inventory.update(&db).await.expect("clear file path");
+
+        let error = store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"x\":1}".to_string()),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("progress rejected");
+        assert_eq!(error.code, "virtual-book");
+        assert!(
+            reading_progress::Entity::find()
+                .filter(reading_progress::Column::EditionId.eq(id))
+                .one(&db)
+                .await
+                .expect("query progress")
+                .is_none(),
+            "no progress row is written for a virtual book"
+        );
+
+        let error = store_reader_bookmark(&db, id, "pdf", None, Some(1), None, None)
+            .await
+            .expect_err("bookmark rejected");
+        assert_eq!(error.code, "virtual-book");
     }
 
     #[tokio::test]

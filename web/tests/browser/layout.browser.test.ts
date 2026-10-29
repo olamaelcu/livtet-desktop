@@ -9,6 +9,7 @@ import DockAfterScrollFixture from './fixtures/DockAfterScrollFixture.svelte'
 import DockFixture from './fixtures/DockFixture.svelte'
 import ListLayoutFixture from './fixtures/ListLayoutFixture.svelte'
 import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
+import QueryProvider from './fixtures/QueryProvider.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
 
@@ -65,11 +66,15 @@ test('RouteShell omits the nav column when no nav snippet is given', async () =>
 })
 
 test('NavRail marks the active item with aria-current and keeps an accessible name when collapsed', async () => {
-  const { container } = await render(NavRail, {
-    items: NAV_ITEMS,
-    currentPath: '/library',
-    expanded: false,
-  })
+  const { container } = await render(
+    NavRail,
+    {
+      items: NAV_ITEMS,
+      currentPath: '/library',
+      expanded: false,
+    },
+    { wrapper: QueryProvider },
+  )
   const buttons = [...container.querySelectorAll<HTMLElement>('wa-button[href]')]
   expect(buttons).toHaveLength(NAV_ITEMS.length)
   // aria-current must be on the real link inside wa-button's shadow root.

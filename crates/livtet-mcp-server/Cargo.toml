@@ -1,0 +1,44 @@
+[package]
+name = "livtet-mcp-server"
+version = "0.1.0"
+description = "Localhost-only Model Context Protocol endpoint for the Livtet desktop app"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MPL-2.0"
+
+[lib]
+name = "livtet_mcp_server"
+crate-type = ["rlib"]
+
+[dependencies]
+axum = "0.8"
+rmcp = { version = "3", features = [
+  "server",
+  "macros",
+  "transport-streamable-http-server",
+] }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "net", "rt-multi-thread", "time"] }
+tokio-util = "0.7"
+tracing = "0.1"
+
+[dev-dependencies]
+# A real MCP client so the endpoint is verified over the wire, not by calling
+# the handler directly.
+rmcp = { version = "3", features = [
+  "client",
+  "transport-streamable-http-client-reqwest",
+] }
+tokio = { version = "1", features = [
+  "io-util",
+  "macros",
+  "net",
+  "rt-multi-thread",
+  "time",
+] }
+
+[lints]
+workspace = true

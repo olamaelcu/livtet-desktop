@@ -27,6 +27,22 @@ use std::{
 struct MemoryCatalogs {
     value: Mutex<Option<serde_json::Value>>,
 }
+/// In-memory [`crate::mcp::McpSettingsStore`] double for the fixture.
+#[derive(Default)]
+pub(crate) struct MemoryMcpSettings {
+    value: Mutex<Option<crate::mcp::McpSettings>>,
+}
+
+impl crate::mcp::McpSettingsStore for MemoryMcpSettings {
+    fn read(&self) -> Option<crate::mcp::McpSettings> {
+        self.value.lock().unwrap().clone()
+    }
+
+    fn write(&self, settings: &crate::mcp::McpSettings) -> Result<(), String> {
+        *self.value.lock().unwrap() = Some(settings.clone());
+        Ok(())
+    }
+}
 
 impl crate::commands::opds::CatalogStore for MemoryCatalogs {
     fn read(&self) -> Option<serde_json::Value> {
@@ -66,5 +82,8 @@ pub async fn mock_state_for_bulk(test_db: &TestDb) -> AppState {
             token: "mock".into(),
         },
         readers: Arc::new(Mutex::new(HashMap::new())),
+        mcp: Arc::new(crate::mcp::McpRuntime::new(Arc::new(
+            MemoryMcpSettings::default(),
+        ))),
     }
 }
