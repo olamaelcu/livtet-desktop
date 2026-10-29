@@ -5,6 +5,7 @@ import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
 import { commands } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
+import { sanitizeHtml } from '../html'
 import { atprotoKeys, catalogKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
 import { DEFAULT_HIGHLIGHT, HIGHLIGHTS } from '../reader/highlights'
@@ -302,12 +303,8 @@ async function revealFile(path: string) {
       {#if book.file}
         {@const file = book.file}
         <section class="section">
-          <h3 class="section-title">File</h3>
-          {#if !file.file_path}
-            <p class="muted">
-              Virtual book — this edition has no file on disk, so it cannot be read here.
-            </p>
-          {:else}
+          {#if file.file_path}
+            <h3 class="section-title">File</h3>
             <div>
               <ActionButton onclick={readBook} disabled={!canOpenInReader(file)}>
                 <wa-icon name="book-open"></wa-icon>
@@ -349,7 +346,7 @@ async function revealFile(path: string) {
       {#if book.description}
         <section class="section">
           <h3 class="section-title">Description</h3>
-          <p>{@html book.description}</p>
+          <p>{@html sanitizeHtml(book.description)}</p>
         </section>
       {/if}
 

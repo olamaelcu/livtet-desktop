@@ -5,7 +5,8 @@ import EditionDetailDrawerFixture from './fixtures/EditionDetailDrawerFixture.sv
 
 const { convertFileSrc, invoke } = vi.hoisted(() => ({
   convertFileSrc: vi.fn((path: string) => `asset://${path}`),
-  invoke: vi.fn(async () => []),
+  // Each test installs its own reply; the signature is open so they can.
+  invoke: vi.fn(async (_command: string): Promise<unknown> => []),
 }))
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc, invoke }))
 
@@ -92,4 +93,25 @@ test('an audiobook with a file offers listening', async () => {
   const { container } = await render(EditionDetailDrawerFixture)
 
   await expect.poll(() => container.textContent).toContain('Listen')
+})
+
+test('the description is sanitized before it reaches the DOM', async () => {
+  invoke.mockImplementation(async () => ({
+    ...detail(),
+    // The shape an untrusted EPUB or index record can carry.
+    // Every payload tags `body.dataset`, so a surviving one is observable.
+    description: `<p onclick="document.body.dataset.pwned = 'click'">Kept <strong>bold</strong></p><script>document.body.dataset.pwned = 'script'</script><img src="x" onerror="document.body.dataset.pwned = 'img'">`,
+  }))
+  const { container } = await render(EditionDetailDrawerFixture)
+
+  const section = () =>
+    [...container.querySelectorAll('section')].find(
+      (s) => s.querySelector('h3')?.textContent === 'Description',
+    )
+  await expect.poll(() => section()?.textContent).toContain('Kept bold')
+  expect(section()?.querySelector('strong')?.textContent).toBe('bold')
+  expect(section()?.querySelector('script')).toBeNull()
+  expect(section()?.querySelector('img')).toBeNull()
+  expect(section()?.querySelector('[onclick]')).toBeNull()
+  expect(document.body.dataset.pwned).toBeUndefined()
 })

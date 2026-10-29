@@ -182,7 +182,13 @@ onMount(() => {
         <tbody>
           <tr>
             <th scope="row">Daemon</th>
-            <td>{@html health.data ? `${health.data.status} <code>v${health.data.version}</code>` : 'unknown'}</td>
+            <td>
+              {#if health.data}
+                {health.data.status} <code>v{health.data.version}</code>
+              {:else}
+                unknown
+              {/if}
+            </td>
           </tr>
           <tr>
             <th scope="row">Device</th>
