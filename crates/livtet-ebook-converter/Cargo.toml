@@ -6,4 +6,5 @@ rust-version.workspace = true
 
 [dependencies]
 boko = "0.5"
+camino = "1.2"
 clap = { version = "4", features = ["derive"] }

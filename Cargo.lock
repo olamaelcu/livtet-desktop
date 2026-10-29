@@ -4830,6 +4830,7 @@ name = "livtet-ebook-converter"
 version = "0.1.0"
 dependencies = [
  "boko",
+ "camino",
  "clap",
 ]
 

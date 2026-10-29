@@ -64,6 +64,9 @@ description = "Run all unit + integration tests (Rust + JS/TS)"
 # which is gitignored — on a fresh clone the suite cannot resolve it.
 depends = ["seed-frontend-dist", "generate-bindings"]
 run = [
+  # SvelteKit writes .svelte-kit/tsconfig.json during sync; the root tsconfig
+  # extends it, and vitest fails with "Tsconfig not found" on a fresh clone.
+  "pnpm exec svelte-kit sync",
   "cargo test --doc --workspace",
   "cargo test --workspace --all-targets",
   "pnpm test",
@@ -72,7 +75,7 @@ run = [
 [tasks."test:e2e:browser"]
 description = "Run E2E tests in browser-only mode (mocked IPC)"
 depends = ["generate-bindings"]
-run = "pnpm test:e2e:browser"
+run = ["pnpm exec svelte-kit sync", "pnpm test:e2e:browser"]
 
 [tasks.fix]
 description = "Auto-fix formatting (Rust + JS/TS)"
@@ -95,7 +98,7 @@ depends = ["secrets-export-env"]
 
 [tasks."coverage:web"]
 description = "Frontend coverage (vitest unit + browser) → coverage/lcov.info"
-run = "pnpm test:coverage"
+run = ["pnpm exec svelte-kit sync", "pnpm test:coverage"]
 
 [tasks."coverage:rust"]
 description = "Rust coverage (workspace) → target/llvm-cov/rust.lcov"

@@ -1,7 +1,7 @@
 use std::fs::File;
-use std::path::PathBuf;
 use std::process::Command;
 
+use camino::Utf8PathBuf;
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -11,14 +11,13 @@ struct Args {
     input_type: String,
     #[arg(long, default_value = "epub")]
     output_type: String,
-    input: PathBuf,
-    output: PathBuf,
+    input: Utf8PathBuf,
+    output: Utf8PathBuf,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let library_ok = try_library(&args);
-    if library_ok {
+    if try_library(&args) {
         return Ok(());
     }
     let status = Command::new("boko")
@@ -27,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .arg(&args.output)
         .status()?;
     if !status.success() {
-        return Err(format!("boko CLI failed: {:?}", status).into());
+        return Err(format!("boko CLI failed: {status:?}").into());
     }
     Ok(())
 }
@@ -37,17 +36,11 @@ fn try_library(args: &Args) -> bool {
         Book,
         export::{EpubExporter, Exporter},
     };
-    let input_path = args.input.to_string_lossy();
-    let mut book = match Book::open(&*input_path) {
-        Ok(b) => b,
-        Err(_) => return false,
+    let Ok(book) = Book::open(args.input.as_str()) else {
+        return false;
     };
-    let mut file = match File::create(&args.output) {
-        Ok(f) => f,
-        Err(_) => return false,
+    let Ok(mut file) = File::create(&args.output) else {
+        return false;
     };
-    match EpubExporter::new().export(&mut book, &mut file) {
-        Ok(_) => true,
-        Err(_) => false,
-    }
+    EpubExporter::new().export(&book, &mut file).is_ok()
 }
