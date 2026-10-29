@@ -6,6 +6,7 @@ import type { PluginSummary } from '../plugins'
 import { loadPlugins, pluginErrorMessage, removePlugin, setPluginEnabled } from '../plugins'
 import { pluginKeys } from '../query/keys'
 import ActionButton from './ActionButton.svelte'
+import PluginDetailDrawer from './PluginDetailDrawer.svelte'
 
 const queryClient = useQueryClient()
 
@@ -15,6 +16,7 @@ const plugins = createQuery(() => ({
 }))
 
 let pendingRemoval = $state<string | null>(null)
+let detailTarget = $state<string | null>(null)
 
 const remove = createMutation(() => ({
   mutationFn: (name: string) => removePlugin(name),
@@ -27,10 +29,6 @@ const remove = createMutation(() => ({
     pendingRemoval = null
   },
 }))
-
-function signerLabel(plugin: PluginSummary): string {
-  return plugin.signer.trim().length > 0 ? plugin.signer : 'unsigned'
-}
 
 function without(map: Record<string, boolean>, name: string): Record<string, boolean> {
   const next = { ...map }
@@ -63,10 +61,6 @@ async function toggle(plugin: PluginSummary, control: WaSwitchElement) {
     await queryClient.invalidateQueries({ queryKey: pluginKeys.installed() })
     intent = without(intent, plugin.name)
   } catch (error) {
-    // The command was refused, so the plugin is still in the root it started in.
-    // Put the row back rather than leave it claiming a state the backend does
-    // not have — and reset the control too: wa-switch owns its own `checked`
-    // once clicked, so restoring the data behind it is not enough.
     intent = { ...intent, [plugin.name]: previous }
     control.checked = previous
     toast.error(pluginErrorMessage(error))
@@ -111,28 +105,25 @@ async function toggle(plugin: PluginSummary, control: WaSwitchElement) {
                 }}
               ></wa-switch>
               <ActionButton
-                disabled={remove.isPending && pendingRemoval === plugin.name}
+          disabled={remove.isPending && pendingRemoval === plugin.name}
                 onclick={() => {
                   pendingRemoval = plugin.name
                 }}
               >
                 Remove
               </ActionButton>
+              <ActionButton
+                aria-haspopup="dialog"
+                aria-expanded={detailTarget === plugin.name}
+                onclick={() => {
+                  detailTarget = plugin.name
+                }}
+              >
+                <wa-icon slot="icon" name="circle-info"></wa-icon>
+                Info
+              </ActionButton>
             </div>
           </div>
-          <div class="signer" class:unsigned={signerLabel(plugin) === 'unsigned'}>
-            <wa-icon name="shield-halved"></wa-icon>
-            {signerLabel(plugin)}
-          </div>
-          {#if plugin.granted.length > 0}
-            <div class="caps">
-              {#each plugin.granted as capability (capability)}
-                <wa-tag size="small">{capability}</wa-tag>
-              {/each}
-            </div>
-          {:else}
-            <p class="muted small">No capabilities granted.</p>
-          {/if}
         </li>
       {/each}
     </ul>
@@ -150,6 +141,12 @@ async function toggle(plugin: PluginSummary, control: WaSwitchElement) {
   oncancel={() => {
     pendingRemoval = null
   }}
+/>
+
+<PluginDetailDrawer
+  plugin={plugins.data?.find(p => p.name === detailTarget) as PluginSummary}
+  open={detailTarget !== null}
+  onclose={() => { detailTarget = null }}
 />
 
 <style>
@@ -184,15 +181,11 @@ async function toggle(plugin: PluginSummary, control: WaSwitchElement) {
     gap: var(--wa-space-s);
   }
 
-  /* A disabled plugin is still installed and still described in full, so it is
-     dimmed rather than hidden. */
   .card.disabled {
     border-style: dashed;
   }
 
-  .card.disabled .name,
-  .card.disabled .caps,
-  .card.disabled .signer {
+  .card.disabled .name {
     opacity: 0.6;
   }
 
@@ -211,31 +204,5 @@ async function toggle(plugin: PluginSummary, control: WaSwitchElement) {
 
   .name {
     font-weight: var(--wa-font-weight-semibold);
-  }
-
-  .signer {
-    display: flex;
-    align-items: center;
-    gap: var(--wa-space-2xs);
-    color: var(--wa-color-text-quiet);
-    font-size: var(--wa-font-size-s);
-  }
-
-  .signer.unsigned {
-    color: var(--wa-color-warning-60, var(--wa-color-text-quiet));
-  }
-
-  .caps {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--wa-space-2xs);
-  }
-
-  .muted {
-    color: var(--wa-color-text-quiet);
-  }
-
-  .small {
-    font-size: var(--wa-font-size-s);
   }
 </style>

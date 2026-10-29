@@ -12,6 +12,7 @@ interface Props {
 }
 
 let { items, currentPath, expanded = false }: Props = $props()
+let toggleIcons = $state(false)
 
 const status = createQuery(() => ({
   queryKey: atprotoKeys.status(),
@@ -43,7 +44,7 @@ function currentOnLink(current: boolean) {
 }
 </script>
 
-<nav class="rail" aria-label="Primary" data-expanded={expanded ? '' : undefined}>
+<nav class="rail" aria-label="Primary" data-expanded={expanded ? '' : undefined} class:collapsed={toggleIcons}>
   {#each items as item (item.href)}
     <wa-button
       href={item.href}
@@ -51,27 +52,32 @@ function currentOnLink(current: boolean) {
       {@attach currentOnLink(isActive(item.href))}
       variant={isActive(item.href) ? 'brand' : 'neutral'}
       appearance={isActive(item.href) ? 'filled' : 'plain'}
+      size="m"
     >
-      <wa-icon name={item.icon} slot="start"></wa-icon>
+      <wa-icon name={item.icon} slot={toggleIcons ? "start":""}></wa-icon>
       <span class="rail__label">{item.label}</span>
     </wa-button>
   {/each}
   <div class="spacer"></div>
   {#if status.data}
-    <wa-button href="/settings?tab=account" appearance="filled" variant="brand">
+    <wa-button href="/settings?tab=account" appearance="filled" variant="brand" size="m">
       <img
         class="nav-avatar"
         src={status.data ? `https://livtet.olamaelcu.net/user/profileImage/${status.data.did}` : ''}
         alt="Profile"
       />
-      <span class="rail__label">Profile</span>
+      {#if toggleIcons}<span class="rail__label">Profile</span>{/if}
+    </wa-button>
+    <wa-button class="rail-menu" appearance="plain" onclick={() => toggleIcons = !toggleIcons}>
+      <wa-icon name="bars"></wa-icon>
+      <span class="rail__label">Collapse</span>
     </wa-button>
   {/if}
 </nav>
 
 <style>
   .rail {
-    --app-rail-width: 3.25rem;
+    --app-rail-width: 5rem;
     --app-rail-width-expanded: 11rem;
     display: flex;
     flex-direction: column;
@@ -88,31 +94,32 @@ function currentOnLink(current: boolean) {
 
   .nav-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; vertical-align: middle; }
 
-.rail[data-expanded] {
-    inline-size: var(--app-rail-width-expanded);
-  }
+  .rail.collapsed {
+      inline-size: var(--app-rail-width-expanded);
+    }
 
   /*
    * Collapsed labels are visually hidden, not display: none: they are the only
    * accessible name of the inner link (wa-button drops a host aria-label).
    */
-  .rail:not([data-expanded]) .rail__label {
+  .rail:not(.collapsed) .rail__label {
     position: absolute;
     vertical-align: middle;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+    display: none;
   }
 
   @container (width < 46rem) {
     .rail,
     .nav-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; }
 
-.rail[data-expanded] {
+    .rail.collapsed {
       inline-size: var(--app-rail-width);
     }
 
-    .rail[data-expanded] .rail__label {
+    .rail.collapsed .rail__label {
       position: absolute;
       inline-size: 1px;
       block-size: 1px;
@@ -121,4 +128,6 @@ function currentOnLink(current: boolean) {
       white-space: nowrap;
     }
   }
+
+  .rail-menu { margin: 0 auto;}
 </style>

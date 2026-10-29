@@ -410,6 +410,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::reviews::put_local_review_to_pds,
         commands::mcp::mcp_settings_get,
         commands::mcp::mcp_settings_save,
+        commands::enrich::enrich_edition,
+        commands::enrich::enrich_library,
     ])
 }
 

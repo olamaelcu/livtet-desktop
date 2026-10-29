@@ -21,6 +21,8 @@ The shell is Rust, talking to the webview through Tauri IPC.
   Mono (code)
 - [Rust](https://www.rust-lang.org/) 1.85+, edition 2021, single workspace member in `tauri/`
 
+![library view](library-view.png)
+
 ## Quick start
 
 ```sh
@@ -30,7 +32,6 @@ pnpm tauri:dev
 
 See [GETTING_STARTED.md](./GETTING_STARTED.md) for prerequisites, the full dev
 loop, and how to produce a release build.
-
 
 ## Install
 

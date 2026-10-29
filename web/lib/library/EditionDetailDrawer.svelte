@@ -78,6 +78,15 @@ const signedIn = $derived(
 )
 let reviewForm = $state<{ ok?: boolean; error?: string }>()
 let reviewSubmitting = $state(false)
+
+async function triggerEnrich() {
+  try {
+    const result = await commands.enrich_edition(editionId, null, 'union')
+    toast.success('Enrichment preview loaded')
+  } catch (e: any) {
+    toast.error(e?.message ?? 'Enrichment failed')
+  }
+}
 /** The reviewed book's page in the Livtet web app, once publishing resolved it. */
 let reviewPageUrl = $state<string | null>(null)
 /**
@@ -350,6 +359,13 @@ async function revealFile(path: string) {
         bookTitle={book.title ?? ''}
         onChange={(k) => (selectedShelf = k)}
       />
+
+      <section class="section" id="enrich-section">
+        <h3 class="section-title">Enrichment</h3>
+        <div class="review-actions">
+          <ActionButton onclick={() => triggerEnrich()}>Enrich</ActionButton>
+        </div>
+      </section>
 
       <section class="section" id="review-section">
         <h3 class="section-title">Write a Review</h3>

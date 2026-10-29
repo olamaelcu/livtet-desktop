@@ -48,6 +48,14 @@ function handleCoverSize(event: Event) {
   const value = Number((event.currentTarget as HTMLElement & { value: number }).value)
   oncoversizechange(coverSizeFromIndex(value))
 }
+function handleSelect(event: CustomEvent) {
+  const value = (event.detail.item as HTMLElement).getAttribute('value')
+  if (value === 'add-book') {
+    onaddbook()
+  } else if (value === 'add-virtual') {
+    onaddvirtualbook()
+  }
+}
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Library actions">
@@ -69,14 +77,20 @@ function handleCoverSize(event: Event) {
       <wa-icon name={selectionMode ? 'xmark' : 'check'}></wa-icon>
       {selectionMode ? 'Selecting' : 'Select'}
     </ActionButton>
-    <ActionButton variant="brand" onclick={onaddbook}>
-      <wa-icon name="plus"></wa-icon>
-      Add book
-    </ActionButton>
-    <ActionButton onclick={onaddvirtualbook}>
-      <wa-icon name="book"></wa-icon>
-      Add virtual book
-    </ActionButton>
+    <wa-dropdown onwa-select={handleSelect}>
+      <wa-button slot="trigger" appearance="filled" variant="brand" with-caret>
+        <wa-icon name="plus"></wa-icon>
+        Add
+      </wa-button>
+      <wa-dropdown-item value="add-book">
+        <wa-icon slot="icon" name="plus"></wa-icon>
+        Add book
+      </wa-dropdown-item>
+      <wa-dropdown-item value="add-virtual">
+        <wa-icon slot="icon" name="book"></wa-icon>
+        Add virtual book
+      </wa-dropdown-item>
+    </wa-dropdown>
   </wa-button-group>
   <wa-slider
     class="cover-slider"

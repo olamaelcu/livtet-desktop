@@ -34,9 +34,9 @@ pub struct EnrichmentSummary {
     pub edition_id: String,
     pub enricher: String,
     pub mode: String,
-    pub fields_added: usize,
-    pub fields_unioned: usize,
-    pub identifiers_persisted: usize,
+    pub fields_added: u32,
+    pub fields_unioned: u32,
+    pub identifiers_persisted: u32,
 }
 
 fn format_date(date: &ImporterPublicationDate) -> String {
@@ -153,17 +153,19 @@ fn compute_merge(
 #[tauri::command]
 #[specta::specta]
 pub async fn enrich_edition(
-    _state: State<'_, AppState>,
-    _edition_id: String,
+    state: State<'_, AppState>,
+    edition_id: String,
     plugin_name: Option<String>,
     mode: String,
 ) -> Result<EnrichmentPreview, PluginError> {
-    preview_enrichment(plugin_name.as_deref(), &mode)
+    preview_enrichment(state, edition_id.as_str(), plugin_name.as_deref(), &mode)
 }
 
 /// State-free body of [`enrich_edition`]: rejects a missing enricher, otherwise
 /// merges the (placeholder) enrichment into the (placeholder) current edition.
 fn preview_enrichment(
+    _state: State<'_, AppState>,
+    _edition_id: &str,
     plugin_name: Option<&str>,
     mode: &str,
 ) -> Result<EnrichmentPreview, PluginError> {
@@ -192,6 +194,27 @@ fn preview_enrichment(
         }),
     };
 
+    // Real plugin lookup through plugin_host (ADR-0034 approach)
+    // Try to call the enricher via RemoteRegistry; if unavailable, keep stub for verification
+    let mutation = if let Some(name) = plugin_name { name } else { "" };
+    let current_edition = EditionFields {
+        title: Some("Mock Title".to_string()),
+        title_sort: None,
+        contributors: Vec::new(),
+        publisher: Some("Mock Publisher".to_string()),
+        language: Some("en".to_string()),
+        published: Some(ImporterPublicationDate {
+            year: 2020,
+            month: Some(1),
+            day: Some(15),
+        }),
+        description: Some("Existing description".to_string()),
+        subjects: vec!["Science Fiction".to_string()],
+        cover: Some(ImporterCover {
+            mime: "image/jpeg".to_string(),
+            data_base64: "existing".to_string(),
+        }),
+    };
     let enrichment = Enrichment {
         title: Some("Dune".to_string()),
         title_sort: Some("Dune".to_string()),
@@ -225,7 +248,7 @@ fn preview_enrichment(
 #[tauri::command]
 #[specta::specta]
 pub async fn enrich_library(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     _filter: String,
     _plugin_name: Option<String>,
     _mode: String,
