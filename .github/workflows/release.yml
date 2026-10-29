@@ -222,15 +222,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
+          - arch: universal
             runner: macos-15
-            target: aarch64-apple-darwin
-          - arch: x64
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
+            target: universal-apple-darwin
     runs-on: ${{ matrix.runner }}
-    # An Intel runner needs ~75 minutes for this leg; two hours means a hang.
-    timeout-minutes: 120
+    # A universal leg compiles both architectures back to back (the Intel half
+    # alone took ~75 minutes), so three hours means a hang.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -270,7 +268,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.0'
-          targets: ${{ matrix.target }}
+          # `universal-apple-darwin` is a Tauri pseudo-target that rustup does
+          # not know; `tauri build` lipos the outputs of these two.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
         with:
@@ -327,7 +327,9 @@ jobs:
         # minutes on this runner and the DMG build pays that link again.
         timeout-minutes: 60
         if: steps.bindings.outputs.cache-hit != 'true'
-        run: cargo run --target "${{ matrix.target }}" --features bindings-export --bin generate-bindings
+        # No `--target`: `universal-apple-darwin` is a Tauri pseudo-target, not
+        # cargo target, and the export does not depend on the architecture.
+        run: cargo run --features bindings-export --bin generate-bindings
 
       - name: Cache frontend build
         id: frontend
@@ -341,6 +343,27 @@ jobs:
       - name: Build frontend
         if: steps.frontend.outputs.cache-hit != 'true'
         run: pnpm build
+
+      # `tauri build` lipos only the app binary. For `externalBin` sidecars the
+      # bundler instead looks for `<name>-universal-apple-darwin`, as documented
+      # on `external_bin`, while build.rs stages one binary per architecture.
+      # Fuse both architectures into the universal name before bundling.
+      - name: Stage universal macOS sidecars
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          for triple in aarch64-apple-darwin x86_64-apple-darwin; do
+            for package in livtet-sync-daemon livtet-plugin-host; do
+              cargo build --release -p "$package" --bin "$package" --target "$triple"
+            done
+          done
+          for package in livtet-sync-daemon livtet-plugin-host; do
+            lipo -create \
+              "target/aarch64-apple-darwin/release/$package" \
+              "target/x86_64-apple-darwin/release/$package" \
+              -output "crates/livtet-desktop/binaries/$package-universal-apple-darwin"
+          done
+          lipo -info crates/livtet-desktop/binaries/*-universal-apple-darwin
 
       - name: Build DMG
         env:
@@ -474,20 +497,17 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          gh release download "$TAG" --pattern 'livtet-desktop_*_aarch64.dmg' --dir dist
-          gh release download "$TAG" --pattern 'livtet-desktop_*_x64.dmg' --dir dist
+          gh release download "$TAG" --pattern 'livtet-desktop_*_universal.dmg' --dir dist
       - name: Render and push cask
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          arm_sha="$(sha256sum "dist/livtet-desktop_${VERSION}_aarch64.dmg" | cut -d' ' -f1)"
-          intel_sha="$(sha256sum "dist/livtet-desktop_${VERSION}_x64.dmg" | cut -d' ' -f1)"
+          universal_sha="$(sha256sum "dist/livtet-desktop_${VERSION}_universal.dmg" | cut -d' ' -f1)"
           sed \
             -e "s/__VERSION__/${VERSION}/g" \
-            -e "s/__ARM_SHA256__/${arm_sha}/g" \
-            -e "s/__INTEL_SHA256__/${intel_sha}/g" \
+            -e "s/__UNIVERSAL_SHA256__/${universal_sha}/g" \
             packaging/homebrew/livtet.rb.tmpl > /tmp/livtet.rb
           git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/olamaelcu/homebrew-tap.git" tap-repo
           mkdir -p tap-repo/Casks
