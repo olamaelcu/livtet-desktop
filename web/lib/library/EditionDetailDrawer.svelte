@@ -13,7 +13,10 @@ import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
 import { formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
-import ShelfSelection from './ShelfSelection.svelte'
+
+
+
+import ReviewInsert from './ReviewInsert.svelte'
 
 interface Props {
   editionId: string
@@ -51,6 +54,8 @@ const FILE_FILTERS = [{ name: 'Books', extensions: ['epub', 'azw3', 'azw', 'pdf'
 let relinking = $state(false)
 let listening = $state(false)
 let selectedShelf = $state<string>('to-read')
+let showReviewDialog = $state(false)
+let reviewForm = $state<{ ok?: boolean; error?: string }>()
 
 const isAudiobook = $derived(book?.format?.toLowerCase() === 'audiobook')
 const canListen = $derived(isAudiobook && book?.file != null && book.file.file_status !== 'missing')
@@ -238,6 +243,27 @@ async function revealFile(path: string) {
         bookTitle={book.title ?? ''}
         onChange={(k) => (selectedShelf = k)}
       />
+
+{#if book}
+  <section class="section" id="review-section">
+    <h3 class="section-title">Write a Review</h3>
+    <ActionButton onclick={() => { showReviewDialog = true; }}>
+      <wa-icon name="square-pen"></wa-icon>
+      Write Review
+    </ActionButton>
+  </section>
+{/if}
+
+<wa-dialog id="review-dialog" open={showReviewDialog} label="Add new review" light-dismiss onwa-after-hide={() => { showReviewDialog = false; }}>
+  <section class="dialog-body" slot="main">
+    <h3 class="dialog-title">Add new review</h3>
+    <ReviewInsert
+      onSuccess={() => { showReviewDialog = false; }}
+      onClose={() => { showReviewDialog = false; }}
+      onSubmit={() => { showReviewDialog = false; }}
+    />
+  </section>
+</wa-dialog>
 
       {#if readerNotes.data && readerNotes.data.length > 0}
         <section class="section">
@@ -488,5 +514,23 @@ async function revealFile(path: string) {
 
   .error {
     color: var(--wa-color-danger);
+  }
+
+  #review-dialog {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-m);
+  }
+
+  .dialog-title {
+    margin: 0;
+    font-size: var(--wa-font-size-m);
+  }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--wa-space-xs);
+    margin-top: var(--wa-space-xs);
   }
 </style>

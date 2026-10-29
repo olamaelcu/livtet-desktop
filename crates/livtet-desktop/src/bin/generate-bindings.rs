@@ -76,6 +76,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         livtet_desktop_lib::commands::sync::sync_conflicts_resolve,
         livtet_desktop_lib::commands::sync::sync_server_start,
         livtet_desktop_lib::commands::sync::sync_server_stop,
+        livtet_desktop_lib::commands::reviews::save_local_review,
+        livtet_desktop_lib::commands::reviews::put_local_review_to_pds,
     ]);
 
     let lang_opts = specta_typescript::Typescript::default();

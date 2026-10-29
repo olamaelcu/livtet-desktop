@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/svelte-query'
 import EditionDetailDrawer from '$lib/library/EditionDetailDrawer.svelte'
 
 interface Props {
-  editionId?: string | null
+  editionId?: string
   open?: boolean
 }
 

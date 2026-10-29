@@ -11,4 +11,5 @@ pub mod plugin_host_callbacks;
 pub mod plugins;
 pub mod reader;
 pub mod search;
+pub mod reviews;
 pub mod sync;
