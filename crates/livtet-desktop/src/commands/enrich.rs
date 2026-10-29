@@ -153,18 +153,17 @@ fn compute_merge(
 #[tauri::command]
 #[specta::specta]
 pub async fn enrich_edition(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     edition_id: String,
     plugin_name: Option<String>,
     mode: String,
 ) -> Result<EnrichmentPreview, PluginError> {
-    preview_enrichment(state, edition_id.as_str(), plugin_name.as_deref(), &mode)
+    preview_enrichment(edition_id.as_str(), plugin_name.as_deref(), &mode)
 }
 
 /// State-free body of [`enrich_edition`]: rejects a missing enricher, otherwise
 /// merges the (placeholder) enrichment into the (placeholder) current edition.
 fn preview_enrichment(
-    _state: State<'_, AppState>,
     _edition_id: &str,
     plugin_name: Option<&str>,
     mode: &str,
@@ -175,28 +174,6 @@ fn preview_enrichment(
         ));
     }
 
-    let current_edition = EditionFields {
-        title: Some("Mock Title".to_string()),
-        title_sort: None,
-        contributors: Vec::new(),
-        publisher: Some("Mock Publisher".to_string()),
-        language: Some("en".to_string()),
-        published: Some(ImporterPublicationDate {
-            year: 2020,
-            month: Some(1),
-            day: Some(15),
-        }),
-        description: Some("Existing description".to_string()),
-        subjects: vec!["Science Fiction".to_string()],
-        cover: Some(ImporterCover {
-            mime: "image/jpeg".to_string(),
-            data_base64: "existing".to_string(),
-        }),
-    };
-
-    // Real plugin lookup through plugin_host (ADR-0034 approach)
-    // Try to call the enricher via RemoteRegistry; if unavailable, keep stub for verification
-    let mutation = if let Some(name) = plugin_name { name } else { "" };
     let current_edition = EditionFields {
         title: Some("Mock Title".to_string()),
         title_sort: None,
@@ -248,7 +225,7 @@ fn preview_enrichment(
 #[tauri::command]
 #[specta::specta]
 pub async fn enrich_library(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
     _filter: String,
     _plugin_name: Option<String>,
     _mode: String,
@@ -642,7 +619,7 @@ mod tests {
 
     #[test]
     fn enrich_edition_without_a_plugin_is_rejected_as_invalid() {
-        let error = preview_enrichment(None, "union").expect_err("no plugin selected");
+        let error = preview_enrichment("ol-1", None, "union").expect_err("no plugin selected");
 
         assert!(
             matches!(error, PluginError::Invalid { .. }),
