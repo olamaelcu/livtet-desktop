@@ -82,7 +82,9 @@ pub struct CreateVirtualBookArgs {
     /// Catalog metadata with the same shape as the desktop `VirtualBookInput`:
     /// `title`, `authors` (`[{ "name": ..., "role": ... }]`), optional
     /// `publisher`, `language_id`, `format_id`, `identifiers`, `description`,
-    /// and `notes`.
+    /// `notes`, and `cover_image_url` (an http/https image URL, downloaded into
+    /// the local covers directory; a failed fetch creates the book without a
+    /// cover).
     pub input: Value,
 }
 

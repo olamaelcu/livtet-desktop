@@ -26,8 +26,8 @@ use specta::Type;
 use tokio::sync::Mutex;
 
 use crate::commands::import::{
-    ImportContext, ImportMode, VirtualBookInput, create_virtual_book_and_index, import_batch,
-    import_one_inner,
+    AuthorRequirement, ImportContext, ImportMode, VirtualBookInput, create_virtual_book_and_index,
+    import_batch, import_one_inner,
 };
 use crate::commands::reader::{
     ReaderCache, delete_reader_bookmark, fetch_reader_bookmarks, fetch_reader_position,
@@ -283,6 +283,7 @@ pub(crate) struct CommandBridge {
     db: SharedState,
     search_index: ArcMut<Option<SearchIndex>>,
     covers_dir: Utf8PathBuf,
+    opds_http: reqwest::Client,
     books_dir: Utf8PathBuf,
     plugin_host_path: Utf8PathBuf,
     plugin_host_config: Utf8PathBuf,
@@ -298,6 +299,7 @@ impl CommandBridge {
             db: state.db.clone(),
             search_index: state.search_index.clone(),
             covers_dir: state.covers_dir.clone(),
+            opds_http: state.opds_http.clone(),
             books_dir: state.books_dir.clone(),
             plugin_host_path: state.plugin_host_path.clone(),
             plugin_host_config: state.plugin_host_config.clone(),
@@ -391,9 +393,16 @@ impl DesktopBridge for CommandBridge {
     async fn create_virtual_book(&self, input: Value) -> Result<Value, BridgeError> {
         let input = serde_json::from_value::<VirtualBookInput>(input)
             .map_err(|error| BridgeError::new("invalid-parameter", error.to_string()))?;
-        let outcome = create_virtual_book_and_index(&self.db, &self.search_index, input)
-            .await
-            .map_err(|error| bridge_error("import", &error))?;
+        let outcome = create_virtual_book_and_index(
+            &self.db,
+            &self.covers_dir,
+            &self.opds_http,
+            &self.search_index,
+            input,
+            AuthorRequirement::Required,
+        )
+        .await
+        .map_err(|error| bridge_error("import", &error))?;
         serialized(outcome)
     }
 

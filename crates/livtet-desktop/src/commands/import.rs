@@ -398,13 +398,87 @@ fn materialize_library_file(
 }
 
 /// File extension for a cover MIME type.
-fn cover_extension(mime: &str) -> &str {
+fn cover_extension(mime: &str) -> &'static str {
     match mime {
         "image/jpeg" => "jpg",
         "image/png" => "png",
         "image/webp" => "webp",
         "image/gif" => "gif",
         _ => "img",
+    }
+}
+
+/// Write cover bytes to `path`, creating its parent directory.
+///
+/// Callers record the path in the database, so a failure here means "null the
+/// path", not "fail the write": a cover is re-derivable, a catalog row is not.
+async fn write_cover_file(path: &str, bytes: &[u8]) -> Result<(), String> {
+    let path = camino::Utf8Path::new(path);
+    if let Some(parent) = path.parent() {
+        fs_err::tokio::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    fs_err::tokio::write(path, bytes)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Download a cover for a virtual book, returning the bytes and the file
+/// extension derived from the response `Content-Type`.
+///
+/// Every failure (non-http scheme, network error, non-2xx, non-image type,
+/// empty body) logs and yields `None`: a missing cover never blocks creating
+/// the book.
+async fn fetch_cover_image(http: &reqwest::Client, url: &str) -> Option<(Vec<u8>, &'static str)> {
+    let url = url.trim();
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        tracing::debug!(%url, "cover URL is not http(s); skipping the cover");
+        return None;
+    }
+
+    let response = match http.get(url).send().await {
+        Ok(response) => response,
+        Err(error) => {
+            tracing::warn!(%error, %url, "cover fetch failed; skipping the cover");
+            return None;
+        }
+    };
+    if !response.status().is_success() {
+        tracing::warn!(
+            status = %response.status(),
+            %url,
+            "cover fetch returned an error status; skipping the cover"
+        );
+        return None;
+    }
+
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(';').next().unwrap_or(value).trim())
+        .unwrap_or_default();
+    let extension = cover_extension(content_type);
+    if extension == "img" {
+        tracing::warn!(
+            %url,
+            content_type,
+            "cover is not a supported image type; skipping the cover"
+        );
+        return None;
+    }
+
+    match response.bytes().await {
+        Ok(bytes) if bytes.is_empty() => {
+            tracing::warn!(%url, "cover body was empty; skipping the cover");
+            None
+        }
+        Ok(bytes) => Some((bytes.to_vec(), extension)),
+        Err(error) => {
+            tracing::warn!(%error, %url, "reading the cover body failed; skipping the cover");
+            None
+        }
     }
 }
 
@@ -978,29 +1052,18 @@ pub(crate) async fn persist_import(
 
     // Cover bytes go to disk post-commit; a failed write nulls the path
     // (DB stays authoritative, file is re-derivable).
-    if let (Some((_, data)), Some(path)) = (&cover, &cover_path) {
-        let result = async {
-            if let Some(parent) = camino::Utf8Path::new(path).parent() {
-                fs_err::tokio::create_dir_all(parent)
-                    .await
-                    .map_err(|e| e.to_string())?;
-            }
-            fs_err::tokio::write(path, data)
-                .await
-                .map_err(|e| e.to_string())
-        }
-        .await;
-        if let Err(err) = result {
-            tracing::warn!(%err, %path, "cover write failed; clearing cover_path");
-            let mut model: digital_inventory::ActiveModel = digital_inventory::Entity::find()
-                .filter(digital_inventory::Column::EditionId.eq(edition_id))
-                .one(&conn)
-                .await?
-                .ok_or_else(|| ImportError::new("database", "inventory row vanished post-commit"))?
-                .into();
-            model.cover_path = Set(None);
-            model.update(&conn).await?;
-        }
+    if let (Some((_, data)), Some(path)) = (&cover, &cover_path)
+        && let Err(err) = write_cover_file(path, data).await
+    {
+        tracing::warn!(%err, %path, "cover write failed; clearing cover_path");
+        let mut model: digital_inventory::ActiveModel = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(&conn)
+            .await?
+            .ok_or_else(|| ImportError::new("database", "inventory row vanished post-commit"))?
+            .into();
+        model.cover_path = Set(None);
+        model.update(&conn).await?;
     }
 
     Ok(ImportOutcome {
@@ -1046,16 +1109,36 @@ pub struct VirtualBookInput {
     pub description: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Optional cover image URL (http/https only). Fetched at creation, written
+    /// under `covers_dir/<inventory_id>/cover.<ext>`, and recorded on
+    /// `digital_inventory.cover_path`. A failed fetch creates the book without
+    /// a cover instead of failing.
+    #[serde(default)]
+    pub cover_image_url: Option<String>,
+}
+
+/// Whether a virtual book must carry a named author.
+///
+/// The manual form and the MCP tool require one. A book imported from an ATProto
+/// shelf may have no contributor names in the book index, and refusing it would
+/// lose the shelf entry the user asked to keep.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AuthorRequirement {
+    Required,
+    Optional,
 }
 
 /// Write a virtual book: catalog rows plus a `digital_inventory` row with no
 /// `file_path`, so the edition is searchable and browsable but has no on-disk
-/// copy. A title and at least one named author are required. Kept free of Tauri
-/// state so it can be unit-tested against a `TestDb`.
+/// copy. A title is always required; `authors` decides whether a named author is
+/// too. Kept free of Tauri state so it can be unit-tested against a `TestDb`.
 #[tracing::instrument(skip_all, ret, err)]
 pub(crate) async fn create_virtual_book_inner(
     db: &livtet_core::data::SharedState,
+    covers_dir: &camino::Utf8Path,
+    http: &reqwest::Client,
     input: VirtualBookInput,
+    authors: AuthorRequirement,
 ) -> Result<ImportOutcome, ImportError> {
     let title = input.title.trim().to_string();
     if title.is_empty() {
@@ -1070,7 +1153,7 @@ pub(crate) async fn create_virtual_book_inner(
             (author.name.trim().to_string(), role)
         })
         .collect();
-    if author_bindings.is_empty() {
+    if author_bindings.is_empty() && authors == AuthorRequirement::Required {
         return Err(ImportError::new(
             "invalid",
             "a virtual book needs at least one author",
@@ -1122,6 +1205,30 @@ pub(crate) async fn create_virtual_book_inner(
     let work_id = DbId::new();
     let edition_id = DbId::new();
     let inventory_id = DbId::new();
+
+    let cover = match input
+        .cover_image_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    {
+        Some(url) => fetch_cover_image(http, url).await,
+        None => None,
+    };
+    let mut cover_path = cover.as_ref().map(|(_, extension)| {
+        covers_dir
+            .join(inventory_id.to_string())
+            .join(format!("cover.{extension}"))
+            .to_string()
+    });
+    // Cover bytes land before the rows: the insert must be authoritative about
+    // whether the path exists. A failed write degrades to "no cover".
+    if let (Some((bytes, _)), Some(path)) = (&cover, &cover_path)
+        && let Err(err) = write_cover_file(path, bytes).await
+    {
+        tracing::warn!(%err, %path, "cover write failed; creating the book without a cover");
+        cover_path = None;
+    }
 
     let txn = conn.begin().await?;
     works::ActiveModel {
@@ -1199,7 +1306,7 @@ pub(crate) async fn create_virtual_book_inner(
         id: Set(inventory_id),
         edition_id: Set(edition_id),
         file_path: Set(None),
-        cover_path: Set(None),
+        cover_path: Set(cover_path.clone()),
         blurhash: Set(None),
         dominant_color: Set(None),
         file_hash: Set(None),
@@ -1212,7 +1319,13 @@ pub(crate) async fn create_virtual_book_inner(
     .insert(&txn)
     .await?;
 
-    txn.commit().await?;
+    // Fail closed: a failed transaction must not leave a cover file behind.
+    if let Err(error) = txn.commit().await {
+        if let Some(path) = &cover_path {
+            let _ = std::fs::remove_file(path);
+        }
+        return Err(error.into());
+    }
 
     Ok(ImportOutcome {
         work_id: work_id.to_string(),
@@ -1232,7 +1345,15 @@ pub async fn create_virtual_book(
     input: VirtualBookInput,
     state: State<'_, AppState>,
 ) -> Result<ImportOutcome, ImportError> {
-    create_virtual_book_and_index(&state.db, &state.search_index, input).await
+    create_virtual_book_and_index(
+        &state.db,
+        &state.covers_dir,
+        &state.opds_http,
+        &state.search_index,
+        input,
+        AuthorRequirement::Required,
+    )
+    .await
 }
 
 /// Write a virtual book and add it to the search index, so it appears in the
@@ -1240,10 +1361,13 @@ pub async fn create_virtual_book(
 /// (`crate::mcp`), which reaches the same code without a Tauri state.
 pub(crate) async fn create_virtual_book_and_index(
     db: &livtet_core::data::SharedState,
+    covers_dir: &camino::Utf8Path,
+    http: &reqwest::Client,
     search_index: &tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
     input: VirtualBookInput,
+    authors: AuthorRequirement,
 ) -> Result<ImportOutcome, ImportError> {
-    let outcome = create_virtual_book_inner(db, input).await?;
+    let outcome = create_virtual_book_inner(db, covers_dir, http, input, authors).await?;
     let edition_id = outcome
         .edition_id
         .parse::<DbId>()
@@ -1629,6 +1753,7 @@ mod tests {
     };
     use livtet_types::DbId;
 
+    use super::{AuthorRequirement, VirtualAuthor, VirtualBookInput, create_virtual_book_inner};
     use super::{
         FileImporterSource, ImportBatchProgress, ImportContext, ImportError, ImportFileProgress,
         ImportFileResult, ImportMode, ImportOutcome, ImportPhase, LibraryTarget, batch_result,
@@ -1637,7 +1762,6 @@ mod tests {
         is_inside_dir, library_store_name, materialize_library_file, normalize_contributor_role,
         persist_import, relink_edition, validate_importer_meta,
     };
-    use super::{VirtualAuthor, VirtualBookInput, create_virtual_book_inner};
     use crate::commands::catalog::FileStatus;
     use livtet_core::data::orm::{ActiveModelTrait, Set};
     use sha2::Digest;
@@ -1951,7 +2075,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_virtual_book_writes_an_edition_without_a_file() {
-        let (_db, state, _covers, _covers_dir, _books, _books_dir) = persist_fixture().await;
+        let (_db, state, _covers, covers_dir, _books, _books_dir) = persist_fixture().await;
         let input = VirtualBookInput {
             title: "The Great Gatsby".to_string(),
             authors: vec![VirtualAuthor {
@@ -1964,11 +2088,18 @@ mod tests {
             identifiers: vec!["9780743273565".to_string(), "abc".to_string()],
             description: Some("A novel".to_string()),
             notes: None,
+            cover_image_url: None,
         };
 
-        let outcome = create_virtual_book_inner(&state, input)
-            .await
-            .expect("create virtual book");
+        let outcome = create_virtual_book_inner(
+            &state,
+            &covers_dir,
+            &reqwest::Client::new(),
+            input,
+            AuthorRequirement::Required,
+        )
+        .await
+        .expect("create virtual book");
         assert!(!outcome.duplicate);
         assert_eq!(outcome.title, "The Great Gatsby");
 
@@ -1994,6 +2125,10 @@ mod tests {
         );
         assert!(inventory.file_hash.is_none());
         assert!(inventory.file_size_bytes.is_none());
+        assert!(
+            inventory.cover_path.is_none(),
+            "no cover URL, no cover path"
+        );
 
         let author_links = edition_authors::Entity::find()
             .filter(edition_authors::Column::EditionId.eq(edition_id))
@@ -2021,7 +2156,8 @@ mod tests {
 
     #[tokio::test]
     async fn create_virtual_book_requires_a_title_and_an_author() {
-        let (_db, state, ..) = persist_fixture().await;
+        let (_db, state, _covers, covers_dir, _books, _books_dir) = persist_fixture().await;
+        let http = reqwest::Client::new();
         let blank_title = VirtualBookInput {
             title: "   ".to_string(),
             authors: vec![VirtualAuthor {
@@ -2034,11 +2170,18 @@ mod tests {
             identifiers: vec![],
             description: None,
             notes: None,
+            cover_image_url: None,
         };
         assert!(
-            create_virtual_book_inner(&state, blank_title)
-                .await
-                .is_err()
+            create_virtual_book_inner(
+                &state,
+                &covers_dir,
+                &http,
+                blank_title,
+                AuthorRequirement::Required
+            )
+            .await
+            .is_err()
         );
 
         let no_author = VirtualBookInput {
@@ -2050,8 +2193,197 @@ mod tests {
             identifiers: vec![],
             description: None,
             notes: None,
+            cover_image_url: None,
         };
-        assert!(create_virtual_book_inner(&state, no_author).await.is_err());
+        assert!(
+            create_virtual_book_inner(
+                &state,
+                &covers_dir,
+                &http,
+                no_author,
+                AuthorRequirement::Required
+            )
+            .await
+            .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_authorless_virtual_book_is_allowed_when_the_caller_says_so() {
+        // A shelved book can have no contributor names in the book index; the
+        // shelf import passes `Optional` so the book is kept without inventing
+        // an author.
+        let (_db, state, _covers, covers_dir, _books, _books_dir) = persist_fixture().await;
+        let input = VirtualBookInput {
+            title: "Was Hinduism Invented?".to_string(),
+            authors: vec![],
+            publisher: None,
+            language_id: None,
+            format_id: None,
+            identifiers: vec![],
+            description: None,
+            notes: None,
+            cover_image_url: None,
+        };
+
+        let outcome = create_virtual_book_inner(
+            &state,
+            &covers_dir,
+            &reqwest::Client::new(),
+            input,
+            AuthorRequirement::Optional,
+        )
+        .await
+        .expect("authorless virtual book");
+        assert!(!outcome.duplicate);
+
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+        let links = edition_authors::Entity::find()
+            .filter(edition_authors::Column::EditionId.eq(edition_id))
+            .all(&conn)
+            .await
+            .expect("query authors");
+        assert!(
+            links.is_empty(),
+            "no placeholder author is invented for a book the index cannot attribute"
+        );
+    }
+
+    /// A one-pixel stand-in for a cover; only the bytes matter here.
+    const COVER_BYTES: &[u8] = b"\x89PNG\r\n\x1a\nvirtual";
+
+    #[derive(Clone)]
+    struct CoverState {
+        body: &'static [u8],
+    }
+
+    #[poem::handler]
+    fn cover_fixture(
+        req: &poem::Request,
+        poem::web::Data(state): poem::web::Data<&CoverState>,
+    ) -> poem::Response {
+        if req.uri().path() == "/cover.png" {
+            poem::Response::builder()
+                .content_type("image/png")
+                .body(state.body.to_vec())
+        } else {
+            poem::Response::builder()
+                .status(poem::http::StatusCode::NOT_FOUND)
+                .body(Vec::new())
+        }
+    }
+
+    /// Origin of a loopback server that serves [`COVER_BYTES`] at `/cover.png`
+    /// and answers 404 everywhere else. The serving task is detached and dies
+    /// with the test runtime.
+    fn cover_server() -> String {
+        use poem::EndpointExt;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let acceptor = poem::listener::TcpAcceptor::from_std(listener).unwrap();
+        tokio::spawn(
+            poem::Server::new_with_acceptor(acceptor)
+                .run(cover_fixture.data(CoverState { body: COVER_BYTES })),
+        );
+        origin
+    }
+
+    fn virtual_book_input(title: &str, cover_image_url: Option<String>) -> VirtualBookInput {
+        VirtualBookInput {
+            title: title.to_string(),
+            authors: vec![VirtualAuthor {
+                name: "Ursula K. Le Guin".to_string(),
+                role: "aut".to_string(),
+            }],
+            publisher: None,
+            language_id: None,
+            format_id: None,
+            identifiers: vec![],
+            description: None,
+            notes: None,
+            cover_image_url,
+        }
+    }
+
+    #[tokio::test]
+    async fn create_virtual_book_persists_a_fetched_cover() {
+        let (_db, state, _covers, covers_dir, _books, _books_dir) = persist_fixture().await;
+        let origin = cover_server();
+        let input = virtual_book_input("A Wizard of Earthsea", Some(format!("{origin}/cover.png")));
+
+        let outcome = create_virtual_book_inner(
+            &state,
+            &covers_dir,
+            &reqwest::Client::new(),
+            input,
+            AuthorRequirement::Required,
+        )
+        .await
+        .expect("create virtual book with a cover");
+
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+        let inventory = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(&conn)
+            .await
+            .expect("query inventory")
+            .expect("inventory row");
+        assert!(inventory.file_path.is_none(), "the book stays virtual");
+
+        let expected = covers_dir
+            .join(inventory.id.to_string())
+            .join("cover.png")
+            .to_string();
+        assert_eq!(inventory.cover_path.as_deref(), Some(expected.as_str()));
+        assert_eq!(
+            fs_err::read(&expected).expect("cover file on disk"),
+            COVER_BYTES
+        );
+
+        // The query the library grid runs to find covers.
+        let covers = crate::commands::catalog::fetch_edition_covers(&conn, &[edition_id])
+            .await
+            .expect("query edition covers");
+        assert_eq!(covers.len(), 1);
+        assert_eq!(covers[0].edition_id, edition_id.to_string());
+        assert_eq!(covers[0].cover_path, expected);
+    }
+
+    #[tokio::test]
+    async fn create_virtual_book_survives_a_failed_cover_fetch() {
+        let (_db, state, _covers, covers_dir, _books, _books_dir) = persist_fixture().await;
+        let origin = cover_server();
+        let input = virtual_book_input("The Dispossessed", Some(format!("{origin}/missing.png")));
+
+        let outcome = create_virtual_book_inner(
+            &state,
+            &covers_dir,
+            &reqwest::Client::new(),
+            input,
+            AuthorRequirement::Required,
+        )
+        .await
+        .expect("the book is created without a cover");
+
+        let edition_id = outcome.edition_id.parse::<DbId>().expect("edition id");
+        let conn = state.db_conn();
+        let inventory = digital_inventory::Entity::find()
+            .filter(digital_inventory::Column::EditionId.eq(edition_id))
+            .one(&conn)
+            .await
+            .expect("query inventory")
+            .expect("inventory row");
+        assert!(inventory.cover_path.is_none(), "a 404 leaves no cover path");
+        assert!(
+            crate::commands::catalog::fetch_edition_covers(&conn, &[edition_id])
+                .await
+                .expect("query edition covers")
+                .is_empty()
+        );
     }
 
     #[test]

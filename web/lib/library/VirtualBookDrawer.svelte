@@ -27,6 +27,7 @@ interface VirtualBookInput {
   identifiers: string[]
   description: string | null
   notes: string | null
+  cover_image_url: string | null
 }
 
 /** One edition summary from the book index (`search_biblio_editions`). */
@@ -64,6 +65,7 @@ let formatId = $state('')
 let identifiers = $state('')
 let description = $state('')
 let notes = $state('')
+let coverUrl = $state('')
 let formatOptions = $state<Option[]>([])
 let languageOptions = $state<Option[]>([])
 
@@ -130,6 +132,7 @@ function reset() {
   identifiers = ''
   description = ''
   notes = ''
+  coverUrl = ''
   searchInput = ''
   searchError = null
   results = []
@@ -167,6 +170,7 @@ async function createManual() {
       .filter((value) => value.length > 0),
     description: description.trim() || null,
     notes: notes.trim() || null,
+    cover_image_url: coverUrl.trim() || null,
   })
 }
 
@@ -199,6 +203,7 @@ async function addFromIndex(edition: BiblioEdition) {
     identifiers: edition.identifiers.map((identifier) => identifier.uri),
     description: null,
     notes: null,
+    cover_image_url: edition.cover_image_url,
   })
 }
 
@@ -229,6 +234,13 @@ function submitSearch(event: SubmitEvent) {
           required
           value={title}
           oninput={(event: Event) => (title = eventValue(event))}
+        ></wa-input>
+
+        <wa-input
+          label="Cover image URL"
+          placeholder="https://…"
+          value={coverUrl}
+          oninput={(event: Event) => (coverUrl = eventValue(event))}
         ></wa-input>
 
         <fieldset class="authors">
