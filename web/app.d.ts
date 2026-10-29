@@ -21,7 +21,7 @@ declare global {
         pill?: boolean
         href?: string
         target?: string
-        with-caret?: boolean
+        'with-caret'?: boolean
       }
       'wa-input': Omit<import('svelte/elements').HTMLInputAttributes, 'size' | 'value' | 'type'> & {
         label?: string

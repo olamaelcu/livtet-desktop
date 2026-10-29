@@ -81,11 +81,17 @@ let reviewForm = $state<{ ok?: boolean; error?: string }>()
 let reviewSubmitting = $state(false)
 
 async function triggerEnrich() {
-  try {
-    const result = await commands.enrich_edition(editionId, null, 'union')
+  const result = await commands.enrichEdition(editionId, null, 'union')
+  if (result.status === 'ok') {
     toast.success('Enrichment preview loaded')
-  } catch (e: any) {
-    toast.error(e?.message ?? 'Enrichment failed')
+  } else {
+    if (result.error.Host) {
+      toast.error(`Enrichment failed: ${result.error.Host.message}`)
+    } else if (result.error.Invalid) {
+      toast.error(`Enrichment failed: ${result.error.Invalid.message}`)
+    } else if (result.error.Unavailable) {
+      toast.error(`Enrichment failed: ${result.error.Unavailable.message}`)
+    }
   }
 }
 /** The reviewed book's page in the Livtet web app, once publishing resolved it. */
