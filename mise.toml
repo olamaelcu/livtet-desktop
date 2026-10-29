@@ -21,7 +21,7 @@ CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG = true
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
 [tasks.generate-bindings]
-depends = ["secrets-export-env"]
+depends = ["secrets-export-env", "seed-frontend-dist"]
 run = "cargo run --features bindings-export --bin generate-bindings"
 
 [tasks.seed-frontend-dist]
@@ -60,7 +60,9 @@ run = [
 
 [tasks.test]
 description = "Run all unit + integration tests (Rust + JS/TS)"
-depends = ["seed-frontend-dist"]
+# The JS tests import modules that import the generated `web/lib/bindings.ts`,
+# which is gitignored — on a fresh clone the suite cannot resolve it.
+depends = ["seed-frontend-dist", "generate-bindings"]
 run = [
   "cargo test --doc --workspace",
   "cargo test --workspace --all-targets",
@@ -69,6 +71,7 @@ run = [
 
 [tasks."test:e2e:browser"]
 description = "Run E2E tests in browser-only mode (mocked IPC)"
+depends = ["generate-bindings"]
 run = "pnpm test:e2e:browser"
 
 [tasks.fix]
