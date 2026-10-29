@@ -438,10 +438,6 @@ pub(crate) fn reader_pdf_window_path(edition_id: &DbId) -> String {
     format!("reader/pdf/{edition_id}")
 }
 
-pub(crate) fn reader_azw3_window_path(edition_id: &DbId) -> String {
-    format!("reader/pub/{edition_id}")
-}
-
 /// Base URL for an edition's publication resources. It always ends in `/`.
 ///
 /// Desktop WebViews resolve the `reader` custom scheme as
@@ -713,7 +709,6 @@ pub(crate) async fn plan_reader_window(
 }
 
 /// Open (or focus) the planned reader window for an edition.
-
 async fn open_reader_window(
     app: &AppHandle,
     state: &AppState,
