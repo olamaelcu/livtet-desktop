@@ -1,0 +1,7 @@
+[toolchain]
+# Matches `rust-version` in Cargo.toml and the toolchain the release workflow
+# pins. Without this file CI linted with whatever stable the runner shipped
+# (clippy 1.99), so a lint added after 1.97 failed `-D warnings` on code that
+# 1.97 — and the shipped binaries — compile cleanly.
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]

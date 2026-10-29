@@ -24,6 +24,15 @@ RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 depends = ["secrets-export-env"]
 run = "cargo run --features bindings-export --bin generate-bindings"
 
+[tasks.seed-frontend-dist]
+description = "Create a placeholder build/ so tauri::generate_context!() can compile before the frontend exists"
+# `tauri::generate_context!()` panics while `frontendDist` (`build/`) is missing,
+# and every Rust target that links the app crate trips over it — `cargo test`,
+# `cargo clippy --all-targets`, `cargo llvm-cov` — even though none of them need
+# the real frontend. A one-file placeholder satisfies the macro; the real build
+# overwrites it.
+run = 'mkdir -p build && ([ -f build/index.html ] || printf "<!doctype html>\n" > build/index.html)'
+
 [tasks."dev:atproto"]
 description = "Dev app with ATProto OAuth logging (identity, authorize URL, callback, token exchange, appview)"
 # `atrium-oauth` has no logging of its own, so these directives surface our
@@ -41,6 +50,7 @@ run = ["cargo build -p livtet-plugin-host", "pnpm tauri dev"]
 
 [tasks.lint]
 description = "Run all lint checks (Rust + JS/TS)"
+depends = ["seed-frontend-dist"]
 run = [
   "cargo fmt --all --check",
   "cargo clippy --workspace --all-targets -- -D warnings",
@@ -50,6 +60,7 @@ run = [
 
 [tasks.test]
 description = "Run all unit + integration tests (Rust + JS/TS)"
+depends = ["seed-frontend-dist"]
 run = [
   "cargo test --doc --workspace",
   "cargo test --workspace --all-targets",
@@ -62,6 +73,7 @@ run = "pnpm test:e2e:browser"
 
 [tasks.fix]
 description = "Auto-fix formatting (Rust + JS/TS)"
+depends = ["seed-frontend-dist"]
 run = [
   "cargo fmt",
   "cargo clippy --workspace --all-targets --fix --allow-dirty --allow-staged -- -D warnings",
@@ -84,6 +96,7 @@ run = "pnpm test:coverage"
 
 [tasks."coverage:rust"]
 description = "Rust coverage (workspace) → target/llvm-cov/rust.lcov"
+depends = ["seed-frontend-dist"]
 run = [
   # cargo llvm-cov uses its own instrumented build dir (target/llvm-cov-target)
   # separate from the normal cargo cache, so a coverage run doesn't invalidate it.
