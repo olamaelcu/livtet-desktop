@@ -22,7 +22,7 @@ test('the brand layer wins over the default palette', () => {
 test('the brand palette carries both colour schemes', () => {
   const root = document.documentElement
   root.classList.remove('wa-dark', 'wa-light')
-  expect(token('--wa-color-surface-default')).toBe('oklch(92% 0.08 105)')
+  expect(token('--wa-color-surface-default')).toBe('oklch(93% 0.08 98)')
   expect(token('--wa-color-text-normal')).toBe('oklch(25% 0.02 80)')
 
   root.classList.add('wa-dark')
