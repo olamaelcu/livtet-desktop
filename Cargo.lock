@@ -4782,6 +4782,7 @@ dependencies = [
  "keyring-core",
  "livtet-core",
  "livtet-importer",
+ "livtet-mcp-server",
  "livtet-opds-client",
  "livtet-opds-types",
  "livtet-reader",
@@ -4874,6 +4875,20 @@ version = "0.1.0"
 dependencies = [
  "livtet-types",
  "serde_json",
+]
+
+[[package]]
+name = "livtet-mcp-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "rmcp",
+ "schemars 1.2.2",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
@@ -4971,8 +4986,6 @@ dependencies = [
  "camino",
  "fs-err",
  "livtet-epub",
- "livtet-importer-types",
- "quick-xml 0.42.0",
  "serde",
  "serde_json",
  "tempfile",
@@ -7570,6 +7583,7 @@ dependencies = [
  "pastey 0.2.3",
  "pin-project-lite",
  "rand 0.10.3",
+ "reqwest 0.13.5",
  "rmcp-macros",
  "schemars 1.2.2",
  "serde",

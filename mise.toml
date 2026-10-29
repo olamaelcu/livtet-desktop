@@ -54,7 +54,9 @@ depends = ["seed-frontend-dist"]
 run = [
   "cargo fmt --all --check",
   "cargo clippy --workspace --all-targets -- -D warnings",
-  "cargo-machete",
+  # Only our crates: `vendor/` holds third-party sources (patched crates.io
+  # copies) whose unused declarations are upstream's business, not ours.
+  "cargo-machete crates",
   "pnpm lint",
 ]
 
