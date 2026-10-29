@@ -4,12 +4,18 @@
 
 @import '@awesome.me/webawesome/dist/styles/webawesome.css';
 @import '@awesome.me/webawesome/dist/styles/themes/default.css';
+/* Livtet brand layer: generated tokens (surfaces, text, brand/neutral/semantic
+   ramps, fonts) land in `@layer wa-theme-overrides`, the "Modern Card Catalog"
+   component theme in `@layer wa-theme`. Imported after Web Awesome's default
+   theme so it wins by layer order rather than `!important`. CSS only: the
+   package's JS entry re-exports components its pinned tarball does not ship. */
+@import '@olamaelcu/livtet-branding/app.css';
 @import '@awesome.me/webawesome/dist/styles/native.css';
 
 :root {
-  --wa-font-family-body: "Work Sans", -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica Neue, Helvetica, Arial, sans-serif;
+  /* The brand tokens name the static Lora family; the variable build is what is
+     installed and it registers as "Lora Variable", so headings keep it. */
   --wa-font-family-heading: "Lora Variable", Georgia, Times New Roman, serif;
-  --wa-font-family-code: "JetBrains Mono", Menlo, Consolas, Monaco, monospace;
 }
 
 html,

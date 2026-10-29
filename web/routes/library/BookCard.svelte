@@ -112,7 +112,13 @@ $effect(() => {
   }
 
   .placeholder {
-    background: linear-gradient(135deg, #2d323f 0%, #3a3f4d 100%);
+    /* The only literal colours the app had; follow the theme tokens so the
+       placeholder cover darkens with the rest of the surface palette. */
+    background: linear-gradient(
+      135deg,
+      var(--wa-color-surface-lowered) 0%,
+      var(--wa-color-surface-raised) 100%
+    );
     display: flex;
     align-items: center;
     justify-content: center;

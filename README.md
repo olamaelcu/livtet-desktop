@@ -16,9 +16,12 @@ The shell is Rust, talking to the webview through Tauri IPC.
   titlebar), and `tauri-plugin-mcp-bridge` in dev
 - [SvelteKit](https://svelte.dev/docs/kit/) 2 + [Svelte 5](https://svelte.dev/), bundled by Vite 8, source under `web/`
 - [WebAwesome](https://webawesome.com/) 3.x components, loaded via the auto-loader
-- Livtet brand tokens via `@olamaelcu/livtet-branding` (git dependency); fonts
-  bundled from [Fontsource](https://fontsource.org/): Work Sans (body), Lora Variable (heading), JetBrains
-  Mono (code)
+- Livtet brand theme via `@olamaelcu/livtet-branding` (git dependency), imported
+  as CSS in `web/app.css` after Web Awesome's default theme: generated tokens
+  (brand/neutral/semantic ramps, surfaces, text) plus the "Modern Card Catalog"
+  component theme, both in cascade layers so load order decides and nothing needs
+  `!important`. Fonts come from [Fontsource](https://fontsource.org/): Work Sans
+  (body), Lora Variable (heading), JetBrains Mono (code)
 - [Rust](https://www.rust-lang.org/) 1.85+, edition 2021, single workspace member in `tauri/`
 
 ![library view](library-view.png)
