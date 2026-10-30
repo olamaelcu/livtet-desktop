@@ -68,10 +68,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # The bindings generation step below builds `livtet-desktop` (and the two
-    # sidecars its build.rs stages) whenever the Rust sources changed, so the
-    # budget has to cover a cold build on top of the test run.
-    timeout-minutes: 40
+    # The bindings step below builds `livtet-desktop` (and the two sidecars its
+    # build.rs stages) whenever the Rust sources changed, and the Rust suite
+    # then builds the test targets on top of it, so the budget has to cover a
+    # cold build plus both suites.
+    timeout-minutes: 60
 
     env:
       MISE_DISABLE_TOOLS: taskwarrior,pipx:taskwarrior-mcp
@@ -111,6 +112,24 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
+      # Two things every Rust build in this job needs, kept out of the
+      # cache-gated step below so a bindings cache hit cannot starve the Rust
+      # suite: `build.rs` aborts unless `.mise/secrets.env` exists, and
+      # `tauri::generate_context!()` panics while `build/` (frontendDist) is
+      # missing -- the same placeholder `mise run seed-frontend-dist` writes.
+      - name: Prepare Rust build prerequisites
+        # `bash` pins the script across runners: the Windows default shell
+        # (pwsh) has no `printf`.
+        shell: bash
+        run: |
+          # Only the file's presence is load-bearing: neither suite reads these
+          # values, and this job ships no binary. Decrypting the real bundle
+          # would mean installing mise + sops + age, which fails on the Windows
+          # runner.
+          printf 'GOOGLE_BOOKS_API_KEY=ci\nSENTRY_DSN=ci\n' > .mise/secrets.env
+          mkdir -p build
+          [ -f build/index.html ] || printf '<!doctype html>\n' > build/index.html
+
       # `web/lib/bindings.ts` is gitignored and produced by a Rust binary, so a
       # fresh checkout cannot resolve `$lib/bindings`: vitest fails with
       # "Failed to resolve import" before the `vi.mock` factories get a chance
@@ -131,22 +150,23 @@ jobs:
 
       - name: Generate TS bindings
         if: steps.bindings-cache.outputs.cache-hit != 'true'
-        # `bash` pins the script across runners: the Windows default shell
-        # (pwsh) has no `printf`.
-        shell: bash
         run: |
-          # build.rs aborts unless `.mise/secrets.env` exists and both values are
-          # non-empty. Only the file's presence is load-bearing here: the web
-          # suite never reads these, and this job ships no binary. Decrypting the
-          # real bundle would mean installing mise + sops + age, which fails on
-          # the Windows runner.
-          printf 'GOOGLE_BOOKS_API_KEY=ci\nSENTRY_DSN=ci\n' > .mise/secrets.env
-          # `tauri::generate_context!()` panics while `build/` (frontendDist) is
-          # missing -- the same placeholder `mise run seed-frontend-dist` writes.
-          mkdir -p build
-          [ -f build/index.html ] || printf '<!doctype html>\n' > build/index.html
           cargo run --features bindings-export --bin generate-bindings
           pnpm exec svelte-kit sync
+
+      # The Rust half of `mise run test`, which CI otherwise never invokes: a
+      # push to main skips the coverage job, and that job is the only other
+      # place `cargo test` executes. The workspace is already compiled by the
+      # bindings step above, so this only adds the test targets.
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.150
+
+      - name: Run Rust tests
+        run: |
+          cargo test --doc --workspace
+          cargo nextest run --workspace --all-targets
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
