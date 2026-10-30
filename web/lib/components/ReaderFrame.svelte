@@ -76,7 +76,11 @@ let settled = $state(false)
 let revealed = $state(false)
 let frameWindow = $state<Window | undefined>(undefined)
 let frameKeyHandler: ((e: KeyboardEvent) => void) | undefined
-let frameLinkHandler: ((e: MouseEvent) => void) | undefined
+/** Frame documents carrying the link interceptor; Readium builds one per resource. */
+const linkDocs = new Set<Document>()
+/** Pool iframes this component already watches; Readium loads a document per resource into each. */
+const boundFrames = new Set<HTMLIFrameElement>()
+let frameObserver: MutationObserver | undefined
 
 /** External link the reader clicked inside the publication, awaiting confirmation. */
 let linkUrl = $state<string | undefined>(undefined)
@@ -368,17 +372,17 @@ function dismissLink() {
   linkUrl = undefined
 }
 
-/** Take this component's listeners off the frame that currently holds them. */
+/** Take this component's listeners off every frame that holds one. */
 function detachFrameListeners() {
-  const doc = frameWindow?.document
-  if (!doc) return
-  if (frameKeyHandler) {
-    doc.removeEventListener('keydown', frameKeyHandler, true)
+  for (const doc of linkDocs) doc.removeEventListener('click', interceptExternalLink, true)
+  linkDocs.clear()
+  frameObserver?.disconnect()
+  frameObserver = undefined
+  for (const iframe of boundFrames) iframe.removeEventListener('load', onFrameLoad)
+  boundFrames.clear()
+  if (frameKeyHandler && frameWindow?.document) {
+    frameWindow.document.removeEventListener('keydown', frameKeyHandler, true)
     frameKeyHandler = undefined
-  }
-  if (frameLinkHandler) {
-    doc.removeEventListener('click', frameLinkHandler, true)
-    frameLinkHandler = undefined
   }
 }
 
@@ -420,6 +424,7 @@ async function load() {
     const host = container
     if (!host) throw new Error('The reader container is not available.')
     detachFrameListeners()
+    watchFrames()
     instance = new EpubNavigator(
       host,
       publication,
@@ -432,7 +437,7 @@ async function load() {
           const doc = readiumWindow?.document
           if (!doc) return
 
-          installSemanticStyles(doc)
+          prepareFrame(doc)
 
           const handler = (e: KeyboardEvent) => {
             if (!keyboard) return
@@ -468,13 +473,11 @@ async function load() {
           frameKeyHandler = handler
 
           doc.addEventListener('keydown', handler, true)
-          frameLinkHandler = interceptExternalLink
-          doc.addEventListener('click', frameLinkHandler, true)
         },
         positionChanged: (locator: Locator) => {
           ready = true
           latestLoc = locator
-          installSemanticStylesEverywhere()
+          prepareFrames()
           // A selection belongs to the frame it was made in; drop it once the
           // reader moves so a later note never quotes stale text.
           ontextselect(null)
@@ -536,7 +539,7 @@ async function load() {
     // once `settled` flips below and carries ligatures with it. A second submit here would
     // be in flight alongside it, and two concurrent submits wedge the navigator's relayout.
     settled = true
-    installSemanticStylesEverywhere()
+    prepareFrames()
     phase = 'ready'
     // The navigator opened on the stored locator, so there is nothing left to apply.
     revealed = true
@@ -601,19 +604,64 @@ function installSemanticStyles(doc: Document) {
 }
 
 /**
- * Install the styles into every frame the navigator is holding.
+ * Reader-owned setup for one frame document: its stylesheet and the link interceptor.
  *
- * Readium reports a frame load through `frameLoaded(_cframes[0])` — always the
- * first frame — so the other pooled documents would never hear about the
- * stylesheet. Their documents are built when the resource is first paged in, so
- * this walks the pool whenever the reader moves.
+ * Readium reports a frame load through `frameLoaded(_cframes[0])` — always the first
+ * frame — so the document the reader later pages to never hears from that callback,
+ * and a link clicked there would navigate the frame away from the publication.
  */
-function installSemanticStylesEverywhere() {
-  const frames = (navigator as unknown as NavigatorInternals | undefined)?._cframes ?? []
-  for (const frame of frames) {
-    const doc = frame?.iframe?.contentDocument
-    if (doc) installSemanticStyles(doc)
+function prepareFrame(doc: Document) {
+  installSemanticStyles(doc)
+  if (linkDocs.has(doc)) return
+  linkDocs.add(doc)
+  doc.addEventListener('click', interceptExternalLink, true)
+}
+
+/**
+ * Prepare every frame the navigator is holding.
+ *
+ * A pooled frame's document is built when its resource is first paged in, so this
+ * walks the pool whenever the reader moves.
+ */
+function prepareFrames() {
+  // The navigator's own frame pool is the DOM: one `<iframe>` per slot, its document
+  // replaced as resources are paged in.
+  for (const iframe of container?.querySelectorAll('iframe') ?? []) {
+    const doc = iframe.contentDocument
+    if (doc) prepareFrame(doc)
   }
+}
+
+/** A pool iframe finished loading a document: that document is the one the reader sees. */
+function onFrameLoad(event: Event) {
+  const doc = (event.currentTarget as HTMLIFrameElement).contentDocument
+  if (doc) prepareFrame(doc)
+}
+
+/** Watch one pool iframe, whose document Readium replaces per resource. */
+function bindFrame(iframe: HTMLIFrameElement) {
+  if (boundFrames.has(iframe)) return
+  boundFrames.add(iframe)
+  iframe.addEventListener('load', onFrameLoad)
+  if (iframe.contentDocument) prepareFrame(iframe.contentDocument)
+}
+
+/**
+ * Watch the frame pool as Readium fills it.
+ *
+ * The navigator creates an `<iframe>` per slot and swaps documents into it, but never
+ * reports those loads: `frameLoaded` fires for the first frame only. A load listener
+ * per iframe is what puts the interceptor on every document the reader can click.
+ */
+function watchFrames() {
+  const host = container
+  if (!host) return
+  for (const iframe of host.querySelectorAll('iframe')) bindFrame(iframe)
+  frameObserver?.disconnect()
+  frameObserver = new MutationObserver(() => {
+    for (const iframe of host.querySelectorAll('iframe')) bindFrame(iframe)
+  })
+  frameObserver.observe(host, { childList: true, subtree: true })
 }
 
 function syncFrameComms(target: EpubNavigator | undefined = navigator): Promise<void> {
