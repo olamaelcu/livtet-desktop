@@ -445,7 +445,6 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_decorum::init())
-        .plugin(victauri_plugin::init())
         .invoke_handler(specta_builder.invoke_handler())
         .register_asynchronous_uri_scheme_protocol("reader", |ctx, request, responder| {
             let path = request.uri().path().to_string();

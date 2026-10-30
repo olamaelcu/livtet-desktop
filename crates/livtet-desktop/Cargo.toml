@@ -42,7 +42,6 @@ tauri-plugin-store = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-mcp-bridge = "0.13"
 tauri-plugin-decorum = { git = "https://github.com/olamaelcu/tauri-plugin-decorum" }
-victauri-plugin = "0.9"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json"] }
 specta-typescript = "0.0.12"
