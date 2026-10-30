@@ -370,6 +370,11 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Extracted from the imported certificate by the "Import Apple
+          # signing certificate" step above and written to $GITHUB_ENV.
+          # Without it `tauri build` ships an unsigned binary and Gatekeeper
+          # reports the DMG as broken.
+          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           for var in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
