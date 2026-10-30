@@ -286,6 +286,10 @@ async function revealFile(path: string) {
         </div>
       </header>
 
+      {#if book.file?.file_status === 'missing'}
+        <p class="error">The linked file is missing — the original was moved or deleted.</p>
+      {/if}
+
       {#if canListen}
         <div class="listen">
           <ActionButton onclick={listenBook} disabled={listening}>
@@ -526,14 +530,6 @@ async function revealFile(path: string) {
     margin: 0;
     text-align: right;
     overflow-wrap: anywhere;
-  }
-
-  .path {
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--wa-space-s);
-    min-width: 0;
   }
 
   .section {
