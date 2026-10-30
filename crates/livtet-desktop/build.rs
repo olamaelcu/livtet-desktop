@@ -107,6 +107,19 @@ fn main() {
         );
     }
 
+    // `tauri-build` embeds the Windows application manifest into binaries only
+    // (`rustc-link-arg-bins`), so a test executable that builds the mock
+    // runtime loads ComCtl 5 instead of 6 and dies at startup with
+    // STATUS_ENTRYPOINT_NOT_FOUND / 0xc0000139 (tauri-apps/tauri#13419). Link
+    // the same dependency into test targets; the binary keeps tauri's manifest,
+    // which also carries its DPI settings.
+    if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows") {
+        let manifest = manifest_dir.join("windows-test.manifest");
+        println!("cargo:rerun-if-changed={manifest}");
+        println!("cargo:rustc-link-arg-tests=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg-tests=/MANIFESTINPUT:{manifest}");
+    }
+
     tauri_build::build();
 }
 
