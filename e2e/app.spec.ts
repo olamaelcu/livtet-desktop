@@ -19,7 +19,7 @@ test.describe('App shell', () => {
     await tauriPage.goto('/library');
     await tauriPage.locator('wa-button[href="/settings"]').click();
     await tauriPage.waitForURL('**/settings');
-    await expect(tauriPage.getByRole('heading', { name: 'Keyboard' })).toBeVisible();
+    await expect(tauriPage.getByRole('tab', { name: 'Keyboard' })).toBeVisible();
   });
 
   test('opens the command palette with Mod+K', async ({ tauriPage }) => {

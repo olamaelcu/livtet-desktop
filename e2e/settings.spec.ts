@@ -5,12 +5,13 @@ test.describe('Settings', () => {
 
   test('renders sync status from the daemon', async ({ tauriPage }) => {
     await tauriPage.goto('/settings');
-    await expect(tauriPage.getByText(/Daemon:/)).toBeVisible();
+    await expect(tauriPage.getByRole('rowheader', { name: 'Daemon' })).toBeVisible();
     await expect(tauriPage.getByText('Pixel 9')).toBeVisible();
   });
 
   test('lists every keyboard shortcut', async ({ tauriPage }) => {
     await tauriPage.goto('/settings');
+    await tauriPage.getByRole('tab', { name: 'Keyboard' }).click();
     const labels = [
       'Open command palette',
       'Focus search',
@@ -48,8 +49,8 @@ test.describe('Settings', () => {
       return {
         qrValue: read(qr),
         qrLabel: qr ? (qr.label ?? qr.getAttribute('label') ?? '') : '',
-        uri: byLabel('Pairing URI'),
-        token: byLabel('Pairing token'),
+        uri: byLabel('URI'),
+        token: byLabel('Token'),
         expires: document.body.innerText.includes('Expires'),
       };
     })()`);

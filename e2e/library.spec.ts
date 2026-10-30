@@ -18,16 +18,22 @@ test.describe('Library', () => {
 
   test('loads every result through the load-more affordance', async ({ tauriPage }) => {
     await tauriPage.goto('/library');
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const loadMore = tauriPage.getByRole('button', { name: /load more/i });
-      try {
-        await loadMore.waitFor({ state: 'visible', timeout: 5_000 });
-      } catch {
-        break;
-      }
-      await loadMore.click();
-    }
-    await expect(tauriPage.locator('.card-wrap')).toHaveCount(45);
+    // The affordance is re-rendered as pages land, so a pointer click races the
+    // detachment (the hit test then lands on <html> and times out), and it is
+    // briefly absent between renders. Poll instead: click whenever it exists and
+    // keep going until the grid is complete.
+    await expect
+      .poll(
+        async () => {
+          const loadMore = tauriPage.getByRole('button', { name: /load more/i }).first();
+          if ((await loadMore.count()) > 0) {
+            await loadMore.dispatchEvent('click').catch(() => {});
+          }
+          return tauriPage.locator('.card-wrap').count();
+        },
+        { timeout: 20_000 },
+      )
+      .toBe(45);
     await expect(tauriPage.locator('.result-count')).toContainText('45 results');
   });
 
