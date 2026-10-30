@@ -155,8 +155,8 @@ $effect(() => {
 
   .file-badge {
     position: absolute;
-    top: var(--wa-space-2xs);
-    right: var(--wa-space-2xs);
+    top: var(--wa-space-xs);
+    right: var(--wa-space-xs);
     z-index: 1;
     display: grid;
     place-items: center;
@@ -164,8 +164,8 @@ $effect(() => {
     height: 1.25rem;
     border-radius: 50%;
     border: 1px solid var(--wa-color-border-default);
-    background: var(--wa-color-surface-default);
-    color: var(--wa-color-text-secondary);
+    background: var(--wa-color-overlay-inline);
+    color: var(--wa-color-overlay-modal);
     font-size: var(--wa-font-size-2xs, 0.75rem);
   }
 

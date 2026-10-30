@@ -111,7 +111,7 @@ async function add(book: ShelvedBook) {
     </wa-select>
 
     {#if shelving.isPending}
-      <p class="muted">Reading your shelves…</p>
+      <p class="muted">Fetching books from your online shelves&hellip;</p>
     {:else if shelving.isError}
       <wa-callout variant="danger">
         {shelving.error instanceof Error ? shelving.error.message : 'Could not read your shelves'}

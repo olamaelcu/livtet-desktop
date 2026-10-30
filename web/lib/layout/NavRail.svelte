@@ -1,9 +1,28 @@
+
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
 import { atprotoKeys } from '$lib/query/keys'
 import { atprotoStatus } from '../atproto'
 import type { NavItem } from './navItems'
 
+const STORAGE_KEY = 'livtet.layout.toggleIcons'
+
+function loadToggleIcons(): boolean {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY)
+    return stored !== null ? stored === 'true' : false
+  } catch {
+    return false
+  }
+}
+
+function saveToggleIcons(value: boolean): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, String(value))
+  } catch {
+    return
+  }
+}
 interface Props {
   items: readonly NavItem[]
   currentPath: string
@@ -12,7 +31,7 @@ interface Props {
 }
 
 let { items, currentPath, expanded = false }: Props = $props()
-let toggleIcons = $state(!expanded)
+let toggleIcons = $state(loadToggleIcons())
 
 const status = createQuery(() => ({
   queryKey: atprotoKeys.status(),
@@ -68,7 +87,7 @@ function currentOnLink(current: boolean) {
       />
       {#if toggleIcons}<span class="rail__label">Profile</span>{/if}
     </wa-button>
-    <wa-button class="rail-menu" appearance="plain" onclick={() => toggleIcons = !toggleIcons}>
+    <wa-button class="rail-menu" appearance="plain" onclick={() => { toggleIcons = !toggleIcons; saveToggleIcons(toggleIcons); }}>
       <wa-icon name="bars"></wa-icon>
       <span class="rail__label">Collapse</span>
     </wa-button>
