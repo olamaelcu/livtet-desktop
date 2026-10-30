@@ -149,17 +149,27 @@ jobs:
           pnpm exec svelte-kit sync
 
       - name: Cache Playwright browsers
-        if: runner.os == 'Linux'
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
+          # Playwright's default browser directory is per-OS, and only one of
+          # them exists on any given runner, so list all three.
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('**/package.json') }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
+      # `--with-deps` installs apt packages, which only exists on Linux; the
+      # macOS and Windows images already ship what Chromium needs.
       - name: Install Playwright browsers
         if: runner.os == 'Linux'
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright browsers
+        if: runner.os != 'Linux'
+        run: npx playwright install chromium
 
       - name: Run unit + browser tests
         run: pnpm test
