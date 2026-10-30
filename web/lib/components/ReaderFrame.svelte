@@ -99,12 +99,26 @@ const computedStyle = () => getComputedStyle(document.documentElement)
 const presentation = $state({
   /** Multiplier on the frame's zoom: 1 is 100%, Readium accepts 0.7–4. */
   fontSize: DEFAULT_FONT_SIZE,
-  backgroundColor: computedStyle().backgroundColor,
-  textColor: computedStyle().color,
-  fontFamily: computedStyle().fontFamily,
-  linkColor: getComputedStyle(document.querySelector('a') || document.documentElement).color,
-  visitedColor: getComputedStyle(document.querySelector('a:visited') || document.documentElement)
-    .color,
+  // SSR renders without a DOM. These are placeholders only for that pass:
+  // extractRootVariables() re-reads the live values as soon as the reader
+  // mounts, and Readium never sees a frame before that.
+  ...(typeof document === 'undefined'
+    ? {
+        backgroundColor: 'transparent',
+        textColor: 'inherit',
+        fontFamily: 'inherit',
+        linkColor: 'inherit',
+        visitedColor: 'inherit',
+      }
+    : {
+        backgroundColor: computedStyle().backgroundColor,
+        textColor: computedStyle().color,
+        fontFamily: computedStyle().fontFamily,
+        linkColor: getComputedStyle(document.querySelector('a') || document.documentElement).color,
+        visitedColor: getComputedStyle(
+          document.querySelector('a:visited') || document.documentElement,
+        ).color,
+      }),
 })
 
 function extractRootVariables() {

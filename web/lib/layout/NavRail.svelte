@@ -63,7 +63,12 @@ function currentOnLink(current: boolean) {
 }
 </script>
 
-<nav class="rail" aria-label="Primary" data-expanded={expanded ? '' : undefined} class:collapsed={toggleIcons}>
+<nav
+  class="rail"
+  aria-label="Primary"
+  data-expanded={expanded ? '' : undefined}
+  class:collapsed={!expanded || toggleIcons}
+>
   {#each items as item (item.href)}
     <wa-button
       href={item.href}

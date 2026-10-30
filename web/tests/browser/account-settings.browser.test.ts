@@ -204,6 +204,8 @@ test('saving the profile writes it to the PDS', async () => {
   profile = { did: DID, display_name: 'Old name', description: 'Old bio' }
 
   const { container } = await render(AccountSettingsFixture)
+  await expect.poll(() => container.querySelector('.editor-trigger wa-button')).not.toBeNull()
+  await clickButton(container, 'Edit profile')
   await expect.poll(() => container.querySelector('.profile-editor')).not.toBeNull()
 
   const inputs = [...container.querySelectorAll<WaInput>('.profile-editor wa-input')]
@@ -248,6 +250,7 @@ test('shows the avatar and uploads a new one', async () => {
     `https://livtet.olamaelcu.net/user/profileImage/${DID}`,
   )
 
+  await clickButton(container, 'Edit profile')
   await clickButton(container, 'Change avatar')
 
   await expect.poll(() => invoke.mock.calls.some(([c]) => c === 'atproto_set_avatar')).toBe(true)
