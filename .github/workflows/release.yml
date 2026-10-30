@@ -512,6 +512,47 @@ jobs:
           name: windows-${{ matrix.arch }}-msi
           path: target/${{ matrix.target }}/release/bundle/msi/*.msi
           if-no-files-found: error
+  lint:
+    name: Lint (${{ matrix.os }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Lint (Rust + JS)
+        run: mise run lint
+
+  test:
+    name: Test (${{ matrix.os }})
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Test (Rust + JS)
+        run: mise run test
+
+
   flatpak:
     name: Flatpak bundle
     needs: [validate, linux]
