@@ -62,7 +62,7 @@ onMount(async () => {
 })
 
 const currentShelfStatus = $derived.by(() => {
-  return shelfOptions.find((v) => v.key == shelfKeyProp)?.label
+  return shelfOptions.find((v) => v.key === shelfKeyProp)?.label
 })
 </script>
 
