@@ -247,11 +247,23 @@ async function revealFile(path: string) {
       Open
     </ActionButton>
       {/if}
-            <ActionButton onclick={readBook} disabled={!canOpenInReader(book?.file)}>
+
+      {#if canListen}
+        <div class="listen">
+          <ActionButton onclick={listenBook} disabled={listening}>
+            <wa-icon name="play"></wa-icon>
+            Listen
+          </ActionButton>
+        </div>
+  {:else}
+     <ActionButton onclick={readBook} disabled={!canOpenInReader(book?.file)}>
               <wa-icon name="book-open"></wa-icon>
               Read
             </ActionButton>
 
+      {/if}
+
+       
   </wa-button-group>
   <div class="body">
     {#if detail.isPending}
@@ -288,15 +300,6 @@ async function revealFile(path: string) {
 
       {#if book.file?.file_status === 'missing'}
         <p class="error">The linked file is missing — the original was moved or deleted.</p>
-      {/if}
-
-      {#if canListen}
-        <div class="listen">
-          <ActionButton onclick={listenBook} disabled={listening}>
-            <wa-icon name="play"></wa-icon>
-            Listen
-          </ActionButton>
-        </div>
       {/if}
 
       <dl class="facts">

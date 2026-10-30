@@ -3,7 +3,7 @@ import { createQuery } from '@tanstack/svelte-query'
 import { onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
 import { page } from '$app/state'
-import ActionButton from '$lib/components/ActionButton.svelte'
+import AudioBookmarks from '$lib/components/AudioBookmarks.svelte'
 import AudioPlayer from '$lib/components/AudioPlayer.svelte'
 import ChapterList from '$lib/components/ChapterList.svelte'
 import PlayerProgress from '$lib/components/PlayerProgress.svelte'
@@ -11,12 +11,18 @@ import ScrollRegion from '$lib/layout/ScrollRegion.svelte'
 import { readerKeys } from '$lib/query/keys'
 import { formatTimestamp, loadReaderPublication } from '$lib/reader'
 import type { Bookmark } from '$lib/reader/bookmark'
-import { addBookmark, isBookmarked, loadBookmarks, removeBookmark } from '$lib/reader/bookmark'
+import {
+  addBookmark,
+  isBookmarked,
+  loadBookmarks,
+  removeBookmark,
+  withBookmark,
+  withoutBookmark,
+} from '$lib/reader/bookmark'
+import { clampSeek, needsPersist, resumePoint, SAVE_EVERY_SECONDS } from '$lib/reader/playback'
 import { loadProgress, saveProgress } from '$lib/reader/progress'
 import { coverUrlFor, loadEditionCovers, loadEditionDetail } from '$lib/search'
 import ReaderLayout from '../../ReaderLayout.svelte'
-
-const SAVE_EVERY_SECONDS = 15
 
 const editionId = $derived(page.params.editionId ?? '')
 const covers = createQuery(() => ({
@@ -71,7 +77,7 @@ const bookmarked = $derived(
 
 async function persist(force = false): Promise<void> {
   if (!editionId) return
-  if (!force && Math.abs(position - lastSaved) < 1) return
+  if (!needsPersist(position, lastSaved, force)) return
   const saved = await saveProgress(editionId, {
     kind: 'audio',
     audio: { positionSeconds: position },
@@ -103,11 +109,10 @@ async function loadSaved(): Promise<void> {
 $effect(() => {
   if (!metadataReady || !savedReady || resumed || !audio) return
   resumed = true
-  const saved = savedPosition ?? 0
-  const total = audio.duration || duration
-  if (saved > 5 && saved < total) {
-    audio.currentTime = saved
-    position = saved
+  const resume = resumePoint(savedPosition, audio.duration || duration)
+  if (resume !== undefined) {
+    audio.currentTime = resume
+    position = resume
   }
   lastSaved = position
 })
@@ -135,7 +140,7 @@ async function bookmarkCurrentSpot(): Promise<void> {
       kind: 'timestamp',
       positionSeconds: currentSecond,
     })
-    if (added) bookmarks = [...bookmarks, added]
+    bookmarks = withBookmark(bookmarks, added)
   } finally {
     bookmarking = false
   }
@@ -144,13 +149,12 @@ async function bookmarkCurrentSpot(): Promise<void> {
 /** Drop a bookmark without moving playback. */
 async function removeBookmarkEntry(bookmark: Bookmark): Promise<void> {
   if (!(await removeBookmark(bookmark.id))) return
-  bookmarks = bookmarks.filter((item) => item.id !== bookmark.id)
+  bookmarks = withoutBookmark(bookmarks, bookmark.id)
 }
 
 function seekTo(seconds: number): void {
   if (!audio) return
-  const max = audio.duration || duration
-  const newTime = Math.min(Math.max(0, seconds), max)
+  const newTime = clampSeek(seconds, audio.duration || duration)
   audio.currentTime = newTime
   position = newTime
 }
@@ -266,39 +270,14 @@ $effect(() => {
         />
 
         <!-- Bookmarks: playback spots, listed apart from listening position -->
-        <section class="bookmarks">
-          <ActionButton
-            onclick={() => void bookmarkCurrentSpot()}
-            disabled={!bookmarksLoaded || bookmarking || bookmarked}
-            variant={bookmarked ? 'brand' : undefined}
-            aria-pressed={bookmarked}
-          >
-            <wa-icon name="bookmark"></wa-icon>
-            {bookmarked ? 'Bookmarked' : 'Bookmark this spot'}
-          </ActionButton>
-          {#if bookmarks.length > 0}
-            <h3 class="section-title">Bookmarks ({bookmarks.length})</h3>
-            <ul class="bookmark-list">
-              {#each bookmarks as bookmark (bookmark.id)}
-                <li class="bookmark">
-                  <button
-                    type="button"
-                    class="bookmark-jump"
-                    onclick={() => seekTo(bookmark.positionSeconds ?? 0)}
-                  >
-                    {formatTimestamp(bookmark.positionSeconds ?? 0)}
-                  </button>
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <wa-button size="s" onclick={() => void removeBookmarkEntry(bookmark)}>
-                    <wa-icon name="trash"></wa-icon>
-                    Remove
-                  </wa-button>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        </section>
+        <AudioBookmarks
+          {bookmarks}
+          canAdd={bookmarksLoaded && !bookmarking}
+          {bookmarked}
+          onadd={() => void bookmarkCurrentSpot()}
+          onvisit={(bookmark) => seekTo(bookmark.positionSeconds ?? 0)}
+          onremove={(bookmark) => void removeBookmarkEntry(bookmark)}
+        />
       {/if}
     </div>
   </ScrollRegion>
@@ -336,45 +315,6 @@ $effect(() => {
   .title {
     margin: 0;
     font-size: 1.25rem;
-  }
-
-  .bookmarks {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--wa-space-2xs);
-  }
-
-  .section-title {
-    margin: var(--wa-space-s) 0 0;
-    font-size: var(--wa-font-size-s);
-    color: var(--wa-color-text-secondary);
-  }
-
-  .bookmark-list {
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .bookmark {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--wa-space-s);
-    padding-block: var(--wa-space-2xs);
-    border-block-start: 1px solid var(--wa-color-border);
-  }
-
-  .bookmark-jump {
-    padding: 0;
-    border: 0;
-    background: none;
-    color: inherit;
-    font: inherit;
-    font-variant-numeric: tabular-nums;
-    cursor: pointer;
   }
 
   .contributors {

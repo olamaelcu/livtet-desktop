@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use livtet_mcp_server::{BridgeError, DesktopBridge, serve};
 use rmcp::{
     ServiceExt,
-    model::CallToolRequestParams,
+    model::{CallToolRequestParams, CallToolResult},
     transport::streamable_http_client::{
         StreamableHttpClientTransport, StreamableHttpClientTransportConfig,
     },
@@ -193,6 +193,26 @@ fn arguments(value: Value) -> rmcp::model::JsonObject {
     value.as_object().cloned().expect("an object literal")
 }
 
+/// One tool call against a connected client, carrying a full argument object.
+async fn call(client: &Client, name: &str, args: Value) -> CallToolResult {
+    client
+        .call_tool(CallToolRequestParams::new(name.to_owned()).with_arguments(arguments(args)))
+        .await
+        .unwrap_or_else(|error| panic!("call {name}: {error}"))
+}
+
+/// A tool whose handler hands every argument to the bridge untouched: the stub
+/// echoes them back, so the structured result must equal the input exactly.
+async fn expect_echoed(client: &Client, name: &str, args: Value) {
+    let result = call(client, name, args.clone()).await;
+    assert_eq!(result.is_error, Some(false), "{name} must report success");
+    assert_eq!(
+        result.structured_content,
+        Some(args),
+        "{name} must hand every argument to the bridge and echo it back"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn endpoint_publishes_the_curated_tool_set_on_loopback() {
     let endpoint = serve(StubBridge::default(), 0)
@@ -257,6 +277,188 @@ async fn tool_arguments_reach_the_bridge_and_results_come_back() {
             String::from("search_typeahead"),
             String::from("filter_options")
         ]
+    );
+
+    endpoint.shutdown();
+}
+
+/// Per-tool contract check: one call per line of the [`DesktopBridge`] trait,
+/// with every argument populated, so each tool handler in `tools.rs` runs and
+/// the wire shape of every tool's parameters is pinned.
+///
+/// The stub echoes its arguments back, so equality with the raw arguments
+/// proves both hops — transport to handler, then handler to bridge. The two
+/// `mode`-less imports additionally pin the documented `"link"` default, and
+/// the trailing call-order assertion fails on a dropped or duplicated dispatch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn every_tool_routes_its_arguments_to_the_bridge() {
+    let bridge = StubBridge::default();
+    let endpoint = serve(bridge.clone(), 0).await.expect("bind loopback");
+    let client = connect(&endpoint).await;
+
+    expect_echoed(
+        &client,
+        "search_typeahead",
+        json!({ "query": "dune", "limit": 5 }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "search_editions",
+        json!({
+            "query": "dune",
+            "filters": { "tag_ids": ["t1"] },
+            "offset": 20,
+            "limit": 5,
+        }),
+    )
+    .await;
+
+    // The one tool that takes no arguments returns a fixed payload.
+    let options = client
+        .call_tool(CallToolRequestParams::new("filter_options"))
+        .await
+        .expect("call filter_options");
+    assert_eq!(options.is_error, Some(false), "filter_options must succeed");
+    assert_eq!(
+        options.structured_content,
+        Some(json!({ "axes": ["tags", "genres"] })),
+        "filter_options must return the bridge payload"
+    );
+
+    expect_echoed(
+        &client,
+        "import_file",
+        json!({ "path": "/books/one.epub", "mode": "copy" }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "import_files",
+        json!({ "paths": ["/books/a.epub", "/books/b.epub"], "mode": "copy" }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "create_virtual_book",
+        json!({ "input": { "title": "Virtual" } }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "reader_publication",
+        json!({ "edition_id": "ed-1" }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "reader_resource",
+        json!({ "edition_id": "ed-1", "href": "OEBPS/ch1.xhtml" }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "get_reader_position",
+        json!({ "edition_id": "ed-1" }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "save_reader_position",
+        json!({
+            "edition_id": "ed-1",
+            "kind": "epub",
+            "locator": "{\"href\":\"/ch1\"}",
+            "page_number": 12,
+            "position_seconds": 34.5,
+            "annotations": "[{\"id\":\"a1\"}]",
+        }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "list_reader_bookmarks",
+        json!({ "edition_id": "ed-1" }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "add_reader_bookmark",
+        json!({
+            "edition_id": "ed-1",
+            "kind": "pdf",
+            "locator": "{\"href\":\"/ch1\"}",
+            "page_number": 12,
+            "position_seconds": 34.5,
+            "fraction": 0.42,
+        }),
+    )
+    .await;
+
+    expect_echoed(
+        &client,
+        "remove_reader_bookmark",
+        json!({ "bookmark_id": "bm-1" }),
+    )
+    .await;
+
+    // Omitted `mode` defaults to `"link"` for both import tools.
+    let linked = call(&client, "import_file", json!({ "path": "/books/one.epub" })).await;
+    assert_eq!(linked.is_error, Some(false), "import_file must succeed");
+    assert_eq!(
+        linked.structured_content,
+        Some(json!({ "path": "/books/one.epub", "mode": "link" })),
+        "import_file must default mode to link"
+    );
+
+    let linked_many = call(
+        &client,
+        "import_files",
+        json!({ "paths": ["/books/a.epub", "/books/b.epub"] }),
+    )
+    .await;
+    assert_eq!(
+        linked_many.is_error,
+        Some(false),
+        "import_files must succeed"
+    );
+    assert_eq!(
+        linked_many.structured_content,
+        Some(json!({ "paths": ["/books/a.epub", "/books/b.epub"], "mode": "link" })),
+        "import_files must default mode to link"
+    );
+
+    assert_eq!(
+        bridge.calls(),
+        vec![
+            "search_typeahead",
+            "search_editions",
+            "filter_options",
+            "import_file",
+            "import_files",
+            "create_virtual_book",
+            "reader_publication",
+            "reader_resource",
+            "get_reader_position",
+            "save_reader_position",
+            "list_reader_bookmarks",
+            "add_reader_bookmark",
+            "remove_reader_bookmark",
+            "import_file",
+            "import_files",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect::<Vec<String>>()
     );
 
     endpoint.shutdown();

@@ -13,6 +13,7 @@ vi.mock('$lib/bindings', () => ({
   },
 }))
 
+import type { Bookmark } from './bookmark'
 import {
   addBookmark,
   bookmarkKey,
@@ -21,9 +22,35 @@ import {
   loadBookmarks,
   locatorKey,
   removeBookmark,
+  withBookmark,
+  withoutBookmark,
 } from './bookmark'
 
 const editionId = '01ABCDEF'
+
+describe('bookmark list edits', () => {
+  const first: Bookmark = { id: 'a', kind: 'pdf', pageNumber: 3 }
+  const second: Bookmark = { id: 'b', kind: 'timestamp', positionSeconds: 90 }
+
+  it('appends a stored bookmark, so the list stays oldest first', () => {
+    expect(withBookmark([first], second).map((item) => item.id)).toEqual(['a', 'b'])
+  })
+
+  // `addBookmark` reports a failed save as `undefined`; the list must then be
+  // handed back as the same array so Svelte does not re-render for nothing.
+  it('leaves the list alone when the save failed', () => {
+    const bookmarks = [first]
+    expect(withBookmark(bookmarks, undefined)).toBe(bookmarks)
+  })
+
+  it('drops one bookmark and keeps the order of the rest', () => {
+    expect(withoutBookmark([first, second], 'a').map((item) => item.id)).toEqual(['b'])
+  })
+
+  it('leaves the list alone when the bookmark is already gone', () => {
+    expect(withoutBookmark([first], 'zzz').map((item) => item.id)).toEqual(['a'])
+  })
+})
 
 describe('bookmark positions', () => {
   it('keys a locator by the in-resource progression, not by resource-wide numbers', () => {

@@ -182,3 +182,26 @@ export function readingPositionQuote(container: HTMLElement): Quote | undefined 
   }
   return heading
 }
+
+/**
+ * Merge a text anchor into a serialized locator's `text` field.
+ *
+ * A note saved without one carries only a progression, which the decorator
+ * cannot resolve, so it could never be highlighted. The quote — plus the
+ * surrounding context it carries — pins the decoration to the text the reader
+ * picked while keeping the position itself intact.
+ *
+ * The locator is passed through unchanged when there is no quote, and when it
+ * is not parseable JSON: a malformed column must not cost the reader the note
+ * they just wrote.
+ */
+export function locatorWithQuote(locatorJson: string, quote?: Quote): string {
+  if (!quote) return locatorJson
+  let raw: { text?: Record<string, unknown> }
+  try {
+    raw = JSON.parse(locatorJson) as { text?: Record<string, unknown> }
+  } catch {
+    return locatorJson
+  }
+  return JSON.stringify({ ...raw, text: { ...raw.text, ...quote } })
+}

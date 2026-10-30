@@ -8,7 +8,14 @@ import { page } from '$app/state'
 import ActionButton from '$lib/components/ActionButton.svelte'
 import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
 import type { Bookmark } from '$lib/reader/bookmark'
-import { addBookmark, isBookmarked, loadBookmarks, removeBookmark } from '$lib/reader/bookmark'
+import {
+  addBookmark,
+  isBookmarked,
+  loadBookmarks,
+  removeBookmark,
+  withBookmark,
+  withoutBookmark,
+} from '$lib/reader/bookmark'
 import { createLoadSession } from '$lib/reader/loadSession'
 import { canvasMetrics, clampPage, createRenderGate, fitToWidthScale } from '$lib/reader/pdf'
 import type { Annotation } from '$lib/reader/progress'
@@ -222,7 +229,7 @@ async function bookmarkCurrentPage() {
   try {
     const added = await addBookmark(editionId, { kind: 'pdf', pageNumber })
     if (added) {
-      bookmarks = [...bookmarks, added]
+      bookmarks = withBookmark(bookmarks, added)
       notesVisible = true
     }
   } finally {
@@ -239,7 +246,7 @@ function jumpToBookmark(bookmark: Bookmark) {
 /** Drop a bookmark without moving the reader. */
 async function removeBookmarkEntry(bookmark: Bookmark) {
   if (!(await removeBookmark(bookmark.id))) return
-  bookmarks = bookmarks.filter((item) => item.id !== bookmark.id)
+  bookmarks = withoutBookmark(bookmarks, bookmark.id)
 }
 
 /**

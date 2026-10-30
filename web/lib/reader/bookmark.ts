@@ -97,6 +97,22 @@ export function isBookmarked(bookmarks: Bookmark[], position: BookmarkPosition):
   return bookmarks.some((bookmark) => bookmarkKey(bookmark) === key)
 }
 
+/**
+ * `bookmarks` with `added` appended, or unchanged when the save failed.
+ *
+ * `addBookmark` reports failure as `undefined`, and every reader treats a
+ * failed save as "nothing happened" rather than as an error the reader must
+ * dismiss. Order is the stored order, which is also the order the lists render.
+ */
+export function withBookmark(bookmarks: Bookmark[], added: Bookmark | undefined): Bookmark[] {
+  return added ? [...bookmarks, added] : bookmarks
+}
+
+/** `bookmarks` without the one carrying `id`; order preserved. */
+export function withoutBookmark(bookmarks: Bookmark[], id: string): Bookmark[] {
+  return bookmarks.filter((bookmark) => bookmark.id !== id)
+}
+
 /** Human-readable place in the book: "Page 12", "42:07", "25.6% through". */
 export function bookmarkLabel(bookmark: Bookmark): string {
   if (bookmark.pageNumber !== undefined) return `Page ${bookmark.pageNumber}`

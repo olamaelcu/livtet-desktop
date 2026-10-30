@@ -1,6 +1,7 @@
 <script lang="ts">
 import { EpubNavigator, EpubPreferences } from '@readium/navigator'
 import { Locator, Manifest, Publication } from '@readium/shared'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import { onDestroy, onMount } from 'svelte'
 import ActionButton from '$lib/components/ActionButton.svelte'
 import { type Quote, readingPositionQuote, selectedQuote } from '$lib/reader/anchor'
@@ -14,6 +15,12 @@ import {
 } from '$lib/reader/decorations'
 import { ReaderFetcher } from '$lib/reader/fetcher'
 import { DEFAULT_FONT_SIZE, stepFontSize } from '$lib/reader/fontSize'
+import {
+  arrivalMatches,
+  bookFraction,
+  parseStoredLocator,
+  publicationTotal,
+} from '$lib/reader/frame'
 import { createLoadSession } from '$lib/reader/loadSession'
 import type { Annotation } from '$lib/reader/progress'
 import { debouncedSave, loadProgress, saveProgress } from '$lib/reader/progress'
@@ -69,6 +76,11 @@ let settled = $state(false)
 let revealed = $state(false)
 let frameWindow = $state<Window | undefined>(undefined)
 let frameKeyHandler: ((e: KeyboardEvent) => void) | undefined
+let frameLinkHandler: ((e: MouseEvent) => void) | undefined
+
+/** External link the reader clicked inside the publication, awaiting confirmation. */
+let linkUrl = $state<string | undefined>(undefined)
+let confirmLinkOpen = $state(false)
 
 /** Phase of this component's own load; the page only needs {@link ready}. */
 let phase = $state<Phase>('loading')
@@ -249,17 +261,15 @@ $effect(() => {
       return
     }
     location = JSON.stringify(loc)
-    const pos = loc.locations?.position
-    const total =
-      Math.max(0, ...(navigator?.timeline?.items ?? []).map((i) => i.position ?? 0)) ||
-      navigator?.publication?.readingOrder?.items?.length ||
-      (navigator?.timeline?.items ?? []).length ||
-      1
-    const resourceProg = loc.locations?.progression ?? 0
-    const currentPos = (pos ?? 1) - 1 + resourceProg
-    const fraction = total > 0 ? Math.min(Math.max(currentPos / total, 0), 1) : 0
+    const timeline = navigator?.timeline?.items ?? []
+    const spineItems = navigator?.publication?.readingOrder?.items?.length ?? 0
+    const total = publicationTotal(
+      timeline.map((item) => item.position ?? 0),
+      spineItems || timeline.length,
+    )
+    const fraction = bookFraction(loc.locations?.position, loc.locations?.progression, total)
     progression = fraction
-    progress = total > 0 ? `${(fraction * 100).toFixed(2)}%` : '—'
+    progress = `${(fraction * 100).toFixed(2)}%`
   }
   compute()
   const id = setInterval(compute, 100)
@@ -267,16 +277,6 @@ $effect(() => {
 })
 
 const NAV_ACK_TIMEOUT = 700
-
-/** A stored locator, or `undefined` when there is none (or it is malformed). */
-function parseStoredLocator(saved: string | null | undefined): Locator | undefined {
-  if (!saved) return undefined
-  try {
-    return Locator.deserialize(JSON.parse(saved))
-  } catch {
-    return undefined
-  }
-}
 
 /**
  * Move the reader to a locator.
@@ -292,23 +292,7 @@ export function go(locator: Locator) {
 async function locate(locator: Locator, attempt = 0): Promise<void> {
   const target = navigator as unknown as NavigatorInternals | undefined
   if (!target) return
-  const wanted = locator.locations?.position
-  // A spine `position` is shared by every page of a reflowable chapter, so it
-  // cannot prove arrival on its own: a bookmark or note inside the current
-  // chapter would otherwise "arrive" without the reader moving at all.
-  const wantedProgression = locator.locations?.progression
-  const wantedHref = locator.href.split('#')[0]
-  const arrived = () => {
-    const now = target.currentLocator
-    if (!now) return false
-    if (now.href.split('#')[0] !== wantedHref) return false
-    if (wanted != null && now.locations?.position !== wanted) return false
-    if (wantedProgression != null) {
-      const nowProgression = now.locations?.progression
-      return nowProgression != null && Math.abs(nowProgression - wantedProgression) <= 0.01
-    }
-    return true
-  }
+  const arrived = () => arrivalMatches(target.currentLocator, locator)
   target.go(locator, false, () => {})
   // Readium acknowledges `go` against whichever frame is current, so an ack is not
   // proof of arrival: wait for the locator to actually match, then retry once.
@@ -349,6 +333,55 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'Could not open this book.'
 }
 
+/**
+ * Intercept a link click inside a publication frame.
+ *
+ * A publication links outward all the time, and following such a link would load a
+ * remote site into the reader's own frame — the reader would lose the book and no
+ * address bar would say where it went. External targets are held for confirmation
+ * instead; in-book links (`#fragment`, relative resources) resolve against the
+ * frame's `reader://` base and pass straight through to the navigator.
+ */
+function interceptExternalLink(e: MouseEvent) {
+  // Cross-realm: `instanceof Element` here would test against this window's
+  // constructor, and the anchor belongs to the frame's document.
+  const target = e.target as Element | null
+  const anchor = (target?.closest?.('a') ?? null) as HTMLAnchorElement | null
+  const href = anchor?.href
+  if (!href || !/^https?:\/\//i.test(href)) return
+  e.preventDefault()
+  linkUrl = href
+  confirmLinkOpen = true
+}
+
+/** Hand the confirmed link to the system browser. */
+async function openExternalLink() {
+  const url = linkUrl
+  confirmLinkOpen = false
+  if (!url) return
+  await openUrl(url).catch((error) => console.error('could not open external link', error))
+}
+
+/** Drop the pending link however the dialog closed. */
+function dismissLink() {
+  confirmLinkOpen = false
+  linkUrl = undefined
+}
+
+/** Take this component's listeners off the frame that currently holds them. */
+function detachFrameListeners() {
+  const doc = frameWindow?.document
+  if (!doc) return
+  if (frameKeyHandler) {
+    doc.removeEventListener('keydown', frameKeyHandler, true)
+    frameKeyHandler = undefined
+  }
+  if (frameLinkHandler) {
+    doc.removeEventListener('click', frameLinkHandler, true)
+    frameLinkHandler = undefined
+  }
+}
+
 async function load() {
   const generation = session.begin()
   await navigator?.destroy().catch(() => {})
@@ -386,10 +419,7 @@ async function load() {
     const initialPosition = parseStoredLocator(stored?.epub?.locator)
     const host = container
     if (!host) throw new Error('The reader container is not available.')
-    if (frameKeyHandler && frameWindow?.document) {
-      frameWindow.document.removeEventListener('keydown', frameKeyHandler, true)
-      frameKeyHandler = undefined
-    }
+    detachFrameListeners()
     instance = new EpubNavigator(
       host,
       publication,
@@ -438,6 +468,8 @@ async function load() {
           frameKeyHandler = handler
 
           doc.addEventListener('keydown', handler, true)
+          frameLinkHandler = interceptExternalLink
+          doc.addEventListener('click', frameLinkHandler, true)
         },
         positionChanged: (locator: Locator) => {
           ready = true
@@ -685,10 +717,7 @@ onDestroy(() => {
       epub: { locator: JSON.stringify(latestLoc) },
     })
   }
-  if (frameWindow?.document && frameKeyHandler) {
-    frameWindow.document.removeEventListener('keydown', frameKeyHandler, true)
-    frameKeyHandler = undefined
-  }
+  detachFrameListeners()
   void instance?.destroy().catch(() => {})
 })
 </script>
@@ -711,6 +740,16 @@ onDestroy(() => {
     style:visibility={revealed ? 'visible' : 'hidden'}
   ></div>
 </div>
+<wa-dialog open={confirmLinkOpen} label="Open external link" onwa-after-hide={dismissLink}>
+  <div class="link">
+    <p>This link leaves the book and opens in your browser.</p>
+    <p class="url">{linkUrl}</p>
+    <div class="actions">
+      <button type="button" onclick={dismissLink}>Cancel</button>
+      <button type="button" class="confirm" onclick={openExternalLink}>Open</button>
+    </div>
+  </div>
+</wa-dialog>
 <div style="display: none">
   <a href="https://www.olamaelcu.net"></a>
   <a href="#"></a>
@@ -763,5 +802,45 @@ onDestroy(() => {
       margin: 1rem 0;
       border: 0;
     }
+  }
+
+  .link {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-l);
+  }
+
+  .link p {
+    margin: 0;
+  }
+
+  .url {
+    color: var(--wa-color-text-secondary);
+    overflow-wrap: anywhere;
+  }
+
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--wa-space-s);
+  }
+
+  .actions button {
+    padding: var(--wa-space-2xs) var(--wa-space-m);
+    border-radius: var(--wa-radius-m);
+    border: 1px solid var(--wa-color-border-default);
+    background: var(--wa-color-surface-default);
+    color: var(--wa-color-text-default);
+    cursor: pointer;
+    font: inherit;
+  }
+
+  .actions button:hover {
+    background: var(--wa-color-surface-alt);
+  }
+
+  .confirm {
+    border-color: var(--wa-color-brand-fill-loud);
+    font-weight: 600;
   }
 </style>

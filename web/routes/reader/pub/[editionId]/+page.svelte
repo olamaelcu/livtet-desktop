@@ -10,7 +10,7 @@ import NotesPanel from '$lib/components/NotesPanel.svelte'
 import ReaderFab from '$lib/components/ReaderFab.svelte'
 import ReaderFrame from '$lib/components/ReaderFrame.svelte'
 import ReaderToolbar from '$lib/components/ReaderToolbar.svelte'
-import type { Quote } from '$lib/reader/anchor'
+import { locatorWithQuote, type Quote } from '$lib/reader/anchor'
 import type { Bookmark } from '$lib/reader/bookmark'
 import {
   addBookmark,
@@ -18,8 +18,11 @@ import {
   loadBookmarks,
   locatorKey,
   removeBookmark,
+  withBookmark,
+  withoutBookmark,
 } from '$lib/reader/bookmark'
 import type { HighlightColor } from '$lib/reader/highlights'
+import { updateNoteText } from '$lib/reader/notes'
 import type { Annotation } from '$lib/reader/progress'
 import { loadAnnotations, saveProgress } from '$lib/reader/progress'
 import ReaderLayout from '../../ReaderLayout.svelte'
@@ -186,7 +189,7 @@ async function bookmarkCurrentPage() {
       locator: location,
       progress: bookProgression,
     })
-    if (added) bookmarks = [...bookmarks, added]
+    bookmarks = withBookmark(bookmarks, added)
   } finally {
     bookmarking = false
   }
@@ -210,16 +213,14 @@ function visitBookmark(bookmark: Bookmark) {
 /** Drop a bookmark without moving the reader. */
 async function removeBookmarkEntry(bookmark: Bookmark) {
   if (!(await removeBookmark(bookmark.id))) return
-  bookmarks = bookmarks.filter((item) => item.id !== bookmark.id)
+  bookmarks = withoutBookmark(bookmarks, bookmark.id)
   if (bookmarks.length === 0 && annotations.length === 0) panelOpen = false
 }
 
 function saveAnnotation(text: string, color?: HighlightColor) {
   if (editingId) {
     // Keep the anchor and creation time; only the reader's words and colour change.
-    annotations = annotations.map((item) =>
-      item.id === editingId ? { ...item, text, color: color ?? item.color } : item,
-    )
+    annotations = updateNoteText(annotations, editingId, text, color)
     editingId = null
     closeComposer()
     persistNotes()
@@ -265,9 +266,7 @@ function editNote(note: Annotation) {
 function locatorForNote(quote: Quote | undefined): string | undefined {
   const current = frame?.currentLocator()
   if (!current) return undefined
-  const raw = current.serialize() as { text?: Record<string, unknown> }
-  if (!quote) return JSON.stringify(raw)
-  return JSON.stringify({ ...raw, text: { ...raw.text, ...quote } })
+  return locatorWithQuote(JSON.stringify(current.serialize()), quote)
 }
 
 /** Open the dialog, capturing the anchor now. */
