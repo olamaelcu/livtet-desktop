@@ -1,0 +1,35 @@
+# Text files are stored and checked out with LF on every platform.
+#
+# Without this, a Windows checkout gets CRLF (the runner image sets
+# `core.autocrlf=true`), and `biome check` — which formats to LF — reports every
+# file as mis-formatted, which is why the Windows lint leg had to be dropped.
+* text=auto eol=lf
+
+# Assets git's text heuristic does not always recognise: never convert them.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
+*.zip binary
+*.gz binary
+*.tar binary
+*.dll binary
+*.dylib binary
+*.so binary
+*.exe binary
+*.msi binary
+*.wasm binary
+
+# Vendored sources are byte-for-byte copies of upstream trees; normalising them
+# would create diffs against upstream for no benefit.
+vendor/** -text
