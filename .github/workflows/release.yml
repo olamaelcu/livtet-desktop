@@ -560,6 +560,7 @@ jobs:
           set -euo pipefail
           bundle="$(find dist -name '*.flatpak' -print -quit)"
           flatpak install --user -y --bundle "$bundle"
+          # shellcheck disable=SC2016  # $b must expand inside the container shell
           flatpak build build-dir sh -c '
             for b in livtet-desktop livtet-plugin-host livtet-sync-daemon; do
               test -x "/app/bin/$b" || exit 1
