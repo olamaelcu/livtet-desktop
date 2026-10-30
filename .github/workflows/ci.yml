@@ -12,8 +12,13 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint
-    runs-on: ubuntu-latest
+    name: Lint (${{ matrix.os }})
+    needs: []
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
 
     env:
@@ -52,6 +57,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install Tauri Linux prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -70,8 +76,13 @@ jobs:
         run: mise run lint
 
   test:
-    name: Test
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    needs: []
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
 
     env:
@@ -110,6 +121,7 @@ jobs:
           workspaces: . -> target
 
       - name: Install Tauri Linux prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -204,6 +216,7 @@ jobs:
         run: rustup component add llvm-tools-preview
 
       - name: Install Tauri Linux prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
