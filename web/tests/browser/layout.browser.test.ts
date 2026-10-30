@@ -3,7 +3,7 @@ import '@awesome.me/webawesome/dist/components/icon/icon.js'
 import { afterEach, expect, test, vi } from 'vitest'
 import { page } from 'vitest/browser'
 import { render } from 'vitest-browser-svelte'
-import NavRail, { RAIL_COLLAPSED_KEY } from '../../lib/layout/NavRail.svelte'
+import NavRail from '../../lib/layout/NavRail.svelte'
 import { NAV_ITEMS } from '../../lib/layout/navItems'
 import DockAfterScrollFixture from './fixtures/DockAfterScrollFixture.svelte'
 import DockFixture from './fixtures/DockFixture.svelte'
@@ -12,6 +12,10 @@ import NarrowRailFixture from './fixtures/NarrowRailFixture.svelte'
 import QueryProvider from './fixtures/QueryProvider.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
+
+// Pinned on purpose: the persisted key is the rail's external contract, so a
+// rename has to break this test rather than silently orphan stored state.
+const RAIL_COLLAPSED_KEY = 'livtet.layout.collapsed'
 
 // NavRail renders its rail menu only once the profile query resolves. Default
 // to signed-out so no test but the toggle one pays for the avatar fetch.

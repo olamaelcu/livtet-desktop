@@ -1,16 +1,10 @@
-<script module lang="ts">
-/**
- * Persisted icons-only state of the rail, exported so tests seed the exact key
- * the component reads instead of restating the literal.
- */
-export const RAIL_COLLAPSED_KEY = 'livtet.layout.collapsed'
-</script>
-
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
 import { atprotoKeys } from '$lib/query/keys'
 import { atprotoStatus } from '../atproto'
 import type { NavItem } from './navItems'
+
+const STORAGE_KEY = 'livtet.layout.collapsed'
 
 interface Props {
   items: readonly NavItem[]
@@ -27,16 +21,15 @@ let collapsed = $state(loadCollapsed())
 
 function loadCollapsed(): boolean {
   try {
-    return localStorage.getItem(RAIL_COLLAPSED_KEY) === 'true'
+    return localStorage.getItem(STORAGE_KEY) === 'true'
   } catch {
-    // No storage (SSR, denied access): fall back to the expanded default.
     return false
   }
 }
 
 function saveCollapsed(value: boolean): void {
   try {
-    localStorage.setItem(RAIL_COLLAPSED_KEY, String(value))
+    localStorage.setItem(STORAGE_KEY, String(value))
   } catch {
     return
   }
