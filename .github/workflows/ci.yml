@@ -13,7 +13,6 @@ concurrency:
 jobs:
   lint:
     name: Lint (${{ matrix.os }})
-    needs: []
     strategy:
       fail-fast: false
       matrix:
@@ -25,31 +24,14 @@ jobs:
       MISE_DISABLE_TOOLS: taskwarrior,pipx:taskwarrior-mcp
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install mise
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
-          mise install
-          eval "$(mise activate --sh)" && echo "PATH=$PATH" >> "$GITHUB_ENV"
-
-      - name: Decrypt mise secrets
-        env:
-          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: mise run secrets-export-env
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-${{ runner.os }}-
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -70,16 +52,13 @@ jobs:
             build-essential
 
       - name: Install JS dependencies
-        run: mise exec -- pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
-      - name: Lint (Rust + JS)
-        run: pnpm lint
-      - name: Lint (Rust + JS)
+      - name: Lint
         run: pnpm lint
 
   test:
     name: Test (${{ matrix.os }})
-    needs: []
     strategy:
       fail-fast: false
       matrix:
@@ -91,31 +70,14 @@ jobs:
       MISE_DISABLE_TOOLS: taskwarrior,pipx:taskwarrior-mcp
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install mise
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
-          mise install
-          eval "$(mise activate --sh)" && echo "PATH=$PATH" >> "$GITHUB_ENV"
-
-      - name: Decrypt mise secrets
-        env:
-          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: mise run secrets-export-env
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-${{ runner.os }}-
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -136,9 +98,10 @@ jobs:
             build-essential
 
       - name: Install JS dependencies
-        run: mise exec -- pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Cache Playwright browsers
+        if: runner.os == 'Linux'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -147,18 +110,18 @@ jobs:
             playwright-${{ runner.os }}-
 
       - name: Install Playwright browsers
-        run: mise exec -- pnpm exec playwright install --with-deps chromium
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
 
-      - name: Test (Rust + JS)
-        run: pnpm test
-      - name: Test (Rust + JS)
+      - name: Run unit + browser tests
         run: pnpm test
 
       - name: Run E2E tests
-        run: mise run test:e2e:browser
+        if: runner.os == 'Linux'
+        run: pnpm exec svelte-kit sync && pnpm test:e2e:browser
 
       - name: Upload E2E test results
-        if: always()
+        if: always() && runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: e2e-report
@@ -212,15 +175,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
-          # Instrumented artifacts differ from the test job's, so they need
-          # their own key rather than thrashing a shared one.
           key: coverage
 
       - name: Install LLVM coverage tools
         run: rustup component add llvm-tools-preview
 
       - name: Install Tauri Linux prerequisites
-        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
