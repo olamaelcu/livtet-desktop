@@ -24,7 +24,7 @@ let { toolbar, strip, children, dock, overlays, scrollElement = $bindable() }: P
 
 <RouteShell>
   {#snippet nav()}
-    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} expanded />
+    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} />
   {/snippet}
   <Pane>
     {@render toolbar()}

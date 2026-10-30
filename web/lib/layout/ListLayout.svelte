@@ -18,7 +18,7 @@ let { title, action, children }: Props = $props()
 
 <RouteShell>
   {#snippet nav()}
-    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} expanded />
+    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} />
   {/snippet}
   <Pane>
     <header class="toolbar">

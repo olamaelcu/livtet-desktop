@@ -16,6 +16,6 @@ const client = new QueryClient({
 
 <QueryClientProvider {client}>
   <div data-testid="container" style="container-type: inline-size; width: {width}">
-    <NavRail items={NAV_ITEMS} currentPath="/library" expanded />
+    <NavRail items={NAV_ITEMS} currentPath="/library" />
   </div>
 </QueryClientProvider>

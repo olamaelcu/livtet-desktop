@@ -1,3 +1,10 @@
+<script module lang="ts">
+/**
+ * Persisted icons-only state of the rail, exported so tests seed the exact key
+ * the component reads instead of restating the literal.
+ */
+export const RAIL_COLLAPSED_KEY = 'livtet.layout.collapsed'
+</script>
 
 <script lang="ts">
 import { createQuery } from '@tanstack/svelte-query'
@@ -5,24 +12,6 @@ import { atprotoKeys } from '$lib/query/keys'
 import { atprotoStatus } from '../atproto'
 import type { NavItem } from './navItems'
 
-const STORAGE_KEY = 'livtet.layout.toggleIcons'
-
-function loadToggleIcons(): boolean {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored !== null ? stored === 'true' : false
-  } catch {
-    return false
-  }
-}
-
-function saveToggleIcons(value: boolean): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, String(value))
-  } catch {
-    return
-  }
-}
 interface Props {
   items: readonly NavItem[]
   currentPath: string
@@ -30,10 +19,30 @@ interface Props {
 
 let { items, currentPath }: Props = $props()
 
-/** Icons-only rail state, persisted so it survives route changes and restarts. */
+/**
+ * Icons-only state, owned here rather than passed down: routes swap between
+ * layouts, and the rail must not flip width because a caller forgot the flag.
+ */
 let collapsed = $state(loadCollapsed())
 
-function toggleRail() {
+function loadCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RAIL_COLLAPSED_KEY) === 'true'
+  } catch {
+    // No storage (SSR, denied access): fall back to the expanded default.
+    return false
+  }
+}
+
+function saveCollapsed(value: boolean): void {
+  try {
+    localStorage.setItem(RAIL_COLLAPSED_KEY, String(value))
+  } catch {
+    return
+  }
+}
+
+function toggleRail(): void {
   collapsed = !collapsed
   saveCollapsed(collapsed)
 }
@@ -71,8 +80,8 @@ function currentOnLink(current: boolean) {
 <nav
   class="rail"
   aria-label="Primary"
-  data-expanded={expanded ? '' : undefined}
-  class:collapsed={!expanded || toggleIcons}
+  data-expanded={collapsed ? undefined : ''}
+  class:collapsed={collapsed}
 >
   {#each items as item (item.href)}
     <wa-button
@@ -83,7 +92,7 @@ function currentOnLink(current: boolean) {
       appearance={isActive(item.href) ? 'filled' : 'plain'}
       size="m"
     >
-      <wa-icon name={item.icon} slot={toggleIcons ? "start":""}></wa-icon>
+      <wa-icon name={item.icon} slot={collapsed ? '' : 'start'}></wa-icon>
       <span class="rail__label">{item.label}</span>
     </wa-button>
   {/each}
@@ -95,9 +104,9 @@ function currentOnLink(current: boolean) {
         src={status.data ? `https://livtet.olamaelcu.net/user/profileImage/${status.data.did}` : ''}
         alt="Profile"
       />
-      {#if toggleIcons}<span class="rail__label">Profile</span>{/if}
+      {#if !collapsed}<span class="rail__label">Profile</span>{/if}
     </wa-button>
-    <wa-button class="rail-menu" appearance="plain" onclick={() => { toggleIcons = !toggleIcons; saveToggleIcons(toggleIcons); }}>
+    <wa-button class="rail-menu" appearance="plain" onclick={toggleRail}>
       <wa-icon name="bars"></wa-icon>
       <span class="rail__label">Collapse</span>
     </wa-button>

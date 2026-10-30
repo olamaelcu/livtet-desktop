@@ -12,7 +12,7 @@ let { children }: { children: Snippet } = $props()
 
 <RouteShell>
   {#snippet nav()}
-    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} expanded />
+    <NavRail items={NAV_ITEMS} currentPath={page.url.pathname} />
   {/snippet}
   <Pane>
     <header class="toolbar">
