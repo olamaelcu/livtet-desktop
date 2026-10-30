@@ -257,7 +257,7 @@ jobs:
           KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ matrix.arch }}
         run: |
           set -euo pipefail
-          printf '%s' "$APPLE_CERTIFICATE" > certificate.b64
+          printf "%s" "$APPLE_CERTIFICATE" > certificate.b64
           if ! base64 --decode < certificate.b64 > certificate.p12 2>/dev/null; then
             base64 -D < certificate.b64 > certificate.p12
           fi
