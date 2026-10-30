@@ -72,8 +72,10 @@ jobs:
       - name: Install JS dependencies
         run: mise exec -- pnpm install --frozen-lockfile
 
-      - name: Run lint
-        run: mise run lint
+      - name: Lint (Rust + JS)
+        run: pnpm lint
+      - name: Lint (Rust + JS)
+        run: pnpm lint
 
   test:
     name: Test (${{ matrix.os }})
@@ -147,8 +149,10 @@ jobs:
       - name: Install Playwright browsers
         run: mise exec -- pnpm exec playwright install --with-deps chromium
 
-      - name: Run unit + browser tests
-        run: mise run test
+      - name: Test (Rust + JS)
+        run: pnpm test
+      - name: Test (Rust + JS)
+        run: pnpm test
 
       - name: Run E2E tests
         run: mise run test:e2e:browser
