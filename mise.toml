@@ -6,9 +6,10 @@ adr-tools = "latest"
 taskwarrior = "3.4.2"
 "pipx:taskwarrior-mcp" = "0.2.0"
 "pipx:diff-cover" = "10.6"
-pnpm = "10"
-"cargo:cargo-machete" = "0.7"
-"cargo:cargo-llvm-cov" = "0.9"
+pnpm = "12.16.1"
+"cargo:cargo-machete" = "0.9.2"
+"cargo:cargo-nextest" = "0.9.150"
+"cargo:cargo-llvm-cov" = "0.9.1"
 "github:corca-ai/nose" = "v0.20.0"
 "npm:@hypothesi/tauri-mcp-cli" = "0.10.0"
 gh = "latest"
@@ -71,7 +72,7 @@ run = [
   # extends it, and vitest fails with "Tsconfig not found" on a fresh clone.
   "pnpm exec svelte-kit sync",
   "cargo test --doc --workspace",
-  "cargo test --workspace --all-targets",
+  "cargo nextest run --workspace --all-targets",
   "pnpm test",
 ]
 
