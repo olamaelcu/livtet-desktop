@@ -1659,42 +1659,51 @@ mod tests {
         assert_eq!(error.code, "unsupported");
     }
 
+    /// A fixture root the platform calls absolute: on Windows a bare `/data` is
+    /// root-relative (no drive prefix), and `reader_path_in_library` rejects it
+    /// before any containment check runs.
+    fn fence_root() -> camino::Utf8PathBuf {
+        camino::Utf8PathBuf::from(if cfg!(windows) { r"C:\data" } else { "/data" })
+    }
+
     #[test]
     fn library_fence_accepts_linked_and_copied_entries() {
-        use camino::Utf8Path;
-        let books = Utf8Path::new("/data/books");
+        let books = fence_root().join("books");
         // A symlink inside books_dir pointing elsewhere is the link-mode
         // design: the check is lexical and never resolves the target.
+        assert!(reader_path_in_library(&books, &books.join("ab12-imaan.m4b")));
         assert!(reader_path_in_library(
-            books,
-            Utf8Path::new("/data/books/ab12-imaan.m4b")
-        ));
-        assert!(reader_path_in_library(
-            books,
-            Utf8Path::new("/data/books/./ab12-imaan.m4b")
+            &books,
+            &fence_root().join("books/./ab12-imaan.m4b")
         ));
     }
 
     #[test]
     fn library_fence_rejects_escapes() {
         use camino::Utf8Path;
-        let books = Utf8Path::new("/data/books");
-        assert!(!reader_path_in_library(books, Utf8Path::new("/etc/passwd")));
+        let books = fence_root().join("books");
         assert!(!reader_path_in_library(
-            books,
-            Utf8Path::new("/data/books/../covers/x.jpg")
+            &books,
+            &fence_root().join("etc/passwd")
         ));
         assert!(!reader_path_in_library(
-            books,
-            Utf8Path::new("/data/books/a/../../etc/passwd")
+            &books,
+            &fence_root().join("books/../covers/x.jpg")
+        ));
+        assert!(!reader_path_in_library(
+            &books,
+            &fence_root().join("books/a/../../etc/passwd")
         ));
         // Sibling prefix, not containment.
         assert!(!reader_path_in_library(
-            books,
-            Utf8Path::new("/data/books2/a.m4b")
+            &books,
+            &fence_root().join("books2/a.m4b")
         ));
         // Relative paths never name a library entry.
-        assert!(!reader_path_in_library(books, Utf8Path::new("books/a.m4b")));
+        assert!(!reader_path_in_library(
+            &books,
+            Utf8Path::new("books/a.m4b")
+        ));
     }
 
     #[test]
@@ -2426,24 +2435,23 @@ mod tests {
 
     #[test]
     fn library_fence_normalizes_the_books_dir_too() {
-        use camino::Utf8Path;
-        let entry = Utf8Path::new("/data/books/a.m4b");
+        let entry = fence_root().join("books/a.m4b");
         assert!(reader_path_in_library(
-            Utf8Path::new("/data/./books"),
-            entry
+            &fence_root().join("./books"),
+            &entry
         ));
         assert!(reader_path_in_library(
-            Utf8Path::new("/data/tmp/../books"),
-            entry
+            &fence_root().join("tmp/../books"),
+            &entry
         ));
         assert!(!reader_path_in_library(
-            Utf8Path::new("/data/tmp/../books"),
-            Utf8Path::new("/data/tmp/a.m4b")
+            &fence_root().join("tmp/../books"),
+            &fence_root().join("tmp/a.m4b")
         ));
         // A books dir that climbs above the root names nothing.
         assert!(!reader_path_in_library(
-            Utf8Path::new("/.."),
-            Utf8Path::new("/a.m4b")
+            &fence_root().join("..").join(".."),
+            &fence_root().join("a.m4b")
         ));
     }
 
