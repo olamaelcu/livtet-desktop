@@ -1,10 +1,11 @@
 <script lang="ts">
-import type { Snippet } from 'svelte'
+import { type Snippet } from 'svelte'
 
 let { nav, children }: { nav?: Snippet; children: Snippet } = $props()
+const isMacOs = navigator.platform.includes("Mac")
 </script>
 
-<div class="shell" data-route-shell data-has-nav={nav ? '' : undefined}>
+<div class="shell" data-route-shell data-has-nav={nav ? '' : undefined} class:macos={isMacOs}>
   {#if nav}
     {@render nav()}
   {/if}
@@ -19,6 +20,10 @@ let { nav, children }: { nav?: Snippet; children: Snippet } = $props()
     grid-template-rows: minmax(0, 1fr);
     min-height: 0;
     min-width: 0;
+  }
+
+  .shell {
+    padding-top: 2rem;
   }
 
   .shell[data-has-nav] {

@@ -533,6 +533,12 @@ pub fn run() {
                 {
                     window.set_traffic_lights_inset(12.0, 16.0)?;
                     window.make_transparent()?;
+                    // Floating above other windows by default, so the reader
+                    // stays on top when opened as a second window.
+                    window.set_window_level(25)?;
+                    // Without a shadow the overlay titlebar floats in space.
+                    window.set_shadow(true)?;
+                    // JS-side detects macOS (RouteShell.svelte); no eval needed
                 }
             }
             tauri::async_runtime::block_on(app_setup(app))?;

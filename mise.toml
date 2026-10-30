@@ -11,6 +11,7 @@ pnpm = "10"
 "cargo:cargo-llvm-cov" = "0.9"
 "github:corca-ai/nose" = "v0.20.0"
 "npm:@hypothesi/tauri-mcp-cli" = "0.10.0"
+gh = "latest"
 
 [env]
 _.file = ".mise/secrets.env"
