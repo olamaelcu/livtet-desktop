@@ -174,7 +174,7 @@ function openPage(url: string) {
 
 const isAudiobook = $derived(book?.format?.toLowerCase() === 'audiobook')
 const canListen = $derived(
-  isAudiobook && book?.file?.file_path != null && book.file.file_status !== 'missing',
+  isAudiobook && book?.file?.file_path != null && book?.file?.file_status !== 'missing',
 )
 
 async function listenBook() {
@@ -242,12 +242,12 @@ async function revealFile(path: string) {
       {#if file?.file_status === 'missing'}
               <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
       {:else}
-    <ActionButton onclick={() => revealFile(path)} disabled={file.file_status === 'missing'}>
+    <ActionButton onclick={() => revealFile(path)} disabled={file?.file_status === 'missing'}>
       <wa-icon name="folder-open"></wa-icon>
       Open
     </ActionButton>
       {/if}
-            <ActionButton onclick={readBook} disabled={!canOpenInReader(book.file)}>
+            <ActionButton onclick={readBook} disabled={!canOpenInReader(book?.file)}>
               <wa-icon name="book-open"></wa-icon>
               Read
             </ActionButton>
