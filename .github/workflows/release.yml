@@ -452,8 +452,7 @@ jobs:
           set -euo pipefail
           mkdir -p build
           if [ ! -f build/index.html ]; then
-            printf '<!doctype html>
-' > build/index.html
+            echo '<!doctype html>' > build/index.html
           fi
       - name: Restore generated IPC bindings
         id: bindings
@@ -595,8 +594,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.flatpak' -o -name '*.msi' -o -name '*.exe' \) -exec cp {} out/ \n          (
-            cd out
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.flatpak' -o -name '*.msi' -o -name '*.exe' \) -exec cp {} out/ \\n            cd out
             find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/SHA256SUMS.txt"
             mv "$RUNNER_TEMP/SHA256SUMS.txt" SHA256SUMS.txt
             cat SHA256SUMS.txt
