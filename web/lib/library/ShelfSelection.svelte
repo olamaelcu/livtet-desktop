@@ -15,10 +15,10 @@ export interface Props {
 let { editionId, shelfKey: shelfKeyProp = 'to-read', bookTitle = '', onChange }: Props = $props()
 
 const shelfOptions = [
-  { key: 'to-read', label: 'To-Read' },
-  { key: 'dnf', label: 'Did Not Finish' },
-  { key: 'reading', label: 'Reading' },
-  { key: 'read', label: 'Read' },
+  { key: 'to-read', label: 'To-Read', icon: 'bookmark' },
+  { key: 'dnf', label: 'Did Not Finish', icon: 'ban' },
+  { key: 'reading', label: 'Reading', icon: 'book-open' },
+  { key: 'read', label: 'Read', icon: 'circle-check' },
 ]
 
 const saveShelf = createMutation(() => {
@@ -60,24 +60,29 @@ onMount(async () => {
     // No stored placement: the shelf the caller passed stays selected.
   }
 })
+
+const currentShelfStatus = $derived.by(() => {
+  return shelfOptions.find((v) => v.key == shelfKeyProp)?.label
+})
 </script>
 
+<small>{currentShelfStatus}</small>
 <wa-button-group class="shelf">
   {#each shelfOptions as s}
     <wa-button
-      class="shelf-btn"
+      tabindex={0}
+      role="button"
       variant={shelfKeyProp === s.key ? "success" : "neutral"}
       onclick={() => selectShelf(s.key)}
       type="button"
       disabled={saveShelf.isPending}
     >
-      {s.label}
+      <wa-icon name={s.icon}></wa-icon>
     </wa-button>
   {/each}
 </wa-button-group>
 
 <style>
-  .shelf { display: flex; gap: var(--wa-space-xs); flex-wrap: wrap; margin: 0 auto; }
-  .shelf-btn { flex: 1 1 auto; min-width: 6rem; }
-  .shelf-btn.selected { border-color: var(--wa-color-brand); background: var(--wa-color-brand); color: var(--wa-color-brand-contrast); }
+.shelf { margin: 0 auto;}
+small { margin: 0 auto; margin-bottom: calc(-1 * var(--wa-space-m))}
 </style>

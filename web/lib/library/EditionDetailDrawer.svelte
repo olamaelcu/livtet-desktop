@@ -235,6 +235,9 @@ async function revealFile(path: string) {
 </script>
 
 <wa-drawer class="drawer" label="Edition detail" placement="end" open={open} onwa-after-hide={onclose}>
+  <wa-button-group slot="header-actions">
+    <ActionButton onclick={() => triggerEnrich()}>Enrich</ActionButton>
+  </wa-button-group>
   <div class="body">
     {#if detail.isPending}
       <p class="muted">Loading…</p>
@@ -363,13 +366,6 @@ async function revealFile(path: string) {
         onChange={(k) => (selectedShelf = k)}
       />
 
-      <section class="section" id="enrich-section">
-        <h3 class="section-title">Enrichment</h3>
-        <div class="review-actions">
-          <ActionButton onclick={() => triggerEnrich()}>Enrich</ActionButton>
-        </div>
-      </section>
-
       <section class="section" id="review-section">
         <h3 class="section-title">Write a Review</h3>
         <div class="review-actions">
@@ -466,7 +462,7 @@ async function revealFile(path: string) {
   }
 
   .drawer {
-    --size: 50vw;
+    --size: 70vw;
   }
 
   .header {

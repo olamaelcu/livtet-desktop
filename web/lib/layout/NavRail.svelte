@@ -26,12 +26,17 @@ function saveToggleIcons(value: boolean): void {
 interface Props {
   items: readonly NavItem[]
   currentPath: string
-  /** Show text labels beside icons (when the route is wide enough). */
-  expanded?: boolean
 }
 
-let { items, currentPath, expanded = false }: Props = $props()
-let toggleIcons = $state(loadToggleIcons())
+let { items, currentPath }: Props = $props()
+
+/** Icons-only rail state, persisted so it survives route changes and restarts. */
+let collapsed = $state(loadCollapsed())
+
+function toggleRail() {
+  collapsed = !collapsed
+  saveCollapsed(collapsed)
+}
 
 const status = createQuery(() => ({
   queryKey: atprotoKeys.status(),
