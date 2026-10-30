@@ -388,7 +388,130 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: target/${{ matrix.target }}/release/bundle/dmg/*.dmg
           if-no-files-found: error
+  windows:
+    name: Windows ${{ matrix.arch }}
+    needs: [validate]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: windows-2022
+            target: x86_64-pc-windows-msvc
+          - arch: aarch64
+            runner: windows-2022
+            target: aarch64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - name: Install Node.js, PNPM, Rust
+        run: |
+          echo 'Windows runner: node and pnpm available'
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.0'
+          targets: ${{ matrix.target }}
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+          shared-key: ${{ matrix.target }}
+          cache-on-failure: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install sops
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS-$RUNNER_ARCH" in
+            Windows-X64) asset=sops-v3.13.2.windows.amd64.exe ;;
+            Windows-ARM64) asset=sops-v3.13.2.windows.arm64.exe ;;
+            *) echo "unsupported runner: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops"
+          chmod +x "$RUNNER_TEMP/sops"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Decrypt build secrets
+        env:
+          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
+        run: |
+          bash .mise/tasks/secrets-decrypt
+          bash .mise/tasks/secrets-export-env
+      - name: Seed the frontend dist directory
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          if [ ! -f build/index.html ]; then
+            printf '<!doctype html>
+' > build/index.html
+          fi
+      - name: Restore generated IPC bindings
+        id: bindings
+        uses: actions/cache@v4
+        with:
+          path: web/lib/bindings.ts
+          key: ipc-bindings-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.lock') }}
+      - name: Generate IPC bindings
+        timeout-minutes: 60
+        if: steps.bindings.outputs.cache-hit != 'true'
+        run: cargo run --features bindings-export --bin generate-bindings
+      - name: Cache frontend build
+        id: frontend
+        uses: actions/cache@v4
+        with:
+          path: |
+            build
+            .svelte-kit
+          key: frontend-${{ runner.os }}-${{ hashFiles('web/**', 'static/**', 'scripts/**', 'svelte.config.js', 'vite.config.js', 'tsconfig.json', 'package.json', 'pnpm-lock.yaml') }}
+      - name: Build frontend
+        if: steps.frontend.outputs.cache-hit != 'true'
+        run: pnpm build
+      - name: Stage sidecar binaries
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          # Clean up any pre-existing sidecar for this target to avoid stale
+          # binaries from a prior run in the shared workspace.
+          for package in livtet-sync-daemon livtet-plugin-host; do
+            rm -f "crates/livtet-desktop/binaries/$package-${{ matrix.target }}.exe"
+          done
+          cargo build --release -p livtet-sync-daemon -p livtet-plugin-host --target "${{ matrix.target }}"
+          for package in livtet-sync-daemon livtet-plugin-host; do
+            cp "target/${{ matrix.target }}/release/$package.exe" "crates/livtet-desktop/binaries/$package-${{ matrix.target }}.exe"
+          done
+          ls -la crates/livtet-desktop/binaries/*-${{ matrix.target }}.exe
+      - name: Build NSIS installer
+        run: |
+          pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles nsis
+      - name: Upload Windows .exe installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: target/${{ matrix.target }}/release/bundle/nsis*.exe
+          if-no-files-found: error
 
+
+
+      - name: Build MSI installer
+        run: |
+          pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles msi
+
+      - name: Upload Windows .msi installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-msi
+          path: target/${{ matrix.target }}/release/bundle/msi/*.msi
+          if-no-files-found: error
   flatpak:
     name: Flatpak bundle
     needs: [validate, linux]
@@ -412,6 +535,15 @@ jobs:
           mkdir -p packaging/flatpak/staging/usr/share/metainfo
           dpkg-deb -x "$deb" packaging/flatpak/staging
           cp packaging/flatpak/net.olamaelcu.livtet.metainfo.xml packaging/flatpak/staging/usr/share/metainfo/
+      - name: Cache Flatpak runtime
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/lib/flatpak
+            ~/.local/share/flatpak
+          key: flatpak-${{ runner.os }}-
+          restore-keys: |
+            flatpak-${{ runner.os }}-
       - name: Install Flatpak toolchain and runtime
         run: |
           sudo apt-get update
@@ -449,7 +581,7 @@ jobs:
 
   release:
     name: Publish GitHub release
-    needs: [validate, linux, macos, flatpak]
+    needs: [validate, linux, macos, flatpak, windows]
     timeout-minutes: 15
     runs-on: ubuntu-latest
     env:
@@ -463,8 +595,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p out
-          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.flatpak' \) -exec cp {} out/ \;
-          (
+          find artifacts -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o -name '*.dmg' -o -name '*.flatpak' -o -name '*.msi' \) -exec cp {} out/ \n          (
             cd out
             find . -maxdepth 1 -type f -printf '%f\n' | sort | xargs sha256sum > "$RUNNER_TEMP/SHA256SUMS.txt"
             mv "$RUNNER_TEMP/SHA256SUMS.txt" SHA256SUMS.txt
