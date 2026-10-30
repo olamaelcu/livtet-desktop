@@ -234,9 +234,24 @@ async function revealFile(path: string) {
 }
 </script>
 
-<wa-drawer class="drawer" label="Edition detail" placement="end" open={open} onwa-after-hide={onclose}>
+<wa-drawer class="drawer" placement="end" open={open} onwa-after-hide={onclose}>
   <wa-button-group slot="header-actions">
+    {@const file = book?.file}
+    {@const path = file?.file_path}
     <ActionButton onclick={() => triggerEnrich()}>Enrich</ActionButton>
+      {#if file?.file_status === 'missing'}
+              <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
+      {:else}
+    <ActionButton onclick={() => revealFile(path)} disabled={file.file_status === 'missing'}>
+      <wa-icon name="folder-open"></wa-icon>
+      Open
+    </ActionButton>
+      {/if}
+            <ActionButton onclick={readBook} disabled={!canOpenInReader(book.file)}>
+              <wa-icon name="book-open"></wa-icon>
+              Read
+            </ActionButton>
+
   </wa-button-group>
   <div class="body">
     {#if detail.isPending}
@@ -306,49 +321,6 @@ async function revealFile(path: string) {
               </li>
             {/each}
           </ul>
-        </section>
-      {/if}
-
-      {#if book.file}
-        {@const file = book.file}
-        <section class="section">
-          {#if file.file_path}
-            <h3 class="section-title">File</h3>
-            <div>
-              <ActionButton onclick={readBook} disabled={!canOpenInReader(file)}>
-                <wa-icon name="book-open"></wa-icon>
-                Read
-              </ActionButton>
-            </div>
-            <dl class="facts">
-              {#if file.file_size_bytes !== null}
-                {@const size = file.file_size_bytes}
-                <div class="fact">
-                  <dt>Size</dt>
-                  <dd>{formatFileSize(size)}</dd>
-                </div>
-              {/if}
-              {#if file.file_path}
-                {@const path = file.file_path}
-                <div class="fact">
-                  <dt>Path</dt>
-                  <dd class="path">
-                    <ActionButton
-                      onclick={() => revealFile(path)}
-                      disabled={file.file_status === 'missing'}
-                    >
-                      <wa-icon name="folder-open"></wa-icon>
-                      Open
-                    </ActionButton>
-                  </dd>
-                </div>
-              {/if}
-            </dl>
-            {#if file.file_status === 'missing'}
-              <p class="error">The linked file is missing — the original was moved or deleted.</p>
-              <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
-            {/if}
-          {/if}
         </section>
       {/if}
 

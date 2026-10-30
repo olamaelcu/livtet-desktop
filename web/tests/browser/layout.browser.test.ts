@@ -1,6 +1,6 @@
 import '@awesome.me/webawesome/dist/components/button/button.js'
 import '@awesome.me/webawesome/dist/components/icon/icon.js'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, expect, test } from 'vitest'
 import { page } from 'vitest/browser'
 import { render } from 'vitest-browser-svelte'
 import NavRail from '../../lib/layout/NavRail.svelte'
@@ -13,23 +13,10 @@ import QueryProvider from './fixtures/QueryProvider.svelte'
 import ScrollFixture from './fixtures/ScrollFixture.svelte'
 import ShellFixture from './fixtures/ShellFixture.svelte'
 
-// Pinned on purpose: the persisted key is the rail's external contract, so a
-// rename has to break this test rather than silently orphan stored state.
-const RAIL_COLLAPSED_KEY = 'livtet.layout.collapsed'
-
-// NavRail renders its rail menu only once the profile query resolves. Default
-// to signed-out so no test but the toggle one pays for the avatar fetch.
-const atprotoStatusResult = vi.hoisted(() => ({ value: null as { did: string } | null }))
-vi.mock('../../lib/atproto', () => ({
-  atprotoStatus: async () => atprotoStatusResult.value,
-}))
-
-// NavRail owns its icons-only state and persists it; a seeded value would
-// otherwise leak into the next test's mount.
-afterEach(() => {
-  localStorage.removeItem(RAIL_COLLAPSED_KEY)
-  atprotoStatusResult.value = null
-})
+// The rail's collapsed state is a stored user preference, so keep it from
+// leaking between tests (each test would otherwise inherit the previous one's
+// localStorage).
+afterEach(() => localStorage.removeItem('livtet.layout.toggleIcons'))
 
 test('ScrollRegion is the only scrolling element and a real scroll is observable', async () => {
   const { container } = await render(ScrollFixture)
@@ -84,10 +71,14 @@ test('RouteShell omits the nav column when no nav snippet is given', async () =>
 })
 
 test('NavRail marks the active item with aria-current and keeps an accessible name when collapsed', async () => {
-  localStorage.setItem(RAIL_COLLAPSED_KEY, 'true')
+  // Collapsed is a stored preference now, not a prop.
+  localStorage.setItem('livtet.layout.toggleIcons', 'true')
   const { container } = await render(
     NavRail,
-    { items: NAV_ITEMS, currentPath: '/library' },
+    {
+      items: NAV_ITEMS,
+      currentPath: '/library',
+    },
     { wrapper: QueryProvider },
   )
   const buttons = [...container.querySelectorAll<HTMLElement>('wa-button[href]')]
@@ -123,7 +114,7 @@ test('Dock positions against its Pane, not the viewport', async () => {
   expect(getComputedStyle(dock.parentElement as HTMLElement).position).toBe('relative')
 })
 
-test('NavRail collapses to icon width below 46rem even when the stored state is expanded, keeping its names', async () => {
+test('NavRail collapses to icon width below 46rem even when expanded, keeping its names', async () => {
   const { container } = await render(NarrowRailFixture, { width: '400px' })
   const rail = container.querySelector('.rail') as HTMLElement
   await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(80, 0)
@@ -135,35 +126,12 @@ test('NavRail collapses to icon width below 46rem even when the stored state is 
   }
 })
 
-test('NavRail shows full width with labels when the stored state is expanded in a wide container', async () => {
+test('NavRail shows full width with labels when expanded in a wide container', async () => {
   const { container } = await render(NarrowRailFixture, { width: '900px' })
   const rail = container.querySelector('.rail') as HTMLElement
   await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(176, 0)
   const label = container.querySelector('.rail__label') as HTMLElement
   expect(label.getBoundingClientRect().width).toBeGreaterThan(1)
-})
-
-test('NavRail owns its collapsed state and persists it when the rail menu toggles', async () => {
-  atprotoStatusResult.value = { did: 'did:plc:nav-rail' }
-  const { container } = await render(
-    NavRail,
-    { items: NAV_ITEMS, currentPath: '/library' },
-    { wrapper: QueryProvider },
-  )
-  const rail = container.querySelector('.rail') as HTMLElement
-  await expect.poll(() => container.querySelector('.rail-menu')).not.toBeNull()
-  const menu = container.querySelector('.rail-menu') as HTMLElement
-
-  // No caller passes the state in; an unseeded storage read starts expanded.
-  expect(rail.classList.contains('collapsed')).toBe(false)
-
-  menu.click()
-  await expect.poll(() => localStorage.getItem(RAIL_COLLAPSED_KEY)).toBe('true')
-  expect(rail.classList.contains('collapsed')).toBe(true)
-
-  menu.click()
-  await expect.poll(() => localStorage.getItem(RAIL_COLLAPSED_KEY)).toBe('false')
-  expect(rail.classList.contains('collapsed')).toBe(false)
 })
 
 test('Pane still grows its ScrollRegion when a Dock follows it in source order', async () => {
