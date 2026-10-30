@@ -473,4 +473,8 @@ function deleteNote(note: Annotation) {
     min-width: 0;
     min-height: 0;
   }
+
+  :global(iframe.readium-navigator-iframe) {
+    height: 100%;
+  }
 </style>

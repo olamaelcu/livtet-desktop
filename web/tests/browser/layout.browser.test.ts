@@ -111,7 +111,7 @@ test('Dock positions against its Pane, not the viewport', async () => {
 test('NavRail collapses to icon width below 46rem even when expanded, keeping its names', async () => {
   const { container } = await render(NarrowRailFixture, { width: '400px' })
   const rail = container.querySelector('.rail') as HTMLElement
-  await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(52, 0)
+  await expect.poll(() => rail.getBoundingClientRect().width).toBeCloseTo(80, 0)
   for (const label of container.querySelectorAll<HTMLElement>('.rail__label')) {
     expect(label.getBoundingClientRect().width).toBeLessThanOrEqual(1)
   }

@@ -12,7 +12,7 @@ interface Props {
 }
 
 let { items, currentPath, expanded = false }: Props = $props()
-let toggleIcons = $state(false)
+let toggleIcons = $state(!expanded)
 
 const status = createQuery(() => ({
   queryKey: atprotoKeys.status(),
@@ -95,37 +95,46 @@ function currentOnLink(current: boolean) {
   .nav-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; vertical-align: middle; }
 
   .rail.collapsed {
-      inline-size: var(--app-rail-width-expanded);
+      inline-size: var(--app-rail-width);
     }
 
   /*
    * Collapsed labels are visually hidden, not display: none: they are the only
    * accessible name of the inner link (wa-button drops a host aria-label).
    */
-  .rail:not(.collapsed) .rail__label {
+  .rail.collapsed .rail__label {
     position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
     vertical-align: middle;
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
-    display: none;
+  }
+
+  .rail:not(.collapsed) {
+    inline-size: var(--app-rail-width-expanded);
   }
 
   @container (width < 46rem) {
     .rail,
     .nav-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex: none; }
 
-    .rail.collapsed {
+    .rail {
       inline-size: var(--app-rail-width);
     }
 
-    .rail.collapsed .rail__label {
+    .rail .rail__label {
       position: absolute;
       inline-size: 1px;
       block-size: 1px;
       overflow: hidden;
       clip-path: inset(50%);
       white-space: nowrap;
+    }
+
+    .rail:not(.collapsed) {
+      inline-size: var(--app-rail-width);
     }
   }
 

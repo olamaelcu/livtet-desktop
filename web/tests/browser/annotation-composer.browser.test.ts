@@ -1,5 +1,5 @@
 import '@awesome.me/webawesome/dist/components/button/button.js'
-import '@awesome.me/webawesome/dist/components/input/input.js'
+import '@awesome.me/webawesome/dist/components/textarea/textarea.js'
 import { expect, test } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import type { HighlightColor } from '$lib/reader/highlights'
@@ -11,7 +11,7 @@ type WaInput = HTMLElement & { value: string }
 type WaButton = HTMLElement & { disabled: boolean }
 
 function input(container: HTMLElement): WaInput {
-  const element = container.querySelector('wa-input')
+  const element = container.querySelector('wa-textarea')
   if (!element) throw new Error('composer has no input')
   return element as WaInput
 }

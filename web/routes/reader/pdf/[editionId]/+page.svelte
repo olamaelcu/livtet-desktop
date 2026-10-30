@@ -577,6 +577,7 @@ onDestroy(() => {
     align-items: flex-start;
     width: 100%;
     padding: var(--wa-space-m);
+    overflow-y: auto;
   }
 
   canvas {
