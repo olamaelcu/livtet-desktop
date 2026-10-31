@@ -344,26 +344,29 @@ jobs:
           retention-days: 7
 
   coverage:
-    name: Coverage
+    name: Coverage (${{ matrix.os }})
     needs: changes
     # Patch coverage is only meaningful against a base branch; on a push to main
     # the diff is empty, so the job would burn a full Rust build to score
-    # nothing. It also decrypts the mise bundle with `SOPS_AGE_KEY`, which a pull
-    # request from a fork never receives, so restricting it to same-repo PRs
-    # keeps an external contribution from failing on a missing secret. Drafts
+    # nothing. A pull request from a fork gets no secrets at all, so restricting
+    # it to same-repo PRs keeps an external contribution from failing. Drafts
     # defer it until review starts, and a PR that touches neither Rust nor web
-    # sources has nothing to score.
+    # sources has nothing to score. Manual runs are allowed unconditionally so
+    # the job can be exercised without opening a PR.
     if: >
       !cancelled() &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      (needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true')
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    env:
-      MISE_DISABLE_TOOLS: taskwarrior,pipx:taskwarrior-mcp
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'pull_request' &&
+        github.event.pull_request.draft == false &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        (needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true')))
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # Three instrumented builds; the number is per leg, not the whole matrix.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -373,28 +376,30 @@ jobs:
           # checkout has no such commit and the preflight refuses to run.
           fetch-depth: 0
 
-      - name: Install mise
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          curl https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          echo "MISE_DATA_DIR=$HOME/.mise" >> "$GITHUB_ENV"
-          mise install
-          eval "$(mise activate --sh)" && echo "PATH=$PATH" >> "$GITHUB_ENV"
-
-      - name: Decrypt mise secrets
-        env:
-          SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
-        run: mise run secrets-export-env
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
+      # Tooling comes from the ecosystem's own actions rather than mise: the mise
+      # installer is POSIX-only and `mise install` of the pinned tool set fails on
+      # the Windows runner, which blocked running this leg there at all.
+      - uses: pnpm/action-setup@v4
         with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-${{ runner.os }}-
+          version: '10'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.97.0'
+
+      - name: Install coverage tooling
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.9.1
+
+      - name: Install diff-cover
+        run: python -m pip install --disable-pip-version-check diff-cover==10.6
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -410,6 +415,7 @@ jobs:
         run: rustup component add llvm-tools-preview
 
       - name: Install Tauri Linux prerequisites
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -422,27 +428,72 @@ jobs:
             build-essential
 
       - name: Install JS dependencies
-        run: mise exec -- pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
+
+      # `build.rs` aborts unless `.mise/secrets.env` exists, and
+      # `tauri::generate_context!()` panics while `build/` is missing. Only the
+      # file's presence is load-bearing, so no bundle decryption is needed here —
+      # that also keeps this leg off `SOPS_AGE_KEY`.
+      - name: Prepare Rust build prerequisites
+        shell: bash
+        run: |
+          printf 'GOOGLE_BOOKS_API_KEY=ci\nSENTRY_DSN=ci\n' > .mise/secrets.env
+          mkdir -p build
+          [ -f build/index.html ] || printf '<!doctype html>\n' > build/index.html
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
         with:
-          path: ~/.cache/ms-playwright
+          path: |
+            ~/.cache/ms-playwright
+            ~/Library/Caches/ms-playwright
+            ~/AppData/Local/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('**/package.json') }}
           restore-keys: |
             playwright-${{ runner.os }}-
 
       - name: Install Playwright browsers
-        run: mise exec -- pnpm exec playwright install --with-deps chromium
+        if: runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run coverage gate
-        run: mise run coverage:gate
+      - name: Install Playwright browsers
+        if: runner.os != 'Linux'
+        run: pnpm exec playwright install chromium
+
+      # Mirrors `mise run coverage:gate` (mise.toml is still the local source of
+      # truth); `bash` pins the pipelines and the regex assembly across runners.
+      - name: Run web coverage
+        shell: bash
+        run: |
+          pnpm exec svelte-kit sync
+          pnpm test:coverage
+
+      - name: Run Rust coverage
+        shell: bash
+        run: |
+          mkdir -p target/llvm-cov
+          cargo llvm-cov clean --workspace
+          regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | grep -vE '^web/|\.(ts|mjs)$' | paste -sd'|' -)
+          [ -n "$regex" ]
+          cargo llvm-cov --workspace --all-targets --no-report --ignore-filename-regex "($regex)"
+          cargo llvm-cov report --lcov --output-path target/llvm-cov/rust.lcov --ignore-filename-regex "($regex)"
+
+      - name: Normalize reports and score patch coverage
+        shell: bash
+        run: |
+          node scripts/normalize-lcov.mjs
+          diff-cover target/llvm-cov/rust.norm.lcov target/llvm-cov/web.norm.lcov \
+            --compare-branch="${COVERAGE_COMPARE_BRANCH:-origin/main}" \
+            --fail-under=85 \
+            --markdown-report target/llvm-cov/patch.md \
+            --html-report target/llvm-cov/patch.html
 
       - name: Write patch coverage summary
         if: always()
+        shell: bash
         run: |
-          if [ -f target/coverage/patch.md ]; then
-            cat target/coverage/patch.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f target/llvm-cov/patch.md ]; then
+            cat target/llvm-cov/patch.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "## Patch coverage" >> "$GITHUB_STEP_SUMMARY"
             echo "No report produced -- the preflight refused before scoring." \
@@ -453,10 +504,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
+          name: coverage-report-${{ matrix.os }}
           path: |
             coverage/
-            target/coverage/patch.html
+            target/llvm-cov/patch.html
           retention-days: 7
 
   ci:
