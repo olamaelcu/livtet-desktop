@@ -68,7 +68,7 @@ async fn import_calibre_library_inner(
     db: &SharedState,
     covers_dir: &Utf8Path,
     books_dir: &Utf8Path,
-    search_index: &ArcMut<Option<SearchIndex>>,
+    search_index: &ArcMut<Option<std::sync::Arc<SearchIndex>>>,
 ) -> Result<CalibreImportSummary, ImportError> {
     let records = scan_calibre(host, library_root.clone()).await?;
     let books = i32::try_from(records.len()).unwrap_or(i32::MAX);
@@ -129,7 +129,7 @@ async fn import_calibre_library_inner(
 /// Add a freshly-imported edition to the search index (best effort).
 async fn index_edition(
     db: &SharedState,
-    search_index: &ArcMut<Option<SearchIndex>>,
+    search_index: &ArcMut<Option<std::sync::Arc<SearchIndex>>>,
     edition_id: &str,
 ) {
     let Ok(edition_id) = edition_id.parse::<DbId>() else {
@@ -137,7 +137,7 @@ async fn index_edition(
     };
     let db = db.db_conn();
     let guard = search_index.read().await;
-    if let Some(index) = guard.as_ref() {
+    if let Some(index) = guard.as_deref() {
         let _ = index.add_edition(&db, edition_id).await;
     }
 }
@@ -387,8 +387,9 @@ mod tests {
         let books = tempfile::tempdir().unwrap();
         let search_dir = tempfile::tempdir().unwrap();
         write_import_library(&utf8(&library));
-        let index = SearchIndex::open(&utf8(&search_dir)).expect("search index");
-        let search_index: ArcMut<Option<SearchIndex>> =
+        let index =
+            std::sync::Arc::new(SearchIndex::open(&utf8(&search_dir)).expect("search index"));
+        let search_index: ArcMut<Option<std::sync::Arc<SearchIndex>>> =
             std::sync::Arc::new(tokio::sync::RwLock::new(Some(index)));
 
         let summary = import_calibre_library_inner(
@@ -437,7 +438,7 @@ mod tests {
         // Fresh imports are searchable straight away.
         let guard = search_index.read().await;
         let hits = guard
-            .as_ref()
+            .as_deref()
             .unwrap()
             .search("Kindred", 10)
             .await
@@ -463,7 +464,7 @@ mod tests {
         let books = tempfile::tempdir().unwrap();
         write_import_library(&utf8(&library));
         // No search index loaded: importing must still succeed.
-        let search_index: ArcMut<Option<SearchIndex>> =
+        let search_index: ArcMut<Option<std::sync::Arc<SearchIndex>>> =
             std::sync::Arc::new(tokio::sync::RwLock::new(None));
 
         let first = import_calibre_library_inner(

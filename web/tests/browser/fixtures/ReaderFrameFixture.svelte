@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Locator } from '@readium/shared'
 import ReaderFrame from '$lib/components/ReaderFrame.svelte'
+import type { Chapter } from '$lib/reader/chapters'
 import type { Annotation } from '$lib/reader/progress'
 
 interface Props {
@@ -31,6 +32,7 @@ let title = $state('')
 let progress = $state('')
 let location = $state('')
 let progression = $state(0)
+let chapters = $state<Chapter[]>([])
 
 // `currentLocator()` reads straight through to the navigator, so it is sampled
 // on demand rather than rendered from reactive state.
@@ -67,6 +69,7 @@ const elsewhere = Locator.deserialize({
 <span data-progress>{progress}</span>
 <span data-location>{location}</span>
 <span data-progression>{progression}</span>
+<span data-chapters>{chapters.map((chapter) => chapter.title).join('|')}</span>
 <span data-current-href>{sampledHref}</span>
 <span data-quote-result>{sampledQuote}</span>
 
@@ -80,10 +83,12 @@ const elsewhere = Locator.deserialize({
   bind:progress
   bind:location
   bind:progression
+  bind:chapters
   ontextselect={(selection: { text: string; locator?: string } | null) =>
     events.push(selection ? `select:${selection.text}` : 'select:null')}
   onannotationactivate={(id: string) => {
     events.push(`activate:${id}`)
     return true
   }}
+  onchapters={() => events.push('chapters')}
 />

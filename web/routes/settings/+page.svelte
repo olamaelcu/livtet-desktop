@@ -3,6 +3,7 @@ import AccountSettings from '../../lib/components/AccountSettings.svelte'
 import CatalogSettings from '../../lib/components/CatalogSettings.svelte'
 import HotkeySettings from '../../lib/components/HotkeySettings.svelte'
 import McpSettings from '../../lib/components/McpSettings.svelte'
+import OpdsServerSettings from '../../lib/components/OpdsServerSettings.svelte'
 import SyncPanel from '../../lib/components/SyncPanel.svelte'
 import SettingsLayout from './SettingsLayout.svelte'
 </script>
@@ -22,5 +23,8 @@ import SettingsLayout from './SettingsLayout.svelte'
   </wa-tab-panel>
   <wa-tab-panel name="mcp">
     <McpSettings />
+  </wa-tab-panel>
+  <wa-tab-panel name="opds">
+    <OpdsServerSettings />
   </wa-tab-panel>
 </SettingsLayout>

@@ -5,6 +5,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import { onDestroy, onMount } from 'svelte'
 import ActionButton from '$lib/components/ActionButton.svelte'
 import { type Quote, readingPositionQuote, selectedQuote } from '$lib/reader/anchor'
+import { type Chapter, chaptersFrom } from '$lib/reader/chapters'
 import {
   ANNOTATION_GROUP,
   buildAnnotationDecorations,
@@ -33,6 +34,8 @@ interface Props {
   editionId: string
   /** Notes to draw as highlights inside the publication. */
   annotations: Annotation[]
+  /** Reading-order resources, which the chapter drawer lists and navigates. */
+  chapters: Chapter[]
   /** False while a dialog has focus: frame page-turn keys stay inert. */
   keyboard: boolean
   /** Whether the publication is open and can be navigated. */
@@ -51,11 +54,14 @@ interface Props {
   ontextselect: (selection: { text: string; locator?: string } | null) => void
   /** Resolve a clicked highlight; `false` swallows the click. */
   onannotationactivate: (id: string) => boolean
+  /** Toggle the chapter drawer, on the `C` key pressed inside the publication. */
+  onchapters: () => void
 }
 
 let {
   editionId,
   annotations,
+  chapters = $bindable([]),
   keyboard,
   ready = $bindable(false),
   title = $bindable('Reader'),
@@ -64,6 +70,7 @@ let {
   progression = $bindable(0),
   ontextselect,
   onannotationactivate,
+  onchapters,
 }: Props = $props()
 
 const session = createLoadSession()
@@ -381,6 +388,7 @@ async function load() {
   ready = false
   settled = false
   revealed = false
+  chapters = []
   if (!session.isCurrent(generation)) return
   phase = 'loading'
   failure = ''
@@ -455,6 +463,11 @@ async function load() {
             } else if (e.key === '0') {
               e.preventDefault()
               adjustFontSize('zero')
+            } else if (e.key === 'c' || e.key === 'C') {
+              // The host's own key listener never sees this: a key pressed in
+              // the frame document does not bubble out to it.
+              e.preventDefault()
+              onchapters()
             }
           }
           frameKeyHandler = handler
@@ -520,6 +533,11 @@ async function load() {
       return
     }
     navigator = instance
+    // The spine is the chapter list; the streamer publishes titles separately.
+    chapters = chaptersFrom(
+      instance.publication?.readingOrder?.items,
+      instance.publication?.toc?.items,
+    )
     // Frame modules are injected after Readium's initial ping; re-bind before use.
     await syncFrameComms(instance)
     // Preferences are submitted from one place only: the presentation effect, which runs
@@ -789,6 +807,7 @@ onDestroy(() => {
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    padding: 0 var(--wa-space-m);
   }
 
   .muted {

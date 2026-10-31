@@ -128,7 +128,7 @@ pub(crate) async fn import_shelved_book_inner(
     db: &livtet_core::data::SharedState,
     covers_dir: &camino::Utf8Path,
     http: &reqwest::Client,
-    search_index: &tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+    search_index: &tokio::sync::RwLock<Option<std::sync::Arc<livtet_core::search::SearchIndex>>>,
     did: &str,
     book: ShelvedBook,
     input: VirtualBookInput,
@@ -414,7 +414,7 @@ mod tests {
         state: livtet_core::data::SharedState,
         _covers: tempfile::TempDir,
         covers_dir: camino::Utf8PathBuf,
-        index: tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+        index: tokio::sync::RwLock<Option<std::sync::Arc<livtet_core::search::SearchIndex>>>,
     }
 
     async fn fixture() -> Fixture {

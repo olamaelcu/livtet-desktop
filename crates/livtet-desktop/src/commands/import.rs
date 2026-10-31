@@ -726,7 +726,8 @@ pub(crate) struct ImportContext<'a> {
     pub(crate) db: &'a livtet_core::data::SharedState,
     pub(crate) covers_dir: &'a camino::Utf8Path,
     pub(crate) books_dir: &'a camino::Utf8Path,
-    pub(crate) search_index: &'a tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+    pub(crate) search_index:
+        &'a tokio::sync::RwLock<Option<std::sync::Arc<livtet_core::search::SearchIndex>>>,
     pub(crate) plugin_host_path: &'a camino::Utf8Path,
     pub(crate) plugin_host_config: &'a camino::Utf8Path,
     pub(crate) plugins_dir: &'a camino::Utf8Path,
@@ -841,7 +842,7 @@ pub(crate) async fn import_one_inner(
             .map_err(|error| ImportError::new("index", error))?;
         let db = ctx.db.db_conn();
         let guard = ctx.search_index.read().await;
-        if let Some(index) = guard.as_ref() {
+        if let Some(index) = guard.as_deref() {
             index
                 .add_edition(&db, edition_id)
                 .await
@@ -1363,7 +1364,7 @@ pub(crate) async fn create_virtual_book_and_index(
     db: &livtet_core::data::SharedState,
     covers_dir: &camino::Utf8Path,
     http: &reqwest::Client,
-    search_index: &tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+    search_index: &tokio::sync::RwLock<Option<std::sync::Arc<livtet_core::search::SearchIndex>>>,
     input: VirtualBookInput,
     authors: AuthorRequirement,
 ) -> Result<ImportOutcome, ImportError> {
@@ -1374,7 +1375,7 @@ pub(crate) async fn create_virtual_book_and_index(
         .map_err(|error| ImportError::new("index", error))?;
     let conn = db.db_conn();
     let guard = search_index.read().await;
-    if let Some(index) = guard.as_ref() {
+    if let Some(index) = guard.as_deref() {
         index
             .add_edition(&conn, edition_id)
             .await
@@ -3385,7 +3386,7 @@ mod tests {
         _sources: tempfile::TempDir,
         sources_dir: camino::Utf8PathBuf,
         missing_host: camino::Utf8PathBuf,
-        search_index: tokio::sync::RwLock<Option<livtet_core::search::SearchIndex>>,
+        search_index: tokio::sync::RwLock<Option<std::sync::Arc<livtet_core::search::SearchIndex>>>,
         _index_dir: Option<tempfile::TempDir>,
     }
 
@@ -3397,7 +3398,7 @@ mod tests {
             let (index_dir, index) = if with_index {
                 let (dir, path) = temporary_dir();
                 let index = livtet_core::search::SearchIndex::open(&path).expect("search index");
-                (Some(dir), Some(index))
+                (Some(dir), Some(std::sync::Arc::new(index)))
             } else {
                 (None, None)
             };

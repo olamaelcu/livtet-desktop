@@ -341,6 +341,43 @@ test('turns pages from the keys it binds inside the frame', async () => {
   expect(events).toContain('select:null')
 })
 
+test('lists the spine as chapters, titled from the table of contents', async () => {
+  mocks.loadEpub.mockResolvedValue({
+    manifest: {
+      ...MANIFEST,
+      readingOrder: [
+        { href: '/cover.xhtml', type: XHTML },
+        { href: '/ch1.xhtml', type: XHTML },
+      ],
+      toc: [
+        { href: '/cover.xhtml', title: 'Cover' },
+        { href: '/ch1.xhtml', title: 'One' },
+      ],
+    },
+    positions: [],
+  })
+
+  const { container } = await mount()
+  await settledFrame(container)
+
+  // Reading-order links carry no title, so this is the join working: titles come
+  // from the separate toc collection, in spine order.
+  await expect.poll(() => text(container, '[data-chapters]')).toBe('Cover|One')
+})
+
+test('toggles the chapter list from the key it binds inside the frame', async () => {
+  const { container, events } = await mount()
+  const instance = await settledFrame(container)
+  const doc = frameDocument()
+  instance.callbacks.frameLoaded(asWindow(doc))
+
+  doc.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', cancelable: true }))
+
+  // A key pressed in the frame's own document never reaches the page's
+  // listener, so the frame has to forward this one itself.
+  await expect.poll(() => events).toContain('chapters')
+})
+
 test('leaves the frame keys inert while a dialog has focus', async () => {
   const { container } = await mount({ keyboard: false })
   const instance = await settledFrame(container)

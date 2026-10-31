@@ -7,6 +7,12 @@ Project guidance for AI agents working on the livtet-desktop codebase.
 - Verify the code using `mise test` and `mise lint`. Examine the other tasks
   defined in [mise.toml](./mise.toml) to determine what should be run when.
 
+## Never
+
+- NEVER run `mise run dev` or `mise dev` unless the user explicitly instructs
+  you to. The dev app is the user's to start; launching it rebuilds the Rust
+  side and takes over the Vite port.
+
 ## Skills
 
 Project-specific skills live in `.agents/skills/`. When a task matches a

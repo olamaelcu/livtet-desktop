@@ -44,6 +44,24 @@ impl crate::mcp::McpSettingsStore for MemoryMcpSettings {
     }
 }
 
+/// In-memory [`crate::opds_server::OpdsServerSettingsStore`] double for the
+/// fixture.
+#[derive(Default)]
+pub(crate) struct MemoryOpdsServerSettings {
+    value: Mutex<Option<crate::opds_server::OpdsServerSettings>>,
+}
+
+impl crate::opds_server::OpdsServerSettingsStore for MemoryOpdsServerSettings {
+    fn read(&self) -> Option<crate::opds_server::OpdsServerSettings> {
+        self.value.lock().unwrap().clone()
+    }
+
+    fn write(&self, settings: &crate::opds_server::OpdsServerSettings) -> Result<(), String> {
+        *self.value.lock().unwrap() = Some(settings.clone());
+        Ok(())
+    }
+}
+
 impl crate::commands::opds::CatalogStore for MemoryCatalogs {
     fn read(&self) -> Option<serde_json::Value> {
         self.value.lock().unwrap().clone()
@@ -84,6 +102,9 @@ pub async fn mock_state_for_bulk(test_db: &TestDb) -> AppState {
         readers: Arc::new(Mutex::new(HashMap::new())),
         mcp: Arc::new(crate::mcp::McpRuntime::new(Arc::new(
             MemoryMcpSettings::default(),
+        ))),
+        opds_server: Arc::new(crate::opds_server::OpdsServerRuntime::new(Arc::new(
+            MemoryOpdsServerSettings::default(),
         ))),
     }
 }

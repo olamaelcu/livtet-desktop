@@ -14,6 +14,8 @@ interface Props {
   canBookmark: boolean
   onprevious: () => void
   onnext: () => void
+  /** Open the chapter drawer. */
+  onchapters: () => void
   onannotate: () => void
   onbookmark: () => void
   onclose: () => void
@@ -27,6 +29,7 @@ let {
   canBookmark,
   onprevious,
   onnext,
+  onchapters,
   onannotate,
   onbookmark,
   onclose,
@@ -43,6 +46,10 @@ let {
     <ActionButton onclick={onnext} disabled={!ready} size="small">
       Next
       <wa-icon name="chevron-right"></wa-icon>
+    </ActionButton>
+    <ActionButton onclick={onchapters} disabled={!ready} size="small">
+      <wa-icon name="book-open"></wa-icon>
+      Chapters
     </ActionButton>
     <ActionButton onclick={onannotate} disabled={!ready || !canAnnotate} size="small">
       <wa-icon name="comment"></wa-icon>

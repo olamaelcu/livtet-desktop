@@ -116,5 +116,15 @@ export const { test, expect } = createTauriTest({
     sync_conflicts_list: () => [],
     sync_server_start: () => true,
     sync_server_stop: () => true,
+    opds_server_status: () => ({
+      settings: { enabled: false, port: 8080 },
+      running: false,
+      url: null,
+    }),
+    opds_server_settings_save: () => ({
+      settings: { enabled: true, port: 8080 },
+      running: true,
+      url: 'http://192.168.1.10:8080',
+    }),
   },
 });

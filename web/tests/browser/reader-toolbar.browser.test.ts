@@ -13,6 +13,15 @@ function bookmarkButton(container: HTMLElement): HTMLElement {
   return button as HTMLElement
 }
 
+/** The chapters control, found by its label rather than by position. */
+function chaptersButton(container: HTMLElement): HTMLElement {
+  const button = [...container.querySelectorAll('wa-button')].find((candidate) =>
+    candidate.textContent?.includes('Chapters'),
+  )
+  if (!button) throw new Error('chapters button is missing')
+  return button as HTMLElement
+}
+
 test('bookmarks the page and reports the click', async () => {
   const events: string[] = []
   const { container } = await render(ReaderToolbarFixture, { props: { events } })
@@ -44,4 +53,24 @@ test('stays disabled until the saved bookmarks have loaded', async () => {
   })
 
   expect(bookmarkButton(container).hasAttribute('disabled')).toBe(true)
+})
+
+test('opens the chapter list', async () => {
+  const events: string[] = []
+  const { container } = await render(ReaderToolbarFixture, { props: { events } })
+
+  expect(chaptersButton(container).hasAttribute('disabled')).toBe(false)
+
+  chaptersButton(container).click()
+  expect(events).toEqual(['chapters'])
+})
+
+// There is no chapter list before the publication opens, so there is nothing
+// to open: the control stays inert over the loading pane.
+test('keeps the chapter list shut until the publication opens', async () => {
+  const { container } = await render(ReaderToolbarFixture, {
+    props: { ready: false, events: [] },
+  })
+
+  expect(chaptersButton(container).hasAttribute('disabled')).toBe(true)
 })

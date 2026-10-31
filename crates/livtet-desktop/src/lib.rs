@@ -3,6 +3,7 @@ pub mod commands;
 mod error;
 mod http;
 mod mcp;
+mod opds_server;
 mod paths;
 mod plugin_host;
 mod roles;
@@ -291,6 +292,13 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let mcp_store: Arc<dyn mcp::McpSettingsStore> = mcp_store;
 
+    // The OPDS server's settings, in their own store beside the MCP endpoint's
+    // (ADR-0045).
+    let opds_server_store = tauri_plugin_store::StoreBuilder::new(&*app, "opds-server.json")
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let opds_server_store: Arc<dyn opds_server::OpdsServerSettingsStore> = opds_server_store;
+
     // Loopback byte server for library files the webview must fetch:
     // `<audio>` playback (WebKitGTK routes media through GStreamer, which
     // cannot fetch the app's custom schemes) and ranged PDF reads.
@@ -317,10 +325,11 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         secrets: Arc::new(secrets::KeyringSecretStore),
         readers: Arc::new(Mutex::new(HashMap::new())),
         mcp: Arc::new(mcp::McpRuntime::new(mcp_store)),
+        opds_server: Arc::new(opds_server::OpdsServerRuntime::new(opds_server_store)),
     };
     {
         let mut guard = state.search_index.write().await;
-        *guard = Some(search_index);
+        *guard = Some(Arc::new(search_index));
     }
 
     // The MCP endpoint runs in this process over the same state, so a tool
@@ -329,6 +338,13 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     // failure is logged rather than failing app setup (ADR-0041).
     let mcp_bridge = mcp::CommandBridge::from_state(&state);
     mcp::start_from_settings(&state.mcp, mcp_bridge).await;
+
+    // The OPDS server publishes the library to reading devices on the network.
+    // Like the MCP endpoint it starts only when Settings (or the persisted
+    // `opds-server.json`) has it on, and a failure is logged rather than failing
+    // app setup: the app works with the server down (ADR-0045).
+    let opds_server_deps = opds_server::OpdsServerDeps::from_state(&state);
+    opds_server::start_from_settings(&state.opds_server, &opds_server_deps).await;
 
     app.manage(state);
 
@@ -413,6 +429,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::reviews::put_local_review_to_pds,
         commands::mcp::mcp_settings_get,
         commands::mcp::mcp_settings_save,
+        commands::opds_server::opds_server_status,
+        commands::opds_server::opds_server_settings_save,
+        commands::opds_server::opds_server_start,
+        commands::opds_server::opds_server_stop,
         commands::enrich::enrich_edition,
         commands::enrich::enrich_library,
     ])

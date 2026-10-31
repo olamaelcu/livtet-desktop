@@ -11,7 +11,13 @@ pub type ArcMut<T> = Arc<RwLock<T>>;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub search_index: ArcMut<Option<SearchIndex>>,
+    /// Shared search index, set during app setup.
+    ///
+    /// `Arc` because readers outside the command layer (`crate::opds_server`)
+    /// keep their own handle: a `SearchIndex` owns the exclusive Tantivy
+    /// writer, so only one may exist per index directory and it cannot be
+    /// reopened to make a second handle.
+    pub search_index: ArcMut<Option<Arc<SearchIndex>>>,
     /// Shared database pool, set during app setup.
     pub db: SharedState,
     /// Where extracted cover images are written (`<data>/covers`).
@@ -49,4 +55,7 @@ pub struct AppState {
     /// The localhost-only MCP endpoint: its persisted settings and the live
     /// listener, so Settings can start, stop, or move it (ADR-0041).
     pub mcp: Arc<crate::mcp::McpRuntime>,
+    /// The LAN-facing OPDS 2.0 server: its persisted settings and the live
+    /// listener, so Settings can start, stop, or move it (ADR-0045).
+    pub opds_server: Arc<crate::opds_server::OpdsServerRuntime>,
 }

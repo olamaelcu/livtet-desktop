@@ -28,6 +28,7 @@ const client = new QueryClient({
       <wa-tab-panel name="account">account</wa-tab-panel>
       <wa-tab-panel name="hotkeys">hotkeys</wa-tab-panel>
       <wa-tab-panel name="mcp">mcp</wa-tab-panel>
+      <wa-tab-panel name="opds">opds</wa-tab-panel>
     </SettingsLayout>
   </AppFrame>
 </QueryClientProvider>

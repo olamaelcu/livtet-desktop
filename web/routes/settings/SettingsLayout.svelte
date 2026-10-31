@@ -1,13 +1,50 @@
 <script lang="ts">
 import type { Snippet } from 'svelte'
+import { replaceState } from '$app/navigation'
 import { page } from '$app/state'
 import NavRail from '../../lib/layout/NavRail.svelte'
 import { NAV_ITEMS } from '../../lib/layout/navItems'
 import Pane from '../../lib/layout/Pane.svelte'
 import RouteShell from '../../lib/layout/RouteShell.svelte'
+import { SETTINGS_TABS, settingsTabFrom, settingsTabUrl } from '../../lib/settings/tabs'
 
-/** `children` are the `<wa-tab-panel>`s for the sync, catalogs, account and hotkeys tabs. */
+/** `children` are the `<wa-tab-panel>`s for the sync, catalogs, account, hotkeys, MCP, and OPDS tabs. */
 let { children }: { children: Snippet } = $props()
+
+/**
+ * The tab on screen: the one `?tab=` names, or the first when it names none.
+ *
+ * The query string is the source of truth rather than local state, so a reload
+ * or a link into the route opens the same tab the address bar asks for.
+ */
+const active = $derived(settingsTabFrom(page.url.search) ?? SETTINGS_TABS[0]?.name ?? '')
+
+/**
+ * The tab name `wa-tab-show` carries, or `undefined` for an event of another
+ * shape.
+ *
+ * WebAwesome dispatches its own event class here — a plain `Event` carrying a
+ * `detail` — so testing for `CustomEvent` first would discard every one of
+ * them silently.
+ */
+function shownTab(event: Event): string | undefined {
+  if (!('detail' in event)) return undefined
+  const detail: unknown = event.detail
+  if (typeof detail !== 'object' || detail === null || !('name' in detail)) return undefined
+  return typeof detail.name === 'string' ? detail.name : undefined
+}
+
+/**
+ * Point the address bar at the tab the reader switched to.
+ *
+ * `replaceState` rather than a navigation: the panels are already on screen, so
+ * switching is not a new page and must not stack history entries.
+ */
+function tabShown(event: Event) {
+  const name = shownTab(event)
+  if (name === undefined || name === active) return
+  replaceState(settingsTabUrl(page.url, name), page.state)
+}
 </script>
 
 <RouteShell>
@@ -25,12 +62,10 @@ let { children }: { children: Snippet } = $props()
       computes overflow-y: visible; asserted in settings-layout.browser.test.ts),
       so this is the only one.
     -->
-    <wa-tab-group class="settings__tabs" data-scroll-region>
-      <wa-tab slot="nav" panel="sync">Sync</wa-tab>
-      <wa-tab slot="nav" panel="catalogs">Catalogs</wa-tab>
-      <wa-tab slot="nav" panel="account">Account</wa-tab>
-      <wa-tab slot="nav" panel="hotkeys">Keyboard</wa-tab>
-      <wa-tab slot="nav" panel="mcp">MCP</wa-tab>
+    <wa-tab-group class="settings__tabs" data-scroll-region {active} onwa-tab-show={tabShown}>
+      {#each SETTINGS_TABS as tab (tab.name)}
+        <wa-tab slot="nav" panel={tab.name}>{tab.label}</wa-tab>
+      {/each}
       {@render children()}
     </wa-tab-group>
   </Pane>

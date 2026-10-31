@@ -24,6 +24,14 @@ test.describe('Settings', () => {
     }
   });
 
+  test('renders the OPDS tab with its server off', async ({ tauriPage }) => {
+    await tauriPage.goto('/settings');
+    await tauriPage.getByRole('tab', { name: 'OPDS' }).click();
+
+    await expect(tauriPage.getByRole('heading', { name: 'OPDS server' })).toBeVisible();
+    await expect(tauriPage.getByText('Not listening.')).toBeVisible();
+  });
+
   test('shows a pairing QR code and credentials after pairing a device', async ({
     tauriPage,
   }) => {

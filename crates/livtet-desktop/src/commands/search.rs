@@ -53,7 +53,7 @@ pub async fn search_typeahead(
     state: State<'_, AppState>,
 ) -> Result<Vec<SearchResult>, SearchIndexError> {
     let guard = state.search_index.read().await;
-    search_typeahead_inner(guard.as_ref(), &query, limit).await
+    search_typeahead_inner(guard.as_deref(), &query, limit).await
 }
 
 /// Blank input short-circuits to no results before the index is consulted,
@@ -92,7 +92,7 @@ pub async fn search_editions(
     let guard = state.search_index.read().await;
     let db = state.db.db_conn();
     search_editions_inner(
-        guard.as_ref(),
+        guard.as_deref(),
         &db,
         query.as_deref(),
         filters,

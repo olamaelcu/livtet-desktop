@@ -6,6 +6,7 @@ import { onMount } from 'svelte'
 import { page } from '$app/state'
 import AnnotationComposer from '$lib/components/AnnotationComposer.svelte'
 import AnnotationDrawer from '$lib/components/AnnotationDrawer.svelte'
+import ChapterDrawer from '$lib/components/ChapterDrawer.svelte'
 import NotesPanel from '$lib/components/NotesPanel.svelte'
 import ReaderFab from '$lib/components/ReaderFab.svelte'
 import ReaderFrame from '$lib/components/ReaderFrame.svelte'
@@ -21,6 +22,7 @@ import {
   withBookmark,
   withoutBookmark,
 } from '$lib/reader/bookmark'
+import { type Chapter, chapterHref } from '$lib/reader/chapters'
 import type { HighlightColor } from '$lib/reader/highlights'
 import { updateNoteText } from '$lib/reader/notes'
 import type { Annotation } from '$lib/reader/progress'
@@ -80,6 +82,15 @@ const bookmarked = $derived(
 /** Whether the note list is open. Highlights are always drawn regardless. */
 let panelOpen = $state(false)
 
+/** Reading-order resources of the open publication, listed by the chapter drawer. */
+let chapters = $state<Chapter[]>([])
+
+/** Whether the chapter drawer is open. */
+let chaptersOpen = $state(false)
+
+/** Resource on screen, so the drawer marks the chapter it belongs to. */
+const currentChapter = $derived(chapterHref(location))
+
 /** Note whose highlight the reader clicked, shown in the annotation drawer. */
 let activeNote = $state<Annotation | null>(null)
 
@@ -138,6 +149,24 @@ function next() {
 function togglePanel() {
   panelOpen = !panelOpen
   if (!panelOpen) activeNote = null
+}
+
+/** Open or close the chapter list. */
+function toggleChapters() {
+  chaptersOpen = !chaptersOpen
+}
+
+/**
+ * Move the reader to the start of a chapter and dismiss the drawer so the text
+ * it went to is not hidden behind it.
+ *
+ * The locator carries no progression: the frame takes the reader to the top of
+ * the resource, and its arrival check then has only the href to match — which is
+ * all a chapter jump promises.
+ */
+function jumpToChapter(chapter: Chapter) {
+  frame?.go(new Locator({ href: chapter.href, type: chapter.type, title: chapter.title }))
+  chaptersOpen = false
 }
 
 /**
@@ -360,6 +389,12 @@ onMount(() => {
     if (!composerOpen && (e.key === 'k' || e.key === 'K')) next()
     if (!composerOpen && (e.key === 'h' || e.key === 'H')) previous()
     if (!composerOpen && (e.key === 'l' || e.key === 'L')) next()
+    // The note list carries a search field: a `c` typed into it belongs to the
+    // query, not to the chapter drawer.
+    const editing =
+      e.target instanceof Element &&
+      e.target.closest('wa-input, wa-textarea, wa-select, input, textarea, select') !== null
+    if (!composerOpen && !editing && (e.key === 'c' || e.key === 'C')) toggleChapters()
   }
   document.addEventListener('keydown', onKey)
   return () => document.removeEventListener('keydown', onKey)
@@ -393,6 +428,7 @@ function deleteNote(note: Annotation) {
     canBookmark={bookmarksLoaded}
     onprevious={previous}
     onnext={next}
+    onchapters={toggleChapters}
     onannotate={openComposer}
     onbookmark={() => void bookmarkCurrentPage()}
     onclose={() => void close()}
@@ -420,11 +456,13 @@ function deleteNote(note: Annotation) {
       bind:progress={pageProgress}
       {editionId}
       {annotations}
+      bind:chapters
       bind:location
       bind:progression={bookProgression}
       keyboard={ready && !composerOpen}
       ontextselect={handleTextSelect}
       onannotationactivate={activateNote}
+      onchapters={toggleChapters}
     />
 
     {#if (annotations.length > 0 || bookmarks.length > 0) && ready}
@@ -454,6 +492,15 @@ function deleteNote(note: Annotation) {
 
     {#if activeNote}
       <AnnotationDrawer annotation={activeNote} onclose={() => (activeNote = null)} />
+    {/if}
+
+    {#if chaptersOpen}
+      <ChapterDrawer
+        {chapters}
+        currentHref={currentChapter}
+        onselect={jumpToChapter}
+        onclose={() => (chaptersOpen = false)}
+      />
     {/if}
   </div>
 </ReaderLayout>

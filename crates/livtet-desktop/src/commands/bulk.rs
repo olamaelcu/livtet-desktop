@@ -135,7 +135,7 @@ pub async fn delete_editions(
 
     let db = state.db.db_conn();
     let guard = state.search_index.read().await;
-    delete_editions_inner(&db, guard.as_ref(), &edition_ids).await
+    delete_editions_inner(&db, guard.as_deref(), &edition_ids).await
 }
 
 /// Delete editions and their files, without Tauri state so tests can drive
@@ -355,7 +355,7 @@ pub async fn add_edition_tags(
 ) -> Result<TagMutationOutcome, BulkError> {
     let db = state.db.db_conn();
     let guard = state.search_index.read().await;
-    add_edition_tags_inner(&db, guard.as_ref(), &edition_ids, &tag).await
+    add_edition_tags_inner(&db, guard.as_deref(), &edition_ids, &tag).await
 }
 
 /// Attach the (trimmed) tag `tag` to every edition, creating the tag on first
@@ -446,7 +446,7 @@ pub async fn remove_edition_tags(
 ) -> Result<TagMutationOutcome, BulkError> {
     let db = state.db.db_conn();
     let guard = state.search_index.read().await;
-    remove_edition_tags_inner(&db, guard.as_ref(), edition_ids, tag_id).await
+    remove_edition_tags_inner(&db, guard.as_deref(), edition_ids, tag_id).await
 }
 
 /// Detach tag `tag_id` from the given editions. Reindexes `index` when any
@@ -502,7 +502,7 @@ pub async fn matching_edition_ids(
 ) -> Result<Vec<DbId>, BulkError> {
     let guard = state.search_index.read().await;
     let index = guard
-        .as_ref()
+        .as_deref()
         .ok_or_else(|| BulkError::new("index", "search index unavailable"))?;
     let db = state.db.db_conn();
     matching_edition_ids_inner(index, &db, query.as_deref().unwrap_or(""), filters).await

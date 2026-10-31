@@ -281,7 +281,7 @@ fn endpoint_port(raw: Option<&str>) -> Option<u16> {
 #[derive(Clone)]
 pub(crate) struct CommandBridge {
     db: SharedState,
-    search_index: ArcMut<Option<SearchIndex>>,
+    search_index: ArcMut<Option<Arc<SearchIndex>>>,
     covers_dir: Utf8PathBuf,
     opds_http: reqwest::Client,
     books_dir: Utf8PathBuf,
@@ -330,7 +330,7 @@ impl DesktopBridge for CommandBridge {
         limit: Option<i32>,
     ) -> Result<Value, BridgeError> {
         let index = self.search_index.read().await;
-        let hits = search_typeahead_inner(index.as_ref(), &query, limit)
+        let hits = search_typeahead_inner(index.as_deref(), &query, limit)
             .await
             .map_err(|error| bridge_error("search", &error))?;
         serialized(hits)
@@ -353,7 +353,7 @@ impl DesktopBridge for CommandBridge {
 
         let index = self.search_index.read().await;
         let response = search_editions_inner(
-            index.as_ref(),
+            index.as_deref(),
             &self.db.db_conn(),
             query.as_deref(),
             filters,
@@ -558,7 +558,10 @@ mod tests {
 
     use std::sync::Arc;
 
+    use livtet_core::data::entities::{editions, works};
+    use livtet_core::data::orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
     use livtet_core::data::{Kind, TestDb};
+    use livtet_types::{KnownFormats, now_primitive};
     use serde_json::json;
 
     use super::*;
@@ -750,5 +753,342 @@ mod tests {
             .await
             .expect("an unknown edition is not an error");
         assert_eq!(publication, Value::Null);
+    }
+
+    /// A bridge over a catalog holding one readable EPUB edition.
+    ///
+    /// Reader state is keyed by `(edition, format)`, and an edition with no
+    /// `digital_inventory` row is not a virtual book, so nothing needs a file on
+    /// disk. The `TestDb` is returned so it outlives the test: the fixture state
+    /// shares its pool, and dropping it would close the database underneath.
+    async fn seeded_catalog() -> (TestDb, CommandBridge, DbId) {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+
+        let work_id = DbId::new();
+        works::ActiveModel {
+            id: Set(work_id),
+            title: Set("Bridge Work".into()),
+            description: Set(None),
+            sort_title: Set(None),
+            series_type: Set(None),
+            language_id: Set(None),
+            preferred_edition_id: Set(None),
+            created_at: Set(now_primitive()),
+            updated_at: Set(None),
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+
+        let edition_id = DbId::new();
+        editions::ActiveModel {
+            id: Set(edition_id),
+            work_id: Set(work_id),
+            group_id: Set(None),
+            title: Set(Some("Bridge Edition".into())),
+            published_date: Set(None),
+            format_id: Set(Some(KnownFormats::Epub.into())),
+            language_id: Set(None),
+            notes: Set(None),
+            description: Set(None),
+            format_metadata: Set(None),
+            created_at: Set(now_primitive()),
+            updated_at: Set(None),
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+
+        let state = crate::mock_state_for_bulk(&test_db).await;
+        (test_db, CommandBridge::from_state(&state), edition_id)
+    }
+
+    #[tokio::test]
+    async fn a_pdf_position_saves_and_reads_back() {
+        let (_db, bridge, edition_id) = seeded_catalog().await;
+
+        let saved = bridge
+            .save_reader_position(
+                edition_id.to_string(),
+                String::from("pdf"),
+                None,
+                Some(12),
+                None,
+                None,
+            )
+            .await
+            .expect("save a pdf position");
+        assert_eq!(saved, Value::Null, "a position save returns nothing");
+
+        let position = bridge
+            .get_reader_position(edition_id.to_string())
+            .await
+            .expect("read it back");
+        assert_eq!(position["kind"], json!("pdf"));
+        assert_eq!(position["page_number"], json!(12));
+        assert_eq!(position["locator"], Value::Null);
+    }
+
+    #[tokio::test]
+    async fn an_epub_position_keeps_its_locator() {
+        let (_db, bridge, edition_id) = seeded_catalog().await;
+        let locator = String::from(r#"{"href":"/ch1.xhtml","locations":{"progression":0.4}}"#);
+
+        bridge
+            .save_reader_position(
+                edition_id.to_string(),
+                String::from("epub"),
+                Some(locator.clone()),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("save an epub position");
+
+        let position = bridge
+            .get_reader_position(edition_id.to_string())
+            .await
+            .expect("read it back");
+        assert_eq!(position["kind"], json!("epub"));
+        assert_eq!(position["locator"], json!(locator));
+    }
+
+    #[tokio::test]
+    async fn a_position_save_rejects_an_unknown_kind() {
+        let (_db, bridge, edition_id) = seeded_catalog().await;
+
+        let error = bridge
+            .save_reader_position(
+                edition_id.to_string(),
+                String::from("scroll"),
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect_err("scroll is not a reader family");
+        assert_eq!(error.code, "reader");
+        assert!(error.message.contains("kind must be"), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn a_save_for_an_unknown_edition_reports_not_found() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .save_reader_position(
+                DbId::new().to_string(),
+                String::from("pdf"),
+                None,
+                Some(3),
+                None,
+                None,
+            )
+            .await
+            .expect_err("nothing to save against");
+        assert_eq!(error.code, "reader");
+        assert!(error.message.contains("edition not found"), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn bookmarks_add_list_and_remove() {
+        let (_db, bridge, edition_id) = seeded_catalog().await;
+
+        let added = bridge
+            .add_reader_bookmark(
+                edition_id.to_string(),
+                String::from("pdf"),
+                None,
+                Some(12),
+                None,
+                None,
+            )
+            .await
+            .expect("bookmark a page");
+        let bookmark_id = added["id"]
+            .as_str()
+            .expect("a stored bookmark has an id")
+            .to_owned();
+        assert_eq!(added["kind"], json!("pdf"));
+        assert_eq!(added["page_number"], json!(12));
+
+        let listed = bridge
+            .list_reader_bookmarks(edition_id.to_string())
+            .await
+            .expect("list them");
+        assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
+
+        let removed = bridge
+            .remove_reader_bookmark(bookmark_id.clone())
+            .await
+            .expect("remove it");
+        assert_eq!(removed, json!(true));
+
+        // A second click is a no-op, not an error.
+        let again = bridge
+            .remove_reader_bookmark(bookmark_id)
+            .await
+            .expect("removing it twice is fine");
+        assert_eq!(again, json!(false));
+
+        let after = bridge
+            .list_reader_bookmarks(edition_id.to_string())
+            .await
+            .expect("list them again");
+        assert_eq!(after, json!([]));
+    }
+
+    #[tokio::test]
+    async fn an_epub_bookmark_needs_a_fraction() {
+        let (_db, bridge, edition_id) = seeded_catalog().await;
+
+        let error = bridge
+            .add_reader_bookmark(
+                edition_id.to_string(),
+                String::from("epub"),
+                Some(String::from(r#"{"href":"/ch1.xhtml"}"#)),
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect_err("a fraction places the page in the book");
+        assert_eq!(error.code, "reader");
+        assert!(error.message.contains("fraction"), "{error:?}");
+    }
+
+    /// A bridge whose search index has been rebuilt from the seeded catalog.
+    ///
+    /// The temp dir is returned so the index survives the test.
+    async fn indexed_catalog() -> (tempfile::TempDir, TestDb, CommandBridge) {
+        let (test_db, _plain, _edition) = seeded_catalog().await;
+
+        let index_dir = tempfile::tempdir().expect("index dir");
+        let path = camino::Utf8Path::from_path(index_dir.path()).expect("utf-8 path");
+        let index = livtet_core::search::SearchIndex::open(path).expect("open index");
+        index
+            .reindex(&test_db.state().db_conn())
+            .await
+            .expect("reindex the catalog");
+
+        let state = crate::mock_state_for_bulk(&test_db).await;
+        *state.search_index.write().await = Some(Arc::new(index));
+        let bridge = CommandBridge::from_state(&state);
+        (index_dir, test_db, bridge)
+    }
+
+    #[tokio::test]
+    async fn search_editions_reports_an_unavailable_index() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .search_editions(None, None, None, None)
+            .await
+            .expect_err("the fixture loads no index");
+        assert_eq!(error.code, "search");
+        assert!(error.message.contains("Unavailable"), "{error:?}");
+    }
+
+    #[tokio::test]
+    async fn search_editions_answers_from_an_indexed_catalog() {
+        let (_index_dir, _db, bridge) = indexed_catalog().await;
+
+        let response = bridge
+            .search_editions(None, None, None, None)
+            .await
+            .expect("an indexed catalog answers");
+        assert_eq!(response["total"], json!(1), "{response}");
+        let hits = response["hits"].as_array().expect("hits are an array");
+        assert_eq!(hits.len(), 1, "{response}");
+    }
+
+    #[tokio::test]
+    async fn malformed_filters_report_invalid_parameter() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .search_editions(None, Some(json!({ "tag_ids": "not-a-list" })), None, None)
+            .await
+            .expect_err("filters are parsed before the query");
+        assert_eq!(error.code, "invalid-parameter");
+    }
+
+    #[tokio::test]
+    async fn a_virtual_book_is_created_without_a_file() {
+        let (db, bridge, _edition) = seeded_catalog().await;
+        let conn = db.state().db_conn();
+        let before = editions::Entity::find()
+            .count(&conn)
+            .await
+            .expect("count editions");
+
+        let outcome = bridge
+            .create_virtual_book(json!({
+                "title": "Catalog Only",
+                "authors": [{ "name": "A. Author" }],
+            }))
+            .await
+            .expect("create a catalog-only book");
+        assert!(outcome.is_object(), "{outcome}");
+
+        let after = editions::Entity::find()
+            .count(&conn)
+            .await
+            .expect("count editions");
+        assert_eq!(after, before + 1, "the book reached the catalog");
+    }
+
+    #[tokio::test]
+    async fn a_virtual_book_without_an_author_is_refused() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .create_virtual_book(json!({ "title": "Anonymous" }))
+            .await
+            .expect_err("a catalog-only book still needs a contributor");
+        assert_eq!(error.code, "import");
+    }
+
+    // Multi-threaded like the app: `fs-err` formats a missing path through
+    // `block_in_place`, which panics on a current-thread runtime.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn importing_a_missing_file_reports_an_import_error() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .import_file(
+                String::from("/nonexistent/livtet-mcp-probe.epub"),
+                String::from("link"),
+            )
+            .await
+            .expect_err("there is no such file");
+        assert_eq!(error.code, "import");
+    }
+
+    #[tokio::test]
+    async fn an_empty_batch_answers_with_no_files() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let result = bridge
+            .import_files(Vec::new(), String::from("copy"))
+            .await
+            .expect("an empty batch is not an error");
+        assert_eq!(result["files"], json!([]));
+        assert_eq!(result["imported"], json!(0));
+        assert_eq!(result["failed"], json!(0));
+    }
+
+    #[tokio::test]
+    async fn reader_resource_for_an_unknown_edition_is_a_reader_error() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .reader_resource(DbId::new().to_string(), String::from("OEBPS/ch1.xhtml"))
+            .await
+            .expect_err("nothing to read");
+        assert_eq!(error.code, "reader");
     }
 }

@@ -56,10 +56,12 @@ livtet-reader.workspace = true
 livtet-mcp-server.workspace = true
 livtet-opds-client.workspace = true
 livtet-opds-types.workspace = true
+livtet-opds-server.workspace = true
 stanchion.workspace = true
 reqwest.workspace = true
 url.workspace = true
 
+async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"

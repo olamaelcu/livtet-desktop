@@ -9,6 +9,7 @@ pub mod import;
 pub mod importers;
 pub mod mcp;
 pub mod opds;
+pub mod opds_server;
 pub mod plugin_host_callbacks;
 pub mod plugins;
 pub mod reader;

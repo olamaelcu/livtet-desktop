@@ -59,6 +59,11 @@ export const mcpKeys = {
   status: () => [...mcpKeys.all, 'status'] as const,
 }
 
+export const opdsServerKeys = {
+  all: ['opds-server'] as const,
+  status: () => [...opdsServerKeys.all, 'status'] as const,
+}
+
 export const readerKeys = {
   all: ['reader'] as const,
   publication: (editionId: string) => [...readerKeys.all, 'publication', { editionId }] as const,
