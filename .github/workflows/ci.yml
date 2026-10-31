@@ -179,6 +179,31 @@ jobs:
       - name: Install JS dependencies
         run: pnpm install --frozen-lockfile
 
+      # Defender scans every write under the workspace, temp and cargo dirs, which
+      # dominates the Windows leg: the same Rust suite takes 5.1 min of test
+      # execution here against 21.5s on Linux, with compilation and the SQLite
+      # temp files on the same path. Excluding them is the documented remedy for
+      # MSVC builds; the runner is discarded after the job.
+      - name: Exclude build paths from Defender
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $excluded = @(Get-MpPreference | Select-Object -ExpandProperty ExclusionPath)
+          $candidates = @(
+            '${{ github.workspace }}',
+            $env:RUNNER_TEMP,
+            $env:CARGO_HOME,
+            (Join-Path $env:USERPROFILE '.cargo')
+          ) | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+          foreach ($path in $candidates) {
+            if ($excluded -notcontains $path) {
+              Add-MpPreference -ExclusionPath $path -ErrorAction SilentlyContinue
+            }
+          }
+
+          Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
+
       # Two things every Rust build in this job needs, kept out of the
       # cache-gated step below so a bindings cache hit cannot starve the Rust
       # suite: `build.rs` aborts unless `.mise/secrets.env` exists, and
