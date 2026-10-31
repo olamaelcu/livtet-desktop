@@ -46,6 +46,14 @@ describe('normalizeLcov', () => {
 
     expect(normalizeLcov(lcov, '/repo')).toBe(lcov)
   })
+
+  test('rewrites a Windows SF path to a repo-root-relative POSIX path', () => {
+    // llvm-cov reports `D:\a\…\crates\…` on the Windows runner; a `/`-only
+    // prefix strip left it absolute, and the preflight then refused the run.
+    const lcov = 'SF:D:\\a\\repo\\crates\\a\\src\\lib.rs\nend_of_record\n'
+
+    expect(normalizeLcov(lcov, 'D:\\a\\repo')).toBe('SF:crates/a/src/lib.rs\nend_of_record\n')
+  })
 })
 
 describe('parseSourceFiles', () => {

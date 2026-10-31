@@ -115,8 +115,10 @@ run = [
   "cargo llvm-cov clean --workspace",
   # coverage-ignore.txt also carries Vitest globs (e.g. `**/*.test.ts`), which are
   # invalid ERE and make llvm-cov silently drop every exclusion; skip web patterns.
-  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | grep -vE '^web/|\\.(ts|mjs)$' | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov --workspace --all-targets --no-report --ignore-filename-regex \"($regex)\"",
-  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | grep -vE '^web/|\\.(ts|mjs)$' | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov report --lcov --output-path target/llvm-cov/rust.lcov --ignore-filename-regex \"($regex)\"",
+  # `scripts/coverage-ignore-regex.mjs` also widens the separators to `[\\/]`, which
+  # llvm-cov needs on Windows — the two coverage jobs run there too.
+  "regex=$(node scripts/coverage-ignore-regex.mjs) && [ -n \"$regex\" ] && cargo llvm-cov --workspace --all-targets --no-report --ignore-filename-regex \"($regex)\"",
+  "regex=$(node scripts/coverage-ignore-regex.mjs) && [ -n \"$regex\" ] && cargo llvm-cov report --lcov --output-path target/llvm-cov/rust.lcov --ignore-filename-regex \"($regex)\"",
 ]
 
 [tasks."coverage:clean"]
@@ -127,14 +129,14 @@ run = ["rm -rf target/llvm-cov-target target/llvm-cov"]
 description = "Generate browsable HTML coverage report from the separate build dir"
 depends = ["coverage:rust"]
 run = [
-  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | grep -vE '^web/|\\.(ts|mjs)$' | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov report --html --ignore-filename-regex \"($regex)\"",
+  "regex=$(node scripts/coverage-ignore-regex.mjs) && [ -n \"$regex\" ] && cargo llvm-cov report --html --ignore-filename-regex \"($regex)\"",
 ]
 
 [tasks."coverage:check"]
 description = "Fail when workspace line coverage drops below 90%. Floor is workspace-wide (not per-crate) — mirrors core's rationale (some crates are dominated by process lifecycle). See coverage-ignore.txt for what is excluded."
 depends = ["coverage:rust"]
 run = [
-  "regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | grep -vE '^web/|\\.(ts|mjs)$' | paste -sd'|' -) && [ -n \"$regex\" ] && cargo llvm-cov report --summary-only --fail-under-lines 90 --ignore-filename-regex \"($regex)\"",
+  "regex=$(node scripts/coverage-ignore-regex.mjs) && [ -n \"$regex\" ] && cargo llvm-cov report --summary-only --fail-under-lines 90 --ignore-filename-regex \"($regex)\"",
 ]
 
 [tasks.coverage]

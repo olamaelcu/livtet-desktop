@@ -496,7 +496,10 @@ jobs:
         run: |
           mkdir -p target/llvm-cov
           cargo llvm-cov clean --workspace
-          regex=$(grep -vE '^[[:space:]]*(#|$)' coverage-ignore.txt | grep -vE '^web/|\.(ts|mjs)$' | paste -sd'|' -)
+          # Built by a script, not an inline pipeline: the patterns must match
+          # Windows separators too, and the escaping has to survive shell and
+          # YAML quoting on three operating systems.
+          regex=$(node scripts/coverage-ignore-regex.mjs)
           [ -n "$regex" ]
           cargo llvm-cov --workspace --all-targets --no-report --ignore-filename-regex "($regex)"
           cargo llvm-cov report --lcov --output-path target/llvm-cov/rust.lcov --ignore-filename-regex "($regex)"

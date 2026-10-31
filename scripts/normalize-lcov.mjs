@@ -12,10 +12,14 @@ import { pathToFileURL } from 'node:url'
  * @returns {string}
  */
 export function normalizeLcov(lcovText, repoRoot) {
-  const prefix = repoRoot.endsWith('/') ? repoRoot : `${repoRoot}/`
-  return lcovText.replace(/^SF:(.*)$/gm, (_match, path) =>
-    path.startsWith(prefix) ? `SF:${path.slice(prefix.length)}` : `SF:${path}`,
-  )
+  // Both sides are compared as POSIX text: on Windows the reports carry
+  // `D:\a\…\crates\…`, which a `/`-only prefix never matches.
+  const root = repoRoot.replaceAll('\\', '/').replace(/\/+$/, '')
+  const prefix = `${root}/`
+  return lcovText.replace(/^SF:(.*)$/gm, (_match, path) => {
+    const posix = path.trim().replaceAll('\\', '/')
+    return `SF:${posix.startsWith(prefix) ? posix.slice(prefix.length) : posix}`
+  })
 }
 
 /**
