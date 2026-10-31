@@ -171,10 +171,11 @@ jobs:
       - name: Run Rust tests
         # `--no-fail-fast` keeps going after a failure: the first Windows run
         # aborted at 316/659 and hid every test behind it, costing an extra push
-        # to discover the rest. `--max-fail` bounds the report.
+        # to discover the rest. nextest rejects it alongside `--max-fail`, so no
+        # cap is set.
         run: |
           cargo test --doc --workspace --no-fail-fast
-          cargo nextest run --workspace --all-targets --no-fail-fast --max-fail=10
+          cargo nextest run --workspace --all-targets --no-fail-fast
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
