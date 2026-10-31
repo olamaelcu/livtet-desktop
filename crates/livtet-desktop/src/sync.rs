@@ -66,8 +66,10 @@ impl SyncHandle {
         db_path: &Utf8Path,
         device_name: Option<&str>,
         lan: bool,
+        books_dir: &Utf8Path,
+        covers_dir: &Utf8Path,
     ) -> Result<Self, SyncError> {
-        let args = sidecar_args(db_path, device_name, lan);
+        let args = sidecar_args(db_path, device_name, lan, books_dir, covers_dir);
 
         let command = app
             .shell()
@@ -166,12 +168,22 @@ impl SyncHandle {
 /// Split out from [`SyncHandle::spawn`] so the flag selection is testable
 /// without a Tauri app: `--lan` replaces the loopback host, never accompanies
 /// it.
-fn sidecar_args(db_path: &Utf8Path, device_name: Option<&str>, lan: bool) -> Vec<String> {
+fn sidecar_args(
+    db_path: &Utf8Path,
+    device_name: Option<&str>,
+    lan: bool,
+    books_dir: &Utf8Path,
+    covers_dir: &Utf8Path,
+) -> Vec<String> {
     let mut args = vec![
         "--db".to_string(),
         db_path.as_str().to_string(),
         "--port".to_string(),
         "0".to_string(),
+        "--books-dir".to_string(),
+        books_dir.to_string(),
+        "--covers-dir".to_string(),
+        covers_dir.to_string(),
     ];
     if lan {
         args.push("--lan".to_string());
@@ -305,6 +317,7 @@ fn handle_line(emit: &impl Fn(&'static str, Value), pending: &Pending, line: &st
 fn notification_event(method: &str) -> Option<&'static str> {
     match method {
         rpc::method::NOTIFY_PAIRING_REQUESTED => Some("sync://pairing-requested"),
+        "pairing.claimed" => Some("sync://paired"),
         rpc::method::NOTIFY_REQUEST_RECEIVED => Some("sync://request"),
         rpc::method::NOTIFY_SYNC_COMPLETED => Some("sync://completed"),
         rpc::method::NOTIFY_SERVER_STARTED => Some("sync://server-started"),
@@ -479,7 +492,13 @@ mod tests {
     }
 
     fn args(db: &str, name: Option<&str>, lan: bool) -> Vec<String> {
-        sidecar_args(camino::Utf8Path::new(db), name, lan)
+        sidecar_args(
+            camino::Utf8Path::new(db),
+            name,
+            lan,
+            camino::Utf8Path::new("/tmp/books"),
+            camino::Utf8Path::new("/tmp/covers"),
+        )
     }
 
     #[test]
@@ -635,6 +654,7 @@ mod tests {
         let (handle, mut daemon) = connect(PATIENT);
         let routes = [
             (method::NOTIFY_PAIRING_REQUESTED, "sync://pairing-requested"),
+            ("pairing.claimed", "sync://paired"),
             (method::NOTIFY_REQUEST_RECEIVED, "sync://request"),
             (method::NOTIFY_SYNC_COMPLETED, "sync://completed"),
             (method::NOTIFY_SERVER_STARTED, "sync://server-started"),

@@ -18,6 +18,10 @@ describe('syncErrorMessage', () => {
     )
   })
 
+  test('reports the message from a Storage error', () => {
+    expect(syncErrorMessage({ Storage: { message: 'disk full' } })).toBe('disk full')
+  })
+
   test('falls back to the message of a plain Error', () => {
     expect(syncErrorMessage(new Error('socket closed'))).toBe('socket closed')
   })
@@ -28,9 +32,9 @@ describe('syncErrorMessage', () => {
     expect(syncErrorMessage(null)).toBe('null')
   })
 
-  // The guard accepts any object carrying one of the three keys, but each
+  // The guard accepts any object carrying one of the variant keys, but each
   // branch additionally requires the value to be truthy. A variant present but
-  // empty therefore falls past all three and lands on String(error), which
+  // empty therefore falls past all of them and lands on String(error), which
   // renders as "[object Object]" — no use in a toast.
   test('renders an object shape with an empty variant as [object Object]', () => {
     expect(syncErrorMessage({ Rpc: null })).toBe('[object Object]')

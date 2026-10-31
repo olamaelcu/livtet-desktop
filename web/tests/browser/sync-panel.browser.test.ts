@@ -1,5 +1,7 @@
 import '@awesome.me/webawesome/dist/components/button/button.js'
 import '@awesome.me/webawesome/dist/components/button-group/button-group.js'
+import '@awesome.me/webawesome/dist/components/input/input.js'
+import '@awesome.me/webawesome/dist/components/qr-code/qr-code.js'
 import { beforeEach, expect, test, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 
@@ -63,7 +65,10 @@ beforeEach(() => {
       case 'sync_devices_list':
       case 'sync_conflicts_list':
       case 'sync_requests_recent':
+      case 'sync_nearby_devices':
         return []
+      case 'sync_device_name_get':
+        return null
       case 'sync_pairing_begin':
         return { node_id: 'node-1', expires_at: 'soon' }
       case 'sync_pairing_approve':
@@ -82,8 +87,8 @@ beforeEach(() => {
 
 const STATUS_SECTION = 'section[aria-labelledby="sync-status-heading"]'
 
-function facts(container: HTMLElement): HTMLTableElement | null {
-  return container.querySelector<HTMLTableElement>('table.facts')
+function facts(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('dl.facts')
 }
 
 /** Scoped to the status block: other sections carry their own empty-state
@@ -96,6 +101,15 @@ function factsText(container: HTMLElement): string {
   return facts(container)?.textContent?.replace(/\s+/g, ' ').trim() ?? ''
 }
 
+function serverCalloutText(container: HTMLElement): string {
+  return (
+    container
+      .querySelector(`${STATUS_SECTION} wa-callout`)
+      ?.textContent?.replace(/\s+/g, ' ')
+      .trim() ?? ''
+  )
+}
+
 test('renders the daemon facts once health and status resolve', async () => {
   const { container } = await render(SyncPanelFixture)
 
@@ -103,10 +117,10 @@ test('renders the daemon facts once health and status resolve', async () => {
 
   const text = factsText(container)
   expect(text).toContain('device-abc')
-  expect(text).toContain('127.0.0.1:7777')
-  expect(text).toContain('running')
   expect(text).toContain('12')
   expect(text).toContain('34')
+  expect(serverCalloutText(container)).toContain('127.0.0.1:7777')
+  expect(serverCalloutText(container)).toContain('Sharing on')
   expect(unavailable(container)).toBeNull()
   expect(toast.error).not.toHaveBeenCalled()
 })
@@ -142,6 +156,10 @@ test('pairing a device shows the ticket and toasts', async () => {
   // The node id lives in a `wa-input` property, not text; the expiry line
   // proves the ticket block rendered.
   expect(container.textContent).toContain('Expires soon.')
+  // Scanning the QR must yield the same value the input shows.
+  const qr = container.querySelector('wa-qr-code') as HTMLElement & { value?: string }
+  expect(qr).not.toBeNull()
+  expect(qr.value).toBe('livtet://sync?v=2&nodeId=node-1')
   expect(invoke).toHaveBeenCalledWith('sync_pairing_begin', expect.anything())
 })
 
@@ -232,6 +250,71 @@ test('resolving a conflict toasts', async () => {
   await expect.poll(() => toast.success).toHaveBeenCalledWith('Conflict resolved')
 })
 
+test('lists a discovered peer with a pictogram and its friendly name', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_nearby_devices') {
+      return [
+        {
+          node_id: 'peer-node',
+          device_id: 'peer-device',
+          name: 'Amber Otter',
+          device_type: 'ios',
+          version: '0.1.0',
+          hostname: 'livtet-peer.local',
+          addresses: ['192.168.1.40'],
+          port: 4321,
+        },
+      ]
+    }
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+
+  const { container } = await render(SyncPanelFixture)
+
+  await expect.poll(() => container.textContent).toContain('Amber Otter')
+  expect(container.textContent).toContain('192.168.1.40:4321')
+  expect(container.textContent).toContain('📱')
+
+  const pair = [...container.querySelectorAll('wa-button')].find(
+    (button) => button.textContent?.trim() === 'Pair',
+  )
+  expect(pair).not.toBeUndefined()
+  pair?.click()
+  await expect
+    .poll(() => invoke)
+    .toHaveBeenCalledWith('sync_pair_claim', {
+      listenOn: '192.168.1.40:4321',
+      nodeId: 'peer-node',
+      deviceName: 'Amber Otter',
+    })
+})
+
+test('saves the chosen device name', async () => {
+  invoke.mockImplementation(async (command: string, args?: { name?: string | null }) => {
+    if (command === 'sync_device_name_get') return 'Old Name'
+    if (command === 'sync_device_name_save') return args?.name ?? null
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+
+  const { container } = await render(SyncPanelFixture)
+  const input = container.querySelector<HTMLElement & { value: string }>('.device-name-input')
+  expect(input).not.toBeNull()
+
+  await expect.poll(() => input?.value).toBe('Old Name')
+
+  if (!input) return
+  input.value = "  Josh's MacBook  "
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  panelButton(container, 'Save').click()
+
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Device name saved')
+  expect(invoke).toHaveBeenCalledWith('sync_device_name_save', { name: "Josh's MacBook" })
+})
+
 test('shows the server as stopped while the daemon is still reachable', async () => {
   health = { ...(health as Record<string, unknown>), server_running: false }
   status = { ...(status as Record<string, unknown>), server_running: false }
@@ -239,5 +322,5 @@ test('shows the server as stopped while the daemon is still reachable', async ()
   const { container } = await render(SyncPanelFixture)
 
   await expect.poll(() => facts(container)).not.toBeNull()
-  expect(factsText(container)).toContain('stopped')
+  expect(serverCalloutText(container)).toContain('Server stopped')
 })

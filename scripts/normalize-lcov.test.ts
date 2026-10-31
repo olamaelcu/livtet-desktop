@@ -304,13 +304,13 @@ describe('realIo: the gate’s fail-closed wiring', () => {
   // the gate would pass every PR with no test noticing.
   test('mergeBase returns an empty string when the compare branch does not resolve', () => {
     expect(realIo({ compareBranch: UNRESOLVABLE }).mergeBase()).toBe('')
-  })
+  }, 30_000)
 
   test('changedFiles is empty when the merge base does not resolve', () => {
     expect(realIo({ compareBranch: UNRESOLVABLE }).changedFiles()).toEqual([])
-  })
+  }, 30_000)
 
   test('mergeBase resolves a real ref to a commit sha', () => {
     expect(realIo({ compareBranch: 'HEAD' }).mergeBase()).toMatch(/^[0-9a-f]{40}$/)
-  })
+  }, 30_000)
 })

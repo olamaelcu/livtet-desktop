@@ -5,7 +5,7 @@ describe('SETTINGS_TABS', () => {
   it('names every tab the route draws panels for, once each', () => {
     const names = SETTINGS_TABS.map((tab) => tab.name)
 
-    expect(names).toEqual(['opds', 'account', 'hotkeys', 'mcp'])
+    expect(names).toEqual(['opds', 'sync', 'account', 'hotkeys', 'mcp'])
     expect(new Set(names).size).toBe(names.length)
   })
 })
@@ -14,6 +14,7 @@ describe('settingsTabFrom', () => {
   it('reads the tab the query string names', () => {
     expect(settingsTabFrom('?tab=mcp')).toBe('mcp')
     expect(settingsTabFrom('?tab=hotkeys&other=1')).toBe('hotkeys')
+    expect(settingsTabFrom('?tab=sync')).toBe('sync')
   })
 
   // An unknown tab is not a tab: the caller must fall back rather than show a
@@ -24,9 +25,7 @@ describe('settingsTabFrom', () => {
     expect(settingsTabFrom('?tab=nope')).toBeUndefined()
     expect(settingsTabFrom('?tab=MCP')).toBeUndefined()
     expect(settingsTabFrom('?tab=')).toBeUndefined()
-    // Sync is hidden and Catalogs moved inside the OPDS tab, so stale links to
-    // either land on the default tab.
-    expect(settingsTabFrom('?tab=sync')).toBeUndefined()
+    // Catalogs moved inside the OPDS tab, so links to it land on the default tab.
     expect(settingsTabFrom('?tab=catalogs')).toBeUndefined()
   })
 })

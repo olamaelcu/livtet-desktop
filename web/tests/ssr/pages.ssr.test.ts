@@ -32,7 +32,7 @@ describe('plugins page', () => {
 })
 
 describe('settings page', () => {
-  test('renders the settings heading, the merged OPDS tab, and no sync tab', () => {
+  test('renders the settings heading, the merged OPDS tab, and the sync tab', () => {
     const { body } = render(SsrShell, { props: { page: SettingsPage } })
 
     expect(body).toContain('Settings')
@@ -41,6 +41,6 @@ describe('settings page', () => {
     expect(body).toContain('name="catalogs"')
     expect(body).toContain('name="server"')
     expect(body).toContain('name="hotkeys"')
-    expect(body).not.toContain('name="sync"')
+    expect(body).toContain('name="sync"')
   })
 })

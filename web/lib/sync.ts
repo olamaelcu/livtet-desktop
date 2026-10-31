@@ -1,10 +1,12 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   commands,
+  type SyncBookOffer,
   type SyncConflict,
   type SyncDevice,
   type SyncError,
   type SyncHealth,
+  type SyncNearbyPeer,
   type SyncPairingApproved,
   type SyncPairingTicket,
   type SyncPendingPairing,
@@ -20,7 +22,7 @@ function isSyncError(value: unknown): value is SyncError {
   return (
     typeof value === 'object' &&
     value !== null &&
-    ('Unavailable' in value || 'Rpc' in value || 'Protocol' in value)
+    ('Unavailable' in value || 'Rpc' in value || 'Protocol' in value || 'Storage' in value)
   )
 }
 
@@ -34,6 +36,7 @@ export function syncErrorMessage(error: unknown): string {
     if ('Unavailable' in error && error.Unavailable) return error.Unavailable.message
     if ('Rpc' in error && error.Rpc) return error.Rpc.message
     if ('Protocol' in error && error.Protocol) return error.Protocol.message
+    if ('Storage' in error && error.Storage) return error.Storage.message
   }
   if (error instanceof Error) return error.message
   return String(error)
@@ -74,6 +77,44 @@ export function syncPairingList(): Promise<SyncPendingPairing[]> {
   return unwrap<SyncPendingPairing[]>(commands.syncPairingList())
 }
 
+/**
+ * Peers currently advertising the sync service on the local network.
+ *
+ * The daemon listens on mDNS for a short window and answers with what it
+ * heard, so this is cheap to poll but never instant.
+ */
+export function syncNearbyDevices(): Promise<SyncNearbyPeer[]> {
+  return unwrap<SyncNearbyPeer[]>(commands.syncNearbyDevices())
+}
+
+/** The stored device name; `null` means a generated one is advertised. */
+export function syncDeviceNameGet(): Promise<string | null> {
+  return unwrap<string | null>(commands.syncDeviceNameGet())
+}
+
+/**
+ * Save the name advertised to nearby devices. Passing `null` restores the
+ * generated name; the daemon applies the change immediately.
+ */
+export function syncDeviceNameSave(name: string | null): Promise<string | null> {
+  return unwrap<string | null>(commands.syncDeviceNameSave(name))
+}
+
+/** Whether the daemon accepts sync peers from the LAN. */
+export function syncLanGet(): Promise<boolean> {
+  return unwrap<boolean>(commands.syncLanGet())
+}
+
+/**
+ * Persist the LAN preference.
+ *
+ * Applies at the next launch: the daemon binds its interface when the sidecar
+ * is spawned. Data routes stay session-gated either way.
+ */
+export function syncLanSet(enabled: boolean): Promise<boolean> {
+  return unwrap<boolean>(commands.syncLanSet(enabled))
+}
+
 /** Approve an outstanding pairing by its node identity, binding the device. */
 export function syncPairingApprove(nodeId: string): Promise<SyncPairingApproved> {
   return unwrap<SyncPairingApproved>(commands.syncPairingApprove(nodeId))
@@ -87,6 +128,23 @@ export function syncPairingReject(nodeId: string): Promise<boolean> {
 /** Devices currently paired with this desktop. */
 export function syncDevicesList(): Promise<SyncDevice[]> {
   return unwrap<SyncDevice[]>(commands.syncDevicesList())
+}
+
+/**
+ * Offer an edition's file to one paired device. The device pulls the file,
+ * cover, and catalog record when it next syncs; nothing is transferred here.
+ */
+export function syncSendBook(editionId: string, deviceId: string): Promise<SyncBookOffer> {
+  return unwrap<SyncBookOffer>(commands.syncSendBook(editionId, deviceId))
+}
+
+/** File a pairing claim with a discovered peer; resolves before it approves. */
+export function syncPairClaim(
+  listenOn: string,
+  nodeId: string,
+  deviceName: string | null,
+): Promise<null> {
+  return unwrap<null>(commands.syncPairClaim(listenOn, nodeId, deviceName))
 }
 
 /** Revoke a paired device's access. */
@@ -128,6 +186,7 @@ export type SyncEventName =
   | 'sync://request'
   | 'sync://server-started'
   | 'sync://server-stopped'
+  | 'sync://paired'
 
 type SyncEventHandler = (payload: unknown) => void
 

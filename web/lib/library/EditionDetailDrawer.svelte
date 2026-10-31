@@ -3,17 +3,18 @@ import { createQuery, useQueryClient } from '@tanstack/svelte-query'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
-import type { IdentifierRef } from '../bindings'
+import type { IdentifierRef, SyncDevice } from '../bindings'
 import { commands } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
 import AnnotationList from '../components/AnnotationList.svelte'
 import { sanitizeHtml } from '../html'
 
-import { atprotoKeys, catalogKeys, searchKeys } from '../query/keys'
+import { atprotoKeys, catalogKeys, searchKeys, syncKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
 import { loadAnnotations } from '../reader/progress'
 import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
+import { syncDevicesList, syncSendBook } from '../sync'
 import ConfirmDialog from './ConfirmDialog.svelte'
 import {
   applyEnrichment,
@@ -287,6 +288,43 @@ const canListen = $derived(
   isAudiobook && book?.file?.file_path != null && book?.file?.file_status !== 'missing',
 )
 
+/** Only a file that is present on disk can be offered to another device. */
+const canSend = $derived(book?.file?.file_status === 'ok' && book?.file?.file_path != null)
+
+const pairedDevices = createQuery(() => ({
+  queryKey: syncKeys.devices(),
+  queryFn: syncDevicesList,
+  enabled: open,
+}))
+
+/** The device currently being offered this book, or `null`. */
+let sendingTo = $state<string | null>(null)
+
+/**
+ * `wa-dropdown` reports the chosen item through `wa-select`; its `value`
+ * property is never rendered as an attribute (same as the library toolbar).
+ */
+async function sendToDevice(event: Event) {
+  const item = (event as CustomEvent).detail?.item as (HTMLElement & { value?: string }) | undefined
+  const deviceId = item?.value
+  if (!deviceId || !editionId || sendingTo) return
+  const device: SyncDevice | undefined = pairedDevices.data?.find(
+    (candidate) => candidate.device_id === deviceId,
+  )
+  sendingTo = deviceId
+  try {
+    const offer = await syncSendBook(editionId, deviceId)
+    toast.success(`Offered “${book?.title ?? 'this book'}” to ${device?.name ?? deviceId}`, {
+      description: 'The device pulls the file, cover, and record when it next syncs.',
+    })
+    console.debug('[sync] book offered', offer)
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : 'Could not offer the book')
+  } finally {
+    sendingTo = null
+  }
+}
+
 async function listenBook() {
   if (!editionId || listening) return
   try {
@@ -429,6 +467,27 @@ async function revealFile(path: string) {
     {/if}
 
 
+    {#if canSend}
+      <wa-dropdown onwa-select={sendToDevice}>
+        <wa-button slot="trigger" with-caret disabled={sendingTo !== null}>
+          <wa-icon name="paper-plane"></wa-icon>
+          {sendingTo ? 'Offering…' : 'Send to…'}
+        </wa-button>
+        {#if pairedDevices.data?.length}
+          {#each pairedDevices.data as device (device.device_id)}
+            <wa-dropdown-item value={device.device_id}>
+              <wa-icon
+                slot="icon"
+                name={device.device_type_id === 'mobile' ? 'mobile-screen' : 'desktop'}
+              ></wa-icon>
+              {device.name ?? device.device_id}
+            </wa-dropdown-item>
+          {/each}
+        {:else}
+          <wa-dropdown-item disabled>No paired devices</wa-dropdown-item>
+        {/if}
+      </wa-dropdown>
+    {/if}
   </wa-button-group>
   <div class="body">
     {#if enrichPreview}

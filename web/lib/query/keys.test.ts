@@ -6,6 +6,8 @@ describe('syncKeys', () => {
     expect(syncKeys.health()).toEqual(['sync', 'health'])
     expect(syncKeys.status()).toEqual(['sync', 'status'])
     expect(syncKeys.pending()).toEqual(['sync', 'pending'])
+    expect(syncKeys.nearby()).toEqual(['sync', 'nearby'])
+    expect(syncKeys.deviceName()).toEqual(['sync', 'device-name'])
     expect(syncKeys.devices()).toEqual(['sync', 'devices'])
     expect(syncKeys.conflicts()).toEqual(['sync', 'conflicts'])
     expect(syncKeys.requests(50)).toEqual(['sync', 'requests', { limit: 50 }])

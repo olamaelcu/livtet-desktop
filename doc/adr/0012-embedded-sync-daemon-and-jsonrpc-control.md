@@ -46,8 +46,9 @@ Ship the sync server as a **Tauri-managed sidecar**:
   stderr. The codec and method-name constants live in
   `livtet_sync_server::rpc` and are shared by both sides.
   * Requests: `health`, `status`, `requests.recent`, `pairing.begin|list|
-    approve|reject`, `devices.list|revoke`, `conflicts.list|resolve`,
-    `server.start|stop`, `shutdown`.
+    approve|reject`, `pairing.claim`, `discovery.nearby|rename`,
+    `devices.list|offer_book|pull|revoke`,
+    `conflicts.list|resolve`, `server.start|stop`, `shutdown`.
   * Notifications: `server.started`, `server.stopped`, `request.received`,
     `pairing.requested`, `sync.completed`; the desktop re-emits them as Tauri
     events (`sync://…`).

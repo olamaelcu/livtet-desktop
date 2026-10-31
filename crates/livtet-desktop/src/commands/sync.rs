@@ -157,6 +157,76 @@ pub async fn sync_device_name_save(
         .or(name))
 }
 
+/// Offer an edition's file to one paired device.
+///
+/// The daemon records a `file_offer` change row and touches the work/edition/
+/// file rows so their audit triggers emit the catalog metadata; the paired
+/// device pulls the file, cover, and record on its own schedule.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_send_book(
+    edition_id: String,
+    device_id: String,
+    state: State<'_, AppState>,
+) -> Result<SyncBookOffer, SyncError> {
+    // Literal until the daemon revision with `devices.offer_book` is pinned.
+    parse(
+        state
+            .sync
+            .call(
+                "devices.offer_book",
+                json!({ "edition_id": edition_id, "device_id": device_id }),
+            )
+            .await?,
+    )
+}
+
+/// Whether the daemon should accept sync peers from the LAN.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_lan_get(state: State<'_, AppState>) -> Result<bool, SyncError> {
+    Ok(state.sync_settings.read().unwrap_or_default().lan)
+}
+
+/// Persist the LAN preference.
+///
+/// The daemon binds its interface when the sidecar is spawned, so this takes
+/// effect at the next launch rather than live.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_lan_set(enabled: bool, state: State<'_, AppState>) -> Result<bool, SyncError> {
+    let mut settings = state.sync_settings.read().unwrap_or_default();
+    settings.lan = enabled;
+    state
+        .sync_settings
+        .write(&settings)
+        .map_err(SyncError::storage)?;
+    Ok(settings.lan)
+}
+
+/// Ask a discovered peer to pair with this desktop.
+///
+/// Returns once the claim is filed; the peer approves it in its own UI and the
+/// daemon emits `sync://paired` after storing the token.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_pair_claim(
+    listen_on: String,
+    node_id: String,
+    device_name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), SyncError> {
+    // Literal until the daemon revision with `pairing.claim` is pinned.
+    state
+        .sync
+        .call(
+            "pairing.claim",
+            json!({ "listen_on": listen_on, "node_id": node_id, "device_name": device_name }),
+        )
+        .await?;
+    Ok(())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_pairing_approve(
@@ -353,6 +423,14 @@ pub struct SyncNearbyPeer {
     pub hostname: String,
     pub addresses: Vec<String>,
     pub port: i32,
+}
+
+/// The offer recorded by `devices.offer_book`.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct SyncBookOffer {
+    pub offer_id: String,
+    pub inventory_id: String,
+    pub device_id: String,
 }
 
 /// The device + session minted by `pairing.approve` (daemon still returns a session token).

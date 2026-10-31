@@ -286,6 +286,8 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         &sync_db_path,
         sync_device_name.as_deref(),
         sync_lan,
+        &paths.books_dir,
+        &paths.covers_dir,
     )?;
 
     // Shared HTTP client for OPDS catalog requests: consistent User-Agent and a
@@ -430,6 +432,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::sync::sync_nearby_devices,
         commands::sync::sync_device_name_get,
         commands::sync::sync_device_name_save,
+        commands::sync::sync_lan_get,
+        commands::sync::sync_lan_set,
+        commands::sync::sync_send_book,
+        commands::sync::sync_pair_claim,
         commands::sync::sync_pairing_approve,
         commands::sync::sync_pairing_reject,
         commands::sync::sync_devices_list,

@@ -26,6 +26,10 @@ tokio-util = "0.7"
 tracing = "0.1"
 
 [dev-dependencies]
+# `iroh-relay` enables `rustls-no-provider` on reqwest 0.13 for the rest of the
+# workspace; selecting `rustls` here keeps the test client's Client::build from
+# panicking when the whole workspace is built together.
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
 # A real MCP client so the endpoint is verified over the wire, not by calling
 # the handler directly.
 rmcp = { version = "3", features = [

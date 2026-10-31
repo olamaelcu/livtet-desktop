@@ -8,7 +8,7 @@ import Pane from '../../lib/layout/Pane.svelte'
 import RouteShell from '../../lib/layout/RouteShell.svelte'
 import { SETTINGS_TABS, settingsTabFrom, settingsTabUrl } from '../../lib/settings/tabs'
 
-/** `children` are the `<wa-tab-panel>`s for the OPDS, account, hotkeys, and MCP tabs. */
+/** `children` are the `<wa-tab-panel>`s for the OPDS, sync, account, hotkeys, and MCP tabs. */
 let { children }: { children: Snippet } = $props()
 
 /**

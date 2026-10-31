@@ -1,3 +1,4 @@
+import '@awesome.me/webawesome/dist/components/dropdown/dropdown.js'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { render } from 'vitest-browser-svelte'
 import type { EditionDetail } from '$lib/search'
@@ -43,6 +44,7 @@ beforeEach(() => {
   invoke.mockReset()
   invoke.mockImplementation(async (command: string) => {
     if (command === 'get_edition_detail') return detail()
+    if (command === 'sync_devices_list') return []
     throw new Error(`unexpected command: ${command}`)
   })
 })
@@ -74,7 +76,7 @@ test('a missing file surfaces the error and offers re-linking', async () => {
   const { container } = await render(EditionDetailDrawerFixture)
 
   await expect.poll(() => container.textContent).toContain('moved or deleted')
-  expect(container.textContent).toContain('Re-link file')
+  expect(container.textContent).toContain('Relink')
 })
 
 test('a null record reports no catalog record', async () => {
@@ -114,6 +116,47 @@ test('the description is sanitized before it reaches the DOM', async () => {
   expect(section()?.querySelector('img')).toBeNull()
   expect(section()?.querySelector('[onclick]')).toBeNull()
   expect(document.body.dataset.pwned).toBeUndefined()
+})
+
+test('offers the book to a paired device', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'get_edition_detail') return detail()
+    if (command === 'sync_devices_list') {
+      return [
+        {
+          device_id: 'device-1',
+          name: 'Phone',
+          listen_on: '192.168.1.40:5000',
+          device_type_id: 'mobile',
+          paired_at: 'today',
+          last_sync_at: null,
+        },
+      ]
+    }
+    if (command === 'sync_send_book') {
+      return { offer_id: 'offer-1', inventory_id: 'inv-1', device_id: 'device-1' }
+    }
+    throw new Error(`unexpected command: ${command}`)
+  })
+
+  const { container } = await render(EditionDetailDrawerFixture)
+  await expect
+    .poll(() => container.querySelector('wa-dropdown-item')?.textContent)
+    .toContain('Phone')
+
+  const dropdown = container.querySelector('wa-dropdown') as HTMLElement
+  dropdown.dispatchEvent(
+    new CustomEvent('wa-select', {
+      detail: { item: dropdown.querySelector('wa-dropdown-item') },
+    }),
+  )
+
+  await expect
+    .poll(() => invoke)
+    .toHaveBeenCalledWith('sync_send_book', {
+      editionId: '01hzzzzzzzzzzzzzzzzzzzzzzz',
+      deviceId: 'device-1',
+    })
 })
 
 test('a wa-after-hide bubbling from a control inside the drawer does not close it', async () => {

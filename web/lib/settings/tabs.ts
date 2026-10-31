@@ -18,14 +18,11 @@ export interface SettingsTab {
 
 /** The tabs, in the order the strip draws them. The first is the default. */
 export const SETTINGS_TABS: readonly SettingsTab[] = [
-  // Sync is hidden for now: add `{ name: 'sync', label: 'Sync', icon: '…' }`
-  // back here and its panel in `routes/settings/+page.svelte` when the daemon
-  // settings land.
-  //
   // Catalog sources and the built-in OPDS server are one tab: the panel holds a
   // nested tab group of its own (see the route), because those settings only
   // make sense read together.
   { name: 'opds', label: 'OPDS', icon: 'rss' },
+  { name: 'sync', label: 'Sync', icon: 'arrows-rotate' },
   { name: 'account', label: 'Account', icon: 'user' },
   { name: 'hotkeys', label: 'Keyboard', icon: 'keyboard' },
   { name: 'mcp', label: 'MCP', icon: 'plug' },
@@ -46,7 +43,7 @@ export function settingsTabFrom(search: string): string | undefined {
  * The settings URL that opens `tab`, with the rest of the query untouched.
  *
  * The default tab is carried by the bare path: `/settings` and
- * `/settings?tab=sync` are the same panel, and only one of them should be
+ * `/settings?tab=opds` are the same panel, and only one of them should be
  * reachable by clicking around.
  */
 export function settingsTabUrl(url: URL, tab: string): URL {
