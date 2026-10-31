@@ -138,9 +138,6 @@ const presentation = $state({
 })
 
 function extractRootVariables() {
-  const isDark = window.matchMedia
-    ? window.matchMedia('(prefers-color-scheme: dark)').matches
-    : false
   const cs = computedStyle()
   presentation.backgroundColor = cs.backgroundColor
   presentation.textColor = cs.color
@@ -152,15 +149,6 @@ function extractRootVariables() {
   presentation.visitedColor = getComputedStyle(
     document.querySelector('a:visited') || document.documentElement,
   ).color
-  console.log(
-    'isDark',
-    isDark,
-    presentation.backgroundColor,
-    presentation.textColor,
-    presentation.fontFamily,
-    presentation.linkColor,
-    presentation.visitedColor,
-  )
 }
 
 $effect(() => {
@@ -430,7 +418,6 @@ async function load() {
       publication,
       {
         frameLoaded: (readiumWindow: Window) => {
-          console.log('frameLoaded', readiumWindow?.document?.title)
           // A freshly loaded frame has its own comms channel; bind it before use.
           void syncFrameComms()
           frameWindow = readiumWindow
@@ -481,7 +468,7 @@ async function load() {
           // A selection belongs to the frame it was made in; drop it once the
           // reader moves so a later note never quotes stale text.
           ontextselect(null)
-          savePosition()
+          savePosition.schedule()
         },
         timelineItemChanged: () => {},
         tap: () => false,
@@ -581,7 +568,7 @@ type NavigatorInternals = {
  * destination has been initialized" whenever it tries to speak. A frame that is already
  * bound answers nothing, so the wait is a timeout rather than a hang.
  */
-/** Id of the `<style>` the reader owns inside a publication frame. */
+/** Id of the style element the reader owns inside a publication frame. */
 const SEMANTIC_STYLE_ID = 'livtet-semantic'
 
 /**
@@ -699,18 +686,8 @@ function syncFrameComms(target: EpubNavigator | undefined = navigator): Promise<
  */
 async function move(direction: 'forward' | 'backward', attempt = 0): Promise<void> {
   const target = navigator as unknown as NavigatorInternals | undefined
-  if (!target?.currentLocator || !ready) {
-    console.debug(
-      'navigation blocked: navigator=' +
-        !!target +
-        ' locator=' +
-        !!target?.currentLocator +
-        ' ready=' +
-        ready,
-      { navigator: target, locator: target?.currentLocator },
-    )
-    return
-  }
+  // Nothing to turn yet: no navigator, no locator, or the book is not open.
+  if (!target?.currentLocator || !ready) return
   const acked = await new Promise<boolean | undefined>((resolve) => {
     const timer = setTimeout(() => resolve(undefined), NAV_ACK_TIMEOUT)
     const done = (ok: boolean) => {
@@ -720,7 +697,6 @@ async function move(direction: 'forward' | 'backward', attempt = 0): Promise<voi
     if (direction === 'forward') target.goForward(false, done)
     else target.goBackward(false, done)
   })
-  console.debug(`went to ${direction === 'forward' ? 'next' : 'previous'} page?`, acked ?? false)
   if (acked !== undefined) return
   // No ack: the frame that should have answered is gone (the navigator swaps in a new
   // iframe per resource) and the navigator is now latched on this command.
@@ -759,6 +735,9 @@ onDestroy(() => {
   session.invalidate()
   const instance = navigator
   navigator = undefined
+  // The position is written below, once: a queued debounce would run after this
+  // teardown and write the same value a second time.
+  savePosition.cancel()
   if (latestLoc) {
     void saveProgress(editionId, {
       kind: 'epub',

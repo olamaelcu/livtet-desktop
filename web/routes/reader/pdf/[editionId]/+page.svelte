@@ -273,7 +273,7 @@ async function goTo(target: number) {
   try {
     await render()
     // Debounced save after successful navigation
-    savePdfProgress()
+    savePdfProgress.schedule()
   } catch (error) {
     phase = 'error'
     failure = messageOf(error)
@@ -316,6 +316,9 @@ onMount(() => {
 onDestroy(() => {
   session.invalidate()
   gate.cancel()
+  // The final page is written below, once: a queued debounce would run after
+  // this teardown and write it a second time.
+  savePdfProgress.cancel()
   // Save final page progress before teardown
   void saveProgress(editionId, {
     kind: 'pdf',

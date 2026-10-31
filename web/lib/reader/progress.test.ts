@@ -112,11 +112,11 @@ describe('progress store', () => {
     )
 
     page = 2
-    save()
+    save.schedule()
     page = 3
-    save()
+    save.schedule()
     page = 5
-    save()
+    save.schedule()
 
     expect(saveReaderPosition).not.toHaveBeenCalled()
     vi.advanceTimersByTime(250)
@@ -124,6 +124,59 @@ describe('progress store', () => {
 
     expect(saveReaderPosition).toHaveBeenCalledTimes(1)
     expect(saveReaderPosition).toHaveBeenCalledWith(editionId, 'pdf', null, 5, null, null)
+  })
+
+  // A reader that closes inside the delay must not write after its own teardown:
+  // the closing position is saved explicitly, and this queued one would be stale
+  // by the time it ran.
+  it('drops a pending write on cancel', async () => {
+    vi.useFakeTimers()
+    const save = debouncedSave(
+      () => editionId,
+      () => ({ kind: 'pdf', pdf: { pageNumber: 9 } }),
+      250,
+    )
+
+    save.schedule()
+    save.cancel()
+    vi.advanceTimersByTime(1000)
+    await vi.runAllTimersAsync()
+
+    expect(saveReaderPosition).not.toHaveBeenCalled()
+  })
+
+  it('can schedule again after a cancel', async () => {
+    vi.useFakeTimers()
+    const save = debouncedSave(
+      () => editionId,
+      () => ({ kind: 'pdf', pdf: { pageNumber: 4 } }),
+      250,
+    )
+
+    save.schedule()
+    save.cancel()
+    save.schedule()
+    vi.advanceTimersByTime(250)
+    await vi.runAllTimersAsync()
+
+    expect(saveReaderPosition).toHaveBeenCalledTimes(1)
+    expect(saveReaderPosition).toHaveBeenCalledWith(editionId, 'pdf', null, 4, null, null)
+  })
+
+  it('treats a cancel with nothing pending as a no-op', async () => {
+    vi.useFakeTimers()
+    const save = debouncedSave(
+      () => editionId,
+      () => ({ kind: 'pdf', pdf: { pageNumber: 4 } }),
+      250,
+    )
+
+    save.cancel()
+    save.cancel()
+    vi.advanceTimersByTime(1000)
+    await vi.runAllTimersAsync()
+
+    expect(saveReaderPosition).not.toHaveBeenCalled()
   })
 
   it('persists annotations as a JSON string', async () => {

@@ -128,18 +128,39 @@ export async function saveProgress(
   }
 }
 
-// Debounced save for rapid position changes (250ms default)
+/** A debounced progress write. */
+export interface DebouncedSave {
+  /** (Re)start the wait; only the last `build()` runs. */
+  schedule: () => void
+  /**
+   * Drop the pending write.
+   *
+   * A reader that closes inside the delay would otherwise write after its own
+   * teardown — after the final position has been saved, and with the component
+   * gone. A write already handed to the backend is unaffected.
+   */
+  cancel: () => void
+}
+
+/** Debounced save for rapid position changes (250ms default). */
 export function debouncedSave(
   currentEditionId: () => string,
   build: () => Omit<ReaderProgress, 'editionId'>,
   ms = 250,
-): () => void {
+): DebouncedSave {
   let timer: ReturnType<typeof setTimeout> | undefined
-  return () => {
+  const cancel = () => {
     clearTimeout(timer)
-    timer = setTimeout(() => {
-      timer = undefined
-      void saveProgress(currentEditionId(), build())
-    }, ms)
+    timer = undefined
+  }
+  return {
+    cancel,
+    schedule: () => {
+      cancel()
+      timer = setTimeout(() => {
+        timer = undefined
+        void saveProgress(currentEditionId(), build())
+      }, ms)
+    },
   }
 }

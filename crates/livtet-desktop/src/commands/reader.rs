@@ -1671,7 +1671,10 @@ mod tests {
         let books = fence_root().join("books");
         // A symlink inside books_dir pointing elsewhere is the link-mode
         // design: the check is lexical and never resolves the target.
-        assert!(reader_path_in_library(&books, &books.join("ab12-imaan.m4b")));
+        assert!(reader_path_in_library(
+            &books,
+            &books.join("ab12-imaan.m4b")
+        ));
         assert!(reader_path_in_library(
             &books,
             &fence_root().join("books/./ab12-imaan.m4b")

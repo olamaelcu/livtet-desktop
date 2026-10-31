@@ -298,12 +298,9 @@ test('publishes the page on screen and persists it', async () => {
   // A selection belongs to the frame it was made in.
   expect(events).toContain('select:null')
 
-  await expect.poll(() => savedPositions().length).toBeGreaterThan(0)
-  // A write the frame scheduled earlier can land after this test began, so the
-  // call order is checked by content rather than by call number.
+  await expect.poll(() => savedPositions()).toEqual([1])
   expect(mocks.saveReaderPosition.mock.calls[0]?.[0]).toBe('ed-1')
   expect(mocks.saveReaderPosition.mock.calls[0]?.[1]).toBe('epub')
-  expect(savedPositions()).toContain(1)
 })
 
 test('reports a frame whose publication cannot be read', async () => {
@@ -573,18 +570,18 @@ test('prepares the pooled frames Readium does not report on load', async () => {
   pooled.remove()
 })
 
-test('saves the last position when the reader closes', async () => {
+test('saves the last position once when the reader closes', async () => {
   const { container, open } = await mount()
-  await settledFrame(container)
-  await expect.poll(() => savedPositions().length).toBeGreaterThan(0)
+  const instance = await settledFrame(container)
+  await expect.poll(() => savedPositions()).toEqual([1])
 
-  const before = savedPositions().length
+  // A page turn queues a debounced save; closing before it fires must not let it
+  // run after teardown, on top of the position `onDestroy` writes synchronously.
+  instance.currentLocator = locator(2, 0.6)
+  instance.callbacks.positionChanged(instance.currentLocator)
   open()
 
-  // `onDestroy` writes the latest position synchronously, so nothing can land
-  // in between: the count grows by exactly one, carrying the page on screen.
-  expect(savedPositions()).toHaveLength(before + 1)
-  expect(savedPositions().at(-1)).toBe(1)
+  expect(savedPositions()).toEqual([1, 2])
   await expect.poll(() => mocks.destroy.mock.calls.length).toBe(1)
 })
 
