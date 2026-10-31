@@ -13,6 +13,7 @@ use tauri::State;
 
 use crate::error::SyncError;
 use crate::sync::SyncHandle;
+use crate::sync_settings::normalize_device_name;
 use crate::types::AppState;
 
 /// Deserialise a JSON-RPC `result` into a command DTO.
@@ -99,6 +100,61 @@ pub async fn sync_pairing_list(
 
 async fn sync_pairing_list_inner(sync: &SyncHandle) -> Result<Vec<SyncPendingPairing>, SyncError> {
     parse(sync.call(method::PAIRING_LIST, Value::Null).await?)
+}
+
+/// Peers advertising `_livtet-sync._tcp` on the local network.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_nearby_devices(
+    state: State<'_, AppState>,
+) -> Result<Vec<SyncNearbyPeer>, SyncError> {
+    sync_nearby_devices_inner(&state.sync).await
+}
+
+async fn sync_nearby_devices_inner(sync: &SyncHandle) -> Result<Vec<SyncNearbyPeer>, SyncError> {
+    parse(sync.call(method::DISCOVERY_NEARBY, Value::Null).await?)
+}
+
+/// The stored device name; `None` means the daemon generates one.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_device_name_get(state: State<'_, AppState>) -> Result<Option<String>, SyncError> {
+    Ok(state
+        .sync_settings
+        .read()
+        .and_then(|settings| settings.device_name))
+}
+
+/// Save the name advertised to nearby devices and apply it to the running
+/// daemon. A blank name restores the generated fallback.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_device_name_save(
+    name: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, SyncError> {
+    let name = normalize_device_name(name);
+    // Read-modify-write: the name is one preference, and saving it must not
+    // reset the LAN toggle (or anything added beside it later).
+    let settings = state
+        .sync_settings
+        .read()
+        .unwrap_or_default()
+        .with_device_name(name.clone());
+    state
+        .sync_settings
+        .write(&settings)
+        .map_err(SyncError::storage)?;
+
+    let applied = state
+        .sync
+        .call(method::DISCOVERY_RENAME, json!({ "name": name.clone() }))
+        .await?;
+    Ok(applied
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or(name))
 }
 
 #[tauri::command]
@@ -284,6 +340,19 @@ pub struct SyncPendingPairing {
     pub device_id: Option<String>,
     pub created_at: String,
     pub expires_at: String,
+}
+
+/// One peer heard advertising `_livtet-sync._tcp` on the local network.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct SyncNearbyPeer {
+    pub node_id: String,
+    pub device_id: String,
+    pub name: String,
+    pub device_type: String,
+    pub version: String,
+    pub hostname: String,
+    pub addresses: Vec<String>,
+    pub port: i32,
 }
 
 /// The device + session minted by `pairing.approve` (daemon still returns a session token).

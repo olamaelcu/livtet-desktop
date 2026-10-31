@@ -148,6 +148,9 @@ pub enum SyncError {
 
     #[error("Sync protocol error: {message}")]
     Protocol { message: String },
+
+    #[error("Could not save sync settings: {message}")]
+    Storage { message: String },
 }
 
 impl SyncError {
@@ -165,6 +168,12 @@ impl SyncError {
 
     pub fn protocol<E: std::fmt::Display>(err: E) -> Self {
         Self::Protocol {
+            message: err.to_string(),
+        }
+    }
+
+    pub fn storage<E: std::fmt::Display>(err: E) -> Self {
+        Self::Storage {
             message: err.to_string(),
         }
     }

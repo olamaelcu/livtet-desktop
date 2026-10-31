@@ -57,20 +57,23 @@ pub struct SyncHandle {
 impl SyncHandle {
     /// Spawn the daemon sidecar against `db_path` and start draining its output.
     ///
-    /// The daemon is configured to bind `127.0.0.1:0` (an ephemeral port).
-    pub fn spawn(app: &AppHandle, db_path: &Utf8Path) -> Result<Self, SyncError> {
+    /// The daemon binds an ephemeral port. `lan` selects `--lan` (every
+    /// interface) over the loopback default; `device_name` is advertised to
+    /// nearby peers, and a blank or absent value makes the daemon generate one
+    /// from the device id.
+    pub fn spawn(
+        app: &AppHandle,
+        db_path: &Utf8Path,
+        device_name: Option<&str>,
+        lan: bool,
+    ) -> Result<Self, SyncError> {
+        let args = sidecar_args(db_path, device_name, lan);
+
         let command = app
             .shell()
             .sidecar(SIDECAR)
             .map_err(SyncError::unavailable)?
-            .args([
-                "--db",
-                db_path.as_str(),
-                "--host",
-                "127.0.0.1",
-                "--port",
-                "0",
-            ]);
+            .args(args);
 
         let (rx, child) = command.spawn().map_err(SyncError::unavailable)?;
 
@@ -156,6 +159,32 @@ impl SyncHandle {
     pub async fn shutdown(&self) {
         let _ = self.call(rpc::method::SHUTDOWN, Value::Null).await;
     }
+}
+
+/// The daemon arguments for a spawn.
+///
+/// Split out from [`SyncHandle::spawn`] so the flag selection is testable
+/// without a Tauri app: `--lan` replaces the loopback host, never accompanies
+/// it.
+fn sidecar_args(db_path: &Utf8Path, device_name: Option<&str>, lan: bool) -> Vec<String> {
+    let mut args = vec![
+        "--db".to_string(),
+        db_path.as_str().to_string(),
+        "--port".to_string(),
+        "0".to_string(),
+    ];
+    if lan {
+        args.push("--lan".to_string());
+    } else {
+        args.push("--host".to_string());
+        args.push("127.0.0.1".to_string());
+    }
+    let chosen_name = device_name.map(str::trim).filter(|name| !name.is_empty());
+    if let Some(name) = chosen_name {
+        args.push("--device-name".to_string());
+        args.push(name.to_string());
+    }
+    args
 }
 
 /// Adapts the sidecar's stdin pipe to [`AsyncWrite`]. The shell plugin only
@@ -439,7 +468,7 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::testing::connect;
-    use super::{Pending, SyncHandle, fail_pending};
+    use super::{Pending, SyncHandle, fail_pending, sidecar_args};
     use crate::error::SyncError;
 
     /// Long enough that reaching it means a call was never resolved.
@@ -447,6 +476,40 @@ mod tests {
 
     fn pending_count(handle: &SyncHandle) -> usize {
         handle.pending.lock().unwrap().len()
+    }
+
+    fn args(db: &str, name: Option<&str>, lan: bool) -> Vec<String> {
+        sidecar_args(camino::Utf8Path::new(db), name, lan)
+    }
+
+    #[test]
+    fn lan_replaces_the_loopback_host() {
+        let args = args("/tmp/livtet.db", None, true);
+        assert!(args.contains(&"--lan".to_string()));
+        assert!(
+            !args.contains(&"--host".to_string()),
+            "the two bind flags must not be sent together: {args:?}"
+        );
+    }
+
+    #[test]
+    fn loopback_is_the_fall_back() {
+        let args = args("/tmp/livtet.db", None, false);
+        assert!(!args.contains(&"--lan".to_string()));
+        assert!(args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]));
+    }
+
+    #[test]
+    fn a_chosen_name_is_trimmed_and_blank_is_omitted() {
+        let named = args("/tmp/livtet.db", Some("  Nimble Quail  "), true);
+        assert!(
+            named
+                .windows(2)
+                .any(|pair| pair == ["--device-name", "Nimble Quail"])
+        );
+
+        let blank = args("/tmp/livtet.db", Some("   "), true);
+        assert!(!blank.contains(&"--device-name".to_string()));
     }
 
     #[test]

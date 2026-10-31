@@ -44,6 +44,24 @@ impl crate::mcp::McpSettingsStore for MemoryMcpSettings {
     }
 }
 
+/// In-memory [`crate::sync_settings::SyncSettingsStore`] double for the
+/// fixture.
+#[derive(Default)]
+pub(crate) struct MemorySyncSettings {
+    value: Mutex<Option<crate::sync_settings::SyncSettings>>,
+}
+
+impl crate::sync_settings::SyncSettingsStore for MemorySyncSettings {
+    fn read(&self) -> Option<crate::sync_settings::SyncSettings> {
+        self.value.lock().unwrap().clone()
+    }
+
+    fn write(&self, settings: &crate::sync_settings::SyncSettings) -> Result<(), String> {
+        *self.value.lock().unwrap() = Some(settings.clone());
+        Ok(())
+    }
+}
+
 /// In-memory [`crate::opds_server::OpdsServerSettingsStore`] double for the
 /// fixture.
 #[derive(Default)]
@@ -89,6 +107,7 @@ pub async fn mock_state_for_bulk(test_db: &TestDb) -> AppState {
         // Real handle over an in-memory duplex; the bulk wrappers never
         // talk to the daemon.
         sync: Arc::new(crate::sync::fixture_handle()),
+        sync_settings: Arc::new(MemorySyncSettings::default()),
         opds_http: reqwest::Client::new(),
         atproto: std::sync::Arc::new(crate::atproto::AtprotoManager::new(reqwest::Client::new())),
         // The catalog store seam: bulk wrappers never read this field.

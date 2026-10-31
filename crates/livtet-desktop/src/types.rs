@@ -36,6 +36,9 @@ pub struct AppState {
     pub disabled_plugins_dir: Utf8PathBuf,
     /// Bridge to the out-of-process sync daemon.
     pub sync: Arc<crate::sync::SyncHandle>,
+    /// Persisted sync preferences; the device name drives `--device-name` and
+    /// the advertised mDNS record.
+    pub sync_settings: Arc<dyn crate::sync_settings::SyncSettingsStore>,
     /// Shared HTTP client for OPDS catalog requests.
     pub opds_http: reqwest::Client,
     /// Rust-owned store of subscribed OPDS catalogs (metadata only).

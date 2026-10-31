@@ -10,6 +10,7 @@ pub mod roles;
 pub mod secrets;
 pub mod secrets_embed;
 pub mod sync;
+pub mod sync_settings;
 pub mod types;
 
 pub use error::{PluginError, SearchIndexError};
@@ -269,7 +270,23 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     // The sync daemon owns the same SQLite file as the desktop app; it opens
     // its own connection pool and runs the client-side migrations.
     let sync_db_path = paths.database_path.join("livtet.db");
-    let sync = crate::sync::SyncHandle::spawn(app.handle(), &sync_db_path)?;
+    // Read the chosen name before spawning: it travels as the daemon's
+    // `--device-name` flag, so peers see it from the first advertisement.
+    let sync_store = tauri_plugin_store::StoreBuilder::new(&*app, "sync.json")
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let sync_store: Arc<dyn sync_settings::SyncSettingsStore> = sync_store;
+    let sync_settings = sync_store.read().unwrap_or_default();
+    let sync_device_name = sync_settings.device_name;
+    // `lan` defaults to on: the daemon advertises on the LAN and every data
+    // route requires a session token minted at pairing approval.
+    let sync_lan = sync_settings.lan;
+    let sync = crate::sync::SyncHandle::spawn(
+        app.handle(),
+        &sync_db_path,
+        sync_device_name.as_deref(),
+        sync_lan,
+    )?;
 
     // Shared HTTP client for OPDS catalog requests: consistent User-Agent and a
     // bounded timeout. All remote fetches stay in Rust (CSP keeps `connect-src`
@@ -319,6 +336,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         plugins_dir,
         disabled_plugins_dir,
         sync: Arc::new(sync),
+        sync_settings: sync_store,
         atproto: Arc::new(crate::atproto::AtprotoManager::new(opds_http.clone())),
         opds_http,
         opds_store,
@@ -409,6 +427,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::sync::sync_requests_recent,
         commands::sync::sync_pairing_begin,
         commands::sync::sync_pairing_list,
+        commands::sync::sync_nearby_devices,
+        commands::sync::sync_device_name_get,
+        commands::sync::sync_device_name_save,
         commands::sync::sync_pairing_approve,
         commands::sync::sync_pairing_reject,
         commands::sync::sync_devices_list,
