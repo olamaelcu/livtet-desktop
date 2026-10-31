@@ -127,10 +127,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pull requests run Linux + Windows (macOS has never produced a Rust
-        # failure the other legs missed) and drafts run Linux only; main keeps
-        # all three.
-        os: ${{ fromJSON(github.event_name == 'pull_request' && (github.event.pull_request.draft == true && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest"]') || '["ubuntu-latest","macos-latest","windows-latest"]') }}
+        # Static on purpose: a `fromJSON`-built matrix never materialised on push
+        # events (the job appeared as "Test (${{ matrix.os }})" with zero steps),
+        # and `matrix` is not available to a job-level `if` anyway. The PR and
+        # draft narrowing therefore lives in the per-step conditions below, which
+        # can read `matrix`.
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     # The bindings step below builds `livtet-desktop` (and the two sidecars its
     # build.rs stages) whenever the Rust sources changed, and the Rust suite
@@ -231,7 +233,13 @@ jobs:
       # place `cargo test` executes. The workspace is already compiled by the
       # bindings step above, so this only adds the test targets.
       - name: Install cargo-nextest
-        if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+        # Rust runs on every leg for main, but PRs skip macOS and drafts skip
+        # everything but Linux: macOS has never produced a Rust failure the other
+        # legs missed.
+        if: >
+          github.event_name != 'pull_request' ||
+          (needs.changes.outputs.rust == 'true' && matrix.os != 'macos-latest' &&
+           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.150
@@ -241,13 +249,19 @@ jobs:
         # aborted at 316/659 and hid every test behind it, costing an extra push
         # to discover the rest. nextest rejects it alongside `--max-fail`, so no
         # cap is set.
-        if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
+        if: >
+          github.event_name != 'pull_request' ||
+          (needs.changes.outputs.rust == 'true' && matrix.os != 'macos-latest' &&
+           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
         run: |
           cargo test --doc --workspace --no-fail-fast
           cargo nextest run --workspace --all-targets --no-fail-fast
 
       - name: Cache Playwright browsers
-        if: github.event_name != 'pull_request' || needs.changes.outputs.web == 'true'
+        if: >
+          github.event_name != 'pull_request' ||
+          (needs.changes.outputs.web == 'true' &&
+           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
         uses: actions/cache@v4
         with:
           # Playwright's default browser directory is per-OS, and only one of
@@ -265,23 +279,32 @@ jobs:
       - name: Install Playwright browsers
         if: >
           runner.os == 'Linux' &&
-          (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true')
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.web == 'true' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         run: npx playwright install --with-deps chromium
 
       - name: Install Playwright browsers
         if: >
           runner.os != 'Linux' &&
-          (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true')
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.web == 'true' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         run: npx playwright install chromium
 
       - name: Run unit + browser tests
-        if: github.event_name != 'pull_request' || needs.changes.outputs.web == 'true'
+        if: >
+          github.event_name != 'pull_request' ||
+          (needs.changes.outputs.web == 'true' &&
+           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
         run: pnpm test
 
       - name: Run E2E tests
         if: >
           runner.os == 'Linux' &&
-          (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true')
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.web == 'true' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         run: pnpm exec svelte-kit sync && pnpm test:e2e:browser
 
       - name: Upload E2E test results
