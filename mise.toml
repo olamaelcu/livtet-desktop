@@ -72,7 +72,7 @@ run = [
 
 [tasks."smoke:mcp"]
 description = "Live smoke test of the MCP tools against the running desktop app. Start the app with LIVTET_MCP_PORT=7777 (mise run dev), then run this; it drives the OPDS server tools over the real endpoint and restores the app's settings afterwards."
-run = "cargo nextest run -p livtet-desktop --test live_opds_smoke --run-ignored ignored-only"
+run = "cargo nextest run -p livtet-desktop --test wrappers --run-ignored ignored-only -E 'test(/live_opds_smoke/)'"
 
 [tasks."test:e2e:browser"]
 description = "Run E2E tests in browser-only mode (mocked IPC)"

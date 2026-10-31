@@ -79,7 +79,7 @@ the live `AppState`, and give it a Settings tab.
   `opds-server.json` keeps the configuration that works.
 - The four commands are also tools on the app's own MCP endpoint (ADR-0041), and
   the whole path — tool call → bridge → runtime → listener → real catalog — has a
-  live smoke test: `crates/livtet-desktop/tests/live_opds_smoke.rs`, run with
+  live smoke test: `crates/livtet-desktop/tests/wrappers/live_opds_smoke.rs`, run with
   `mise run smoke:mcp` against a dev app started with `LIVTET_MCP_PORT`. It is
   `#[ignore]`d, picks its own port, asserts that a refused save leaves the catalog
   serving, and restores the app's stored settings before asserting, so a failed
