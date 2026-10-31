@@ -11,6 +11,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Pull requests pay for whatever changed and nothing else: a docs-only diff
+  # skips the whole test matrix, and a diff with no Rust sources skips the Rust
+  # half of it. Pushes to main and manual runs bypass the filter (no base commit
+  # to diff against) and always run everything.
+  changes:
+    name: Changed paths
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      rust: ${{ steps.filter.outputs.rust }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'vendor/**'
+              - 'mise.toml'
+            web:
+              - 'web/**'
+              - 'e2e/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'vite.config.js'
+              - 'vitest.config.ts'
+              - 'svelte.config.js'
+              - 'scripts/**'
+              - 'static/**'
+            # Anything that can break a build, a test, or the lint gate.
+            code:
+              - 'crates/**'
+              - 'web/**'
+              - 'e2e/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'vendor/**'
+              - 'mise.toml'
+              - 'vite.config.js'
+              - 'vitest.config.ts'
+              - 'svelte.config.js'
+              - 'scripts/**'
+              - 'static/**'
+              - 'biome.json'
+              - '.gitattributes'
+              - '.mise/**'
+              - '.github/workflows/**'
+
   lint:
     name: Lint (${{ matrix.os }})
     strategy:
@@ -63,10 +119,18 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
+    needs: changes
+    # `needs.changes` is skipped on pushes, so the clause is guarded by the event
+    # check. Draft gating lives in the matrix below: `matrix` is not available to
+    # a job-level `if`.
+    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Pull requests run Linux + Windows (macOS has never produced a Rust
+        # failure the other legs missed) and drafts run Linux only; main keeps
+        # all three.
+        os: ${{ fromJSON(github.event_name == 'pull_request' && (github.event.pull_request.draft == true && '["ubuntu-latest"]' || '["ubuntu-latest","windows-latest"]') || '["ubuntu-latest","macos-latest","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     # The bindings step below builds `livtet-desktop` (and the two sidecars its
     # build.rs stages) whenever the Rust sources changed, and the Rust suite
@@ -120,6 +184,9 @@ jobs:
       - name: Prepare Rust build prerequisites
         # `bash` pins the script across runners: the Windows default shell
         # (pwsh) has no `printf`.
+        # Unconditional on purpose: a web-only PR skips the Rust suite but may
+        # still need these when the bindings cache misses and `generate-bindings`
+        # compiles the crate.
         shell: bash
         run: |
           # Only the file's presence is load-bearing: neither suite reads these
@@ -164,6 +231,7 @@ jobs:
       # place `cargo test` executes. The workspace is already compiled by the
       # bindings step above, so this only adds the test targets.
       - name: Install cargo-nextest
+        if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.150
@@ -173,11 +241,13 @@ jobs:
         # aborted at 316/659 and hid every test behind it, costing an extra push
         # to discover the rest. nextest rejects it alongside `--max-fail`, so no
         # cap is set.
+        if: github.event_name != 'pull_request' || needs.changes.outputs.rust == 'true'
         run: |
           cargo test --doc --workspace --no-fail-fast
           cargo nextest run --workspace --all-targets --no-fail-fast
 
       - name: Cache Playwright browsers
+        if: github.event_name != 'pull_request' || needs.changes.outputs.web == 'true'
         uses: actions/cache@v4
         with:
           # Playwright's default browser directory is per-OS, and only one of
@@ -193,18 +263,25 @@ jobs:
       # `--with-deps` installs apt packages, which only exists on Linux; the
       # macOS and Windows images already ship what Chromium needs.
       - name: Install Playwright browsers
-        if: runner.os == 'Linux'
+        if: >
+          runner.os == 'Linux' &&
+          (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true')
         run: npx playwright install --with-deps chromium
 
       - name: Install Playwright browsers
-        if: runner.os != 'Linux'
+        if: >
+          runner.os != 'Linux' &&
+          (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true')
         run: npx playwright install chromium
 
       - name: Run unit + browser tests
+        if: github.event_name != 'pull_request' || needs.changes.outputs.web == 'true'
         run: pnpm test
 
       - name: Run E2E tests
-        if: runner.os == 'Linux'
+        if: >
+          runner.os == 'Linux' &&
+          (github.event_name != 'pull_request' || needs.changes.outputs.web == 'true')
         run: pnpm exec svelte-kit sync && pnpm test:e2e:browser
 
       - name: Upload E2E test results
@@ -217,10 +294,19 @@ jobs:
 
   coverage:
     name: Coverage
-    # Patch coverage is only meaningful against a base branch; on a push to
-    # main the diff is empty, so the job would burn a full Rust build to
-    # score nothing.
-    if: github.event_name == 'pull_request'
+    needs: changes
+    # Patch coverage is only meaningful against a base branch; on a push to main
+    # the diff is empty, so the job would burn a full Rust build to score
+    # nothing. It also decrypts the mise bundle with `SOPS_AGE_KEY`, which a pull
+    # request from a fork never receives, so restricting it to same-repo PRs
+    # keeps an external contribution from failing on a missing secret. Drafts
+    # defer it until review starts, and a PR that touches neither Rust nor web
+    # sources has nothing to score.
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (needs.changes.outputs.rust == 'true' || needs.changes.outputs.web == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -319,7 +405,7 @@ jobs:
 
   ci:
     name: CI Summary
-    needs: [lint, test, coverage]
+    needs: [changes, lint, test, coverage]
     runs-on: ubuntu-latest
     if: always()
 
