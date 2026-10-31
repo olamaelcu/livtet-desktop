@@ -37,3 +37,16 @@ the add-book drawer drives it.
   model); series is dropped (no field in `ImporterMeta` yet); multi-value fields
   beyond the first (e.g. multiple languages) are not modeled. These are known
   simplifications, not blockers.
+
+## Amendment (2026-10-31): inactive while the `sqlite` module is withdrawn
+
+This import reads Calibre's `metadata.db` through the `sqlite` capability, and that
+capability is gone until [stanchion#56](https://github.com/jalcine/stanchion/issues/56)
+is resolved (see the [ADR-0031 amendment](0031-host-provided-sandbox-modules.md)). The
+embedding, the command and its tests stay in place, but a Calibre import now fails as
+the plugin declares a capability the host cannot offer.
+
+Restoring it does not have to wait for upstream: the host could answer the plugin's
+queries itself (`sqlite_query` over the callback channel, rows returned as data),
+which is the second of the two options in #56. Whichever lands first, this ADR's
+shape — embed, materialize, import — does not change.

@@ -767,9 +767,11 @@ return Importer
         );
     }
 
-    // The `xml` sandbox module: livtet-plugin-host registers it in-host, so a
-    // plugin that declares `[capabilities.xml]` can parse XML via `xml.parse`
-    // without vendoring a native module.
+    // The `xml` sandbox module: livtet-plugin-host used to register it in-host, so a
+    // plugin declaring `[capabilities.xml]` could parse XML via `xml.parse`. The
+    // capability is withdrawn (ADR-0031 amendment): on the current stanchion a
+    // provider receives no Lua handle, so the host cannot build the module.
+    #[ignore = "in-host module capabilities withdrawn until stanchion#56"]
     #[test]
     fn xml_capability_lets_a_plugin_parse() {
         let root = tempfile::tempdir().unwrap();
@@ -820,9 +822,10 @@ return Probe
         assert_eq!(out, serde_json::json!("package/metadata=m1"));
     }
 
-    // The `sqlite` sandbox module: livtet-plugin-host opens read-only, and only
-    // the database paths granted via `--sqlite`. A plugin declaring
-    // `[capabilities.sqlite]` queries a granted DB; a non-granted path is refused.
+    // The `sqlite` sandbox module: livtet-plugin-host opened read-only, and only the
+    // database paths granted via `--sqlite`. Withdrawn with `xml` for the same
+    // reason (ADR-0031 amendment); `--sqlite` is still accepted and ignored.
+    #[ignore = "in-host module capabilities withdrawn until stanchion#56"]
     #[test]
     fn sqlite_capability_queries_only_granted_databases() {
         let root = tempfile::tempdir().unwrap();

@@ -25,8 +25,6 @@ use std::{
 use camino::Utf8PathBuf;
 use stanchion::remote::{HostChannel, build_registry, load_config, serve};
 
-mod capabilities;
-
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -56,11 +54,21 @@ fn run() -> Result<(), String> {
         BufReader::new(io::stdin()),
         io::BufWriter::new(io::stdout()),
     );
-    let mut registry = build_registry(&config, &channel)?;
-    // Add Livtet's in-host module capabilities (xml, sqlite) on top of the remote
-    // host's log + forwarded callbacks. Relies on `with_setup` being additive.
-    // `sqlite` may only open the database paths granted via `--sqlite`.
-    registry = capabilities::register(registry, options.sqlite);
+    // `isolation` is the posture this host attests to; `serve` reports it.
+    let (mut registry, isolation) = build_registry(&config, &channel)?;
+
+    // Livtet's in-host module capabilities (xml, sqlite, json, base64) are gone:
+    // a capability provider no longer receives a Lua handle, so the host cannot
+    // build a module whose members are functions. Upstream:
+    // https://github.com/jalcine/stanchion/issues/56 . Until then a plugin that
+    // declares one gets `UnknownCapability`, and `--sqlite` is accepted and
+    // ignored so a launch that grants databases still starts.
+    if !options.sqlite.is_empty() {
+        eprintln!(
+            "livtet-plugin-host: --sqlite is accepted but the `sqlite` capability is\
+             unavailable until stanchion#56 is resolved"
+        );
+    }
 
     // Load up front so the caller's first call is fast and a broken plugin root
     // surfaces before any request arrives.
@@ -75,7 +83,7 @@ fn run() -> Result<(), String> {
         }
     }
 
-    serve(&mut registry, &channel).map_err(|err| format!("serving: {err}"))
+    serve(&mut registry, &channel, isolation).map_err(|err| format!("serving: {err}"))
 }
 
 const USAGE: &str = "\
@@ -87,8 +95,8 @@ USAGE:
 OPTIONS:
     --config FILE   TOML host configuration (sandbox, capabilities, signatures)
     --plugins DIR   Plugin root to load at startup, overriding the config
-    --sqlite DB     A database file the `sqlite` capability may open read-only;
-                    repeat to grant more than one
+    --sqlite DB     Accepted and ignored: the `sqlite` capability is unavailable
+                    until stanchion#56 is resolved
     -h, --help      Print this message
 
 The protocol is newline-delimited JSON on stdin/stdout (one object per line).

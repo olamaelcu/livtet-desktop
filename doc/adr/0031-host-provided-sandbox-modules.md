@@ -80,3 +80,35 @@ forward-looking clause above concrete: the first `http` client is the enricher, 
 OpenLibrary plugin declares `domains = ["openlibrary.org", "covers.openlibrary.org"]`.
 ADR-0030's deferred per-capability grant store would replace the manifest read, not
 the intersection rule.
+
+## Amendment (2026-10-31): in-host modules withdrawn after a stanchion redesign
+
+Bumping the stanchion pin to `main` changed the capability contract, and the three
+in-host capabilities this ADR introduced no longer fit it.
+
+**What changed upstream.** `stanchion_abi::CapabilityProvider` is now
+`Fn(&CapabilityCall) -> Result<Value, String>`: a provider gets the call and nothing
+else. Building `xml.parse` or `sqlite.query` needs the `mlua::Lua` state to create the
+table and its functions, and no replacement path exists — `Value::Function` carries no
+payload (the function waits in `stanchion-lua`'s stash, which itself needs an
+`mlua::Function`). A granted capability is likewise bound as a *callable* in the
+plugin's environment, so `xml()` rather than `xml`.
+
+**What Livtet does.** `livtet-plugin-host` no longer registers `xml`, `sqlite`, `json`
+or `base64`; `crates/livtet-plugin-host/src/capabilities.rs` is deleted along with its
+tests. A plugin declaring one of them now fails with `UnknownCapability`, which is the
+honest answer. `--sqlite` is still parsed and ignored, so a launch that grants
+databases keeps starting.
+
+**What replaces the two capabilities plugins actually needed.** `http` survives — it
+is data-only — and now answers with more of the response: `body_base64` (the exact
+bytes; `body` is lossy UTF-8 and can never carry an image) and `json` (the body
+already decoded, `null` when it is not JSON). That removes the `json` and `base64`
+dependencies from the OpenLibrary enricher, whose `fetch_cover` now stores
+`res.body_base64` and whose `fetch_json` reads `res.json`.
+
+**Consequences.** XML parsing, SQLite reads and any plugin-side encoding are gone from
+the plugin surface until [stanchion#56](https://github.com/jalcine/stanchion/issues/56)
+restores a Lua-aware provider (or lands an official module builder); the Calibre
+import's `sqlite` use (ADR-0032) is blocked the same way. `http` is the only in-host
+capability left, and every plugin-facing capability is called, not indexed.

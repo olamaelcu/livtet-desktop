@@ -13,16 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 stanchion.workspace = true
-stanchion-lua.workspace = true
-stanchion-abi = { workspace = true }
-livtet-epub.workspace = true
-rusqlite = { version = "0.32", features = ["bundled"] }
 fs-err = { version = "3.3.1", features = ["tokio"] }
 camino = { version = "1.2.6", features = ["serde1"] }
-serde_json = "1.0.151"
-
-[dev-dependencies]
-tempfile = "3.27.0"
 
 [lints]
 workspace = true

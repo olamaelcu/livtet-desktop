@@ -22,6 +22,8 @@
 use std::io::Read;
 use std::time::Duration;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use camino::Utf8Path;
 use serde_json::{Value as Json, json};
 use stanchion::remote::CallbackCall;
@@ -115,12 +117,24 @@ pub fn answer_http(call: &CallbackCall, plugins_dir: &Utf8Path) -> Result<Json, 
         }
     }
     let bytes = read_capped(response, MAX_HTTP_BODY_BYTES)?;
+    // `body` is text for JSON and HTML; `body_base64` is the same bytes for
+    // anything binary — an image must not cross as lossy UTF-8, or every byte
+    // that is not valid UTF-8 becomes U+FFFD and the cover is corrupt before the
+    // plugin ever sees it. Encoding here is exact and needs no Lua-side encoder.
     let body = String::from_utf8_lossy(&bytes).into_owned();
+    let body_base64 = STANDARD.encode(&bytes);
+
+    // Decoded here, not in the plugin: the `json` capability is gone until
+    // stanchion#56 is fixed, and a tree of data is exactly what a plugin can
+    // still receive. `null` when the body is not JSON.
+    let parsed: Option<Json> = serde_json::from_slice(&bytes).ok();
 
     Ok(json!({
         "status": status,
         "headers": Json::Object(headers),
         "body": body,
+        "body_base64": body_base64,
+        "json": parsed,
     }))
 }
 
@@ -370,6 +384,10 @@ mod tests {
         let reply = answer_http(&request, &plugins).expect("fetch succeeds");
         assert_eq!(reply["status"], json!(200));
         assert_eq!(reply["body"], json!("hello"));
+        // The same bytes, exact, for consumers that cannot use the lossy text.
+        assert_eq!(reply["body_base64"], json!("aGVsbG8="));
+        // "hello" is not JSON, so the decoded tree is null rather than absent.
+        assert_eq!(reply["json"], Json::Null);
         handle.join().unwrap();
     }
 

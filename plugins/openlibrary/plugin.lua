@@ -1,8 +1,9 @@
 -- OpenLibrary enricher plugin for Livtet
 -- Implements the Enricher contract: sources() -> ["isbn", "olid"], enrich(identity) -> Enrichment
 
-local http = require("http")
-local json = require("json")
+-- `http` and `json` are host capabilities: declaring them in plugin.toml binds
+-- them into this chunk's environment, so they are used directly. They are not
+-- LuaRocks modules and `require` cannot see them (ADR-0031).
 
 local Enricher = {}
 
@@ -35,31 +36,34 @@ function Enricher:enrich(identity)
 
     -- Helper to fetch JSON from OpenLibrary
     local function fetch_json(url)
-        local res, err = http.get(url)
+        -- The capability is called, not indexed: `http` is the host's fetch
+        -- function and takes the request as one table.
+        local res = http({ url = url })
         if not res then
-            return nil, err
+            return nil, "request failed"
         end
         if res.status ~= 200 then
             return nil, "HTTP " .. res.status
         end
-        local ok, data = pcall(json.decode, res.body)
-        if not ok then
-            return nil, "JSON decode failed: " .. data
+        -- The host decodes the body for us (`res.json`); a plugin cannot do it
+        -- itself while the `json` capability is unavailable (stanchion#56).
+        if res.json == nil then
+            return nil, "response was not JSON"
         end
-        return data, nil
+        return res.json, nil
     end
 
     -- Helper to fetch cover image as base64
     local function fetch_cover(cover_id)
         if not cover_id then return nil end
         local url = "https://covers.openlibrary.org/b/id/" .. cover_id .. "-L.jpg"
-        local res, err = http.get(url)
+        local res = http({ url = url })
         if not res or res.status ~= 200 then
             return nil
         end
-        -- Return base64 encoded image
-        local base64 = require("base64")
-        return {mime = "image/jpeg", data_base64 = base64.encode(res.body)}
+        -- The host hands the exact bytes back already encoded: `body` is text and
+        -- lossy for anything binary, so a JPEG must never travel through it.
+        return {mime = "image/jpeg", data_base64 = res.body_base64}
     end
 
     -- Try ISBN first

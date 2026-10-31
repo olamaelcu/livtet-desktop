@@ -268,6 +268,7 @@ mod tests {
         .unwrap();
     }
 
+    #[ignore = "calibre import needs the withdrawn `sqlite` module (stanchion#56)"]
     #[tokio::test]
     async fn scans_a_calibre_library() {
         let root = tempfile::tempdir().unwrap();
@@ -374,6 +375,7 @@ mod tests {
             .unwrap_or_else(|| panic!("inventory for {title}"))
     }
 
+    #[ignore = "calibre import needs the withdrawn `sqlite` module (stanchion#56)"]
     #[tokio::test]
     async fn import_tallies_each_file_outcome_and_persists_books() {
         use livtet_core::data::entities::editions;
@@ -451,6 +453,7 @@ mod tests {
         );
     }
 
+    #[ignore = "calibre import needs the withdrawn `sqlite` module (stanchion#56)"]
     #[tokio::test]
     async fn reimporting_a_library_counts_duplicates_without_new_editions() {
         use livtet_core::data::entities::editions;
@@ -523,6 +526,7 @@ mod tests {
         assert_eq!(error.code, "importer");
     }
 
+    #[ignore = "calibre import needs the withdrawn `sqlite` module (stanchion#56)"]
     #[tokio::test]
     async fn scan_lists_every_format_and_omits_absent_covers() {
         let root = tempfile::tempdir().unwrap();

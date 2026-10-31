@@ -5008,13 +5008,7 @@ version = "0.1.0"
 dependencies = [
  "camino",
  "fs-err",
- "livtet-epub",
- "rusqlite",
- "serde_json",
  "stanchion",
- "stanchion-abi",
- "stanchion-lua",
- "tempfile",
 ]
 
 [[package]]
@@ -8932,8 +8926,10 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "stanchion"
 version = "0.1.0"
-source = "git+https://github.com/jalcine/stanchion?branch=main#8ca9c78779ad03e2ade0e91aa12ad9bfb1ebe075"
+source = "git+https://github.com/jalcine/stanchion?branch=main#ef02dfb271376417c9454833897c31dcef60e004"
 dependencies = [
+ "stanchion-abi",
+ "stanchion-lua",
  "stanchion-registry",
  "stanchion-remote",
 ]
@@ -8941,28 +8937,32 @@ dependencies = [
 [[package]]
 name = "stanchion-abi"
 version = "0.1.0"
-source = "git+https://github.com/jalcine/stanchion?branch=main#8ca9c78779ad03e2ade0e91aa12ad9bfb1ebe075"
+source = "git+https://github.com/jalcine/stanchion?branch=main#ef02dfb271376417c9454833897c31dcef60e004"
 dependencies = [
- "mlua",
+ "camino",
+ "fs-err",
  "semver",
  "serde",
+ "sha2 0.11.0",
  "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
 name = "stanchion-lua"
 version = "0.1.0"
-source = "git+https://github.com/jalcine/stanchion?branch=main#8ca9c78779ad03e2ade0e91aa12ad9bfb1ebe075"
+source = "git+https://github.com/jalcine/stanchion?branch=main#ef02dfb271376417c9454833897c31dcef60e004"
 dependencies = [
  "mlua",
+ "serde",
  "stanchion-abi",
  "stanchion-macros",
+ "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
 name = "stanchion-macros"
 version = "0.1.0"
-source = "git+https://github.com/jalcine/stanchion?branch=main#8ca9c78779ad03e2ade0e91aa12ad9bfb1ebe075"
+source = "git+https://github.com/jalcine/stanchion?branch=main#ef02dfb271376417c9454833897c31dcef60e004"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8972,26 +8972,24 @@ dependencies = [
 [[package]]
 name = "stanchion-registry"
 version = "0.1.0"
-source = "git+https://github.com/jalcine/stanchion?branch=main#8ca9c78779ad03e2ade0e91aa12ad9bfb1ebe075"
+source = "git+https://github.com/jalcine/stanchion?branch=main#ef02dfb271376417c9454833897c31dcef60e004"
 dependencies = [
- "mlua",
  "semver",
  "serde",
  "stanchion-abi",
- "stanchion-lua",
  "toml 1.1.6+spec-1.1.0",
 ]
 
 [[package]]
 name = "stanchion-remote"
 version = "0.1.0"
-source = "git+https://github.com/jalcine/stanchion?branch=main#8ca9c78779ad03e2ade0e91aa12ad9bfb1ebe075"
+source = "git+https://github.com/jalcine/stanchion?branch=main#ef02dfb271376417c9454833897c31dcef60e004"
 dependencies = [
  "jsonrpsee-types",
- "mlua",
  "serde",
  "serde_json",
  "stanchion-abi",
+ "stanchion-lua",
  "stanchion-registry",
  "toml 1.1.6+spec-1.1.0",
 ]
