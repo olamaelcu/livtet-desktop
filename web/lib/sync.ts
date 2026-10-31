@@ -139,12 +139,12 @@ export function syncSendBook(editionId: string, deviceId: string): Promise<SyncB
 }
 
 /** File a pairing claim with a discovered peer; resolves before it approves. */
-export function syncPairClaim(
+export async function syncPairClaim(
   listenOn: string,
   nodeId: string,
   deviceName: string | null,
-): Promise<null> {
-  return unwrap<null>(commands.syncPairClaim(listenOn, nodeId, deviceName))
+): Promise<void> {
+  await unwrap<null>(commands.syncPairClaim(listenOn, nodeId, deviceName))
 }
 
 /** Revoke a paired device's access. */
