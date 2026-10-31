@@ -120,18 +120,19 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     needs: changes
-    # `needs.changes` is skipped on pushes, so the clause is guarded by the event
-    # check. Draft gating lives in the matrix below: `matrix` is not available to
-    # a job-level `if`.
-    if: github.event_name != 'pull_request' || needs.changes.outputs.code == 'true'
+    # `always()` is load-bearing: `changes` is skipped on pushes, and GitHub skips
+    # any job whose `needs` job was skipped unless the condition overrides that.
+    # Without it this job silently disappeared from every push to main (it showed
+    # up as a skipped job named literally "Test (${{ matrix.os }})").
+    if: >
+      always() &&
+      (github.event_name != 'pull_request' || needs.changes.outputs.code == 'true')
     strategy:
       fail-fast: false
       matrix:
-        # Static on purpose: a `fromJSON`-built matrix never materialised on push
-        # events (the job appeared as "Test (${{ matrix.os }})" with zero steps),
-        # and `matrix` is not available to a job-level `if` anyway. The PR and
-        # draft narrowing therefore lives in the per-step conditions below, which
-        # can read `matrix`.
+        # Static: `matrix` is not available to a job-level `if`, so the PR and
+        # draft narrowing lives in the per-step conditions below, which can read
+        # it. (`fromJSON` here also produced no jobs at all on push events.)
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     # The bindings step below builds `livtet-desktop` (and the two sidecars its
@@ -326,6 +327,7 @@ jobs:
     # defer it until review starts, and a PR that touches neither Rust nor web
     # sources has nothing to score.
     if: >
+      !cancelled() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
