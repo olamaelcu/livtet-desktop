@@ -418,7 +418,10 @@ jobs:
     defaults:
       run:
         shell: bash
-    timeout-minutes: 60
+    # Observed on 0.2.1: the NSIS/MSI build plus the post-job Rust cache save
+    # consumes the full hour, so the old 60-minute cap left no margin for a
+    # slower runner or a cache miss.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
