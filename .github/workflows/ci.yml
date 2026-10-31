@@ -144,7 +144,12 @@ jobs:
             web/lib/bindings.ts
             build/
             .svelte-kit/
-          key: bindings-prereqs-${{ runner.os }}-${{ hashFiles('crates/**/*.rs', 'crates/**/Cargo.toml', 'Cargo.toml', 'Cargo.lock') }}
+          # Hash only what can change the exported command/type surface: the
+          # desktop crate's own sources (its dependencies all come from the
+          # external `livtet` checkout, pinned by Cargo.lock) plus the manifests
+          # and lock. Hashing every crate meant a test-only or sidecar commit
+          # still missed the cache and rebuilt the generator from scratch.
+          key: bindings-prereqs-${{ runner.os }}-${{ hashFiles('crates/livtet-desktop/src/**/*.rs', 'crates/livtet-desktop/Cargo.toml', 'Cargo.toml', 'Cargo.lock') }}
           restore-keys: |
             bindings-prereqs-${{ runner.os }}-
 
@@ -164,9 +169,12 @@ jobs:
           tool: nextest@0.9.150
 
       - name: Run Rust tests
+        # `--no-fail-fast` keeps going after a failure: the first Windows run
+        # aborted at 316/659 and hid every test behind it, costing an extra push
+        # to discover the rest. `--max-fail` bounds the report.
         run: |
-          cargo test --doc --workspace
-          cargo nextest run --workspace --all-targets
+          cargo test --doc --workspace --no-fail-fast
+          cargo nextest run --workspace --all-targets --no-fail-fast --max-fail=10
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
