@@ -86,8 +86,8 @@ $effect(() => {
      stagger follows reading order. Capped so a deep row is not left waiting. */
   @media (prefers-reduced-motion: no-preference) {
     .card-wrap {
-      animation: card-settle 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-      animation-delay: calc(min(var(--i, 0), 12) * 18ms);
+      animation: card-settle 750ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      animation-delay: calc(min(var(--i, 0), 12) * 25ms);
     }
   }
 
