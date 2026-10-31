@@ -392,6 +392,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.97.0'
+          # Installed with the toolchain: a separate `rustup component add`
+          # collides with the runner's pre-installed `cargo-fmt`
+          # ("detected conflict: 'bin/cargo-fmt'").
+          components: llvm-tools-preview
 
       - name: Install coverage tooling
         uses: taiki-e/install-action@v2
@@ -410,9 +414,6 @@ jobs:
             . -> target
             crates/livtet-desktop -> target
           key: coverage
-
-      - name: Install LLVM coverage tools
-        run: rustup component add llvm-tools-preview
 
       - name: Install Tauri Linux prerequisites
         if: runner.os == 'Linux'
@@ -440,6 +441,28 @@ jobs:
           printf 'GOOGLE_BOOKS_API_KEY=ci\nSENTRY_DSN=ci\n' > .mise/secrets.env
           mkdir -p build
           [ -f build/index.html ] || printf '<!doctype html>\n' > build/index.html
+
+      # `web/lib/bindings.ts` is gitignored and only a Rust build produces it, so
+      # vitest cannot resolve `$lib/bindings` on a fresh checkout. Same key as the
+      # test job, so the two share one entry.
+      - name: Cache generated bindings
+        id: bindings-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            web/lib/bindings.ts
+            build/
+            .svelte-kit/
+          key: bindings-prereqs-${{ runner.os }}-${{ hashFiles('crates/livtet-desktop/src/**/*.rs', 'crates/livtet-desktop/Cargo.toml', 'Cargo.toml', 'Cargo.lock') }}
+          restore-keys: |
+            bindings-prereqs-${{ runner.os }}-
+
+      - name: Generate TS bindings
+        if: steps.bindings-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          cargo run --features bindings-export --bin generate-bindings
+          pnpm exec svelte-kit sync
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
