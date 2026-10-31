@@ -45,8 +45,8 @@ test('queries forward to their Tauri commands', async () => {
 
 test('mutations forward arguments', async () => {
   await syncPairingBegin('mobile', 300)
-  await syncPairingApprove('tok')
-  await syncPairingReject('tok')
+  await syncPairingApprove('node-1')
+  await syncPairingReject('node-1')
   await syncDevicesRevoke('dev-1')
   await syncConflictsResolve(7, 'local')
   await syncConflictsResolve(8, 'merged', '{}')
@@ -54,8 +54,9 @@ test('mutations forward arguments', async () => {
   await syncServerStop()
 
   expect(invoke).toHaveBeenCalledWith('sync_pairing_begin', { deviceType: 'mobile', ttlSecs: 300 })
-  expect(invoke).toHaveBeenCalledWith('sync_pairing_approve', { token: 'tok' })
-  expect(invoke).toHaveBeenCalledWith('sync_pairing_reject', { token: 'tok' })
+  // Pairing is keyed by the peer's node identity, not a ticket token.
+  expect(invoke).toHaveBeenCalledWith('sync_pairing_approve', { nodeId: 'node-1' })
+  expect(invoke).toHaveBeenCalledWith('sync_pairing_reject', { nodeId: 'node-1' })
   expect(invoke).toHaveBeenCalledWith('sync_devices_revoke', { deviceId: 'dev-1' })
   expect(invoke).toHaveBeenCalledWith('sync_conflicts_resolve', {
     id: 7,
