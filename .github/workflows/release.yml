@@ -207,7 +207,15 @@ jobs:
       - name: Build bundles
         # `build/` is already in place, so stop tauri from re-running the
         # beforeBuildCommand (`pnpm build`) from tauri.conf.json.
-        run: pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
+        run: |
+          set -euo pipefail
+          source scripts/ci/trace.sh
+          trap trace_heartbeat_stop EXIT
+          trace_mark "bundling ${{ matrix.bundles }} for ${{ matrix.target }}"
+          trace_heartbeat_start 60
+          pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles "${{ matrix.bundles }}"
+          trace_mark "bundles written"
+          find "target/${{ matrix.target }}/release/bundle" -maxdepth 2 -type f -exec ls -lh {} + 2>/dev/null || true
       - name: Upload deb
         uses: actions/upload-artifact@v4
         with:
@@ -365,16 +373,21 @@ jobs:
         timeout-minutes: 45
         run: |
           set -euo pipefail
+          source scripts/ci/trace.sh
+          trap trace_heartbeat_stop EXIT
           # `build.rs` also creates this directory, but only when the crate is
           # actually compiled — an `ipc-bindings` cache hit skips that, and the
           # `lipo` output below then has nowhere to land.
           mkdir -p crates/livtet-desktop/binaries
+          trace_heartbeat_start 60
           for triple in aarch64-apple-darwin x86_64-apple-darwin; do
             for package in livtet-sync-daemon livtet-plugin-host; do
+              trace_mark "building $package for $triple"
               cargo build --release -p "$package" --bin "$package" --target "$triple"
             done
           done
           for package in livtet-sync-daemon livtet-plugin-host; do
+            trace_mark "fusing $package into a universal binary"
             lipo -create \
               "target/aarch64-apple-darwin/release/$package" \
               "target/x86_64-apple-darwin/release/$package" \
@@ -398,12 +411,18 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
+          source scripts/ci/trace.sh
+          trap trace_heartbeat_stop EXIT
           for var in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!var:-}" ]; then unset "$var"; fi
           done
           # `build/` was produced and cached by the frontend step, so suppress
           # the beforeBuildCommand that tauri would otherwise run again.
+          trace_mark "building universal app, signing, and packaging the dmg"
+          trace_heartbeat_start 60
           pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles dmg
+          trace_mark "dmg written"
+          find "target/${{ matrix.target }}/release/bundle" -maxdepth 2 -type f -exec ls -lh {} + 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: macos-${{ matrix.arch }}
@@ -504,6 +523,8 @@ jobs:
         timeout-minutes: 45
         run: |
           set -euo pipefail
+          source scripts/ci/trace.sh
+          trap trace_heartbeat_stop EXIT
           # `build.rs` also creates this directory, but only when the crate is
           # actually compiled — an `ipc-bindings` cache hit skips that, and the
           # `cp` below then fails with "No such file or directory".
@@ -513,13 +534,24 @@ jobs:
           for package in livtet-sync-daemon livtet-plugin-host; do
             rm -f "crates/livtet-desktop/binaries/$package-${{ matrix.target }}.exe"
           done
+          trace_mark "building sidecars for ${{ matrix.target }}"
+          trace_heartbeat_start 60
           cargo build --release -p livtet-sync-daemon -p livtet-plugin-host --target "${{ matrix.target }}"
+          trace_mark "staging sidecars into crates/livtet-desktop/binaries"
           for package in livtet-sync-daemon livtet-plugin-host; do
             cp "target/${{ matrix.target }}/release/$package.exe" "crates/livtet-desktop/binaries/$package-${{ matrix.target }}.exe"
           done
           ls -la crates/livtet-desktop/binaries/*-${{ matrix.target }}.exe
       - name: Build NSIS and MSI installers
-        run: pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles nsis,msi
+        run: |
+          set -euo pipefail
+          source scripts/ci/trace.sh
+          trap trace_heartbeat_stop EXIT
+          trace_mark "bundling nsis+msi for ${{ matrix.target }}"
+          trace_heartbeat_start 60
+          pnpm tauri build --config '{"build":{"beforeBuildCommand":""}}' --target "${{ matrix.target }}" --bundles nsis,msi
+          trace_mark "installers written"
+          find "target/${{ matrix.target }}/release/bundle" -maxdepth 2 -type f -exec ls -lh {} + 2>/dev/null || true
 
       - name: Upload Windows installers
         uses: actions/upload-artifact@v4
