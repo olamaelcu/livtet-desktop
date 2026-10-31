@@ -281,7 +281,7 @@ fn endpoint_port(raw: Option<&str>) -> Option<u16> {
 #[derive(Clone)]
 pub(crate) struct CommandBridge {
     db: SharedState,
-    search_index: ArcMut<Option<SearchIndex>>,
+    search_index: ArcMut<Option<Arc<SearchIndex>>>,
     covers_dir: Utf8PathBuf,
     opds_http: reqwest::Client,
     books_dir: Utf8PathBuf,
@@ -330,7 +330,7 @@ impl DesktopBridge for CommandBridge {
         limit: Option<i32>,
     ) -> Result<Value, BridgeError> {
         let index = self.search_index.read().await;
-        let hits = search_typeahead_inner(index.as_ref(), &query, limit)
+        let hits = search_typeahead_inner(index.as_deref(), &query, limit)
             .await
             .map_err(|error| bridge_error("search", &error))?;
         serialized(hits)
@@ -353,7 +353,7 @@ impl DesktopBridge for CommandBridge {
 
         let index = self.search_index.read().await;
         let response = search_editions_inner(
-            index.as_ref(),
+            index.as_deref(),
             &self.db.db_conn(),
             query.as_deref(),
             filters,
@@ -567,11 +567,14 @@ mod tests {
     /// A runtime over an in-memory store plus a bridge over the fixture
     /// `AppState`: real command code, in-memory database, no search index
     /// loaded (the fixture never opens one).
-    async fn harness() -> (McpRuntime, CommandBridge) {
+    /// Both halves must outlive the test: `TestDb` owns the temporary directory
+    /// holding the SQLite file the bridge's pool points into, so dropping it
+    /// early leaves the pool opening a deleted path (`SQLITE_CANTOPEN`).
+    async fn harness() -> (TestDb, McpRuntime, CommandBridge) {
         let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
         let state = crate::mock_state_for_bulk(&test_db).await;
         let runtime = McpRuntime::new(Arc::new(MemoryMcpSettings::default()));
-        (runtime, CommandBridge::from_state(&state))
+        (test_db, runtime, CommandBridge::from_state(&state))
     }
 
     #[test]
@@ -616,7 +619,7 @@ mod tests {
 
     #[tokio::test]
     async fn saving_settings_persists_them() {
-        let (runtime, bridge) = harness().await;
+        let (_test_db, runtime, bridge) = harness().await;
         let saved = McpSettings {
             enabled: false,
             port: 8123,
@@ -634,7 +637,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_zero_port_is_refused_and_nothing_is_stored() {
-        let (runtime, bridge) = harness().await;
+        let (_test_db, runtime, bridge) = harness().await;
 
         let error = runtime
             .save(
@@ -652,7 +655,7 @@ mod tests {
 
     #[tokio::test]
     async fn applying_settings_starts_and_stops_the_listener() {
-        let (runtime, bridge) = harness().await;
+        let (_test_db, runtime, bridge) = harness().await;
         let enabled = McpSettings {
             enabled: true,
             // Ephemeral, so the test never collides with a real service.
@@ -680,7 +683,7 @@ mod tests {
 
     #[tokio::test]
     async fn blank_typeahead_short_circuits_before_the_index() {
-        let (_runtime, bridge) = harness().await;
+        let (_test_db, _runtime, bridge) = harness().await;
         let hits = bridge
             .search_typeahead(String::new(), None)
             .await
@@ -690,7 +693,7 @@ mod tests {
 
     #[tokio::test]
     async fn typeahead_maps_an_absent_index_to_a_search_error() {
-        let (_runtime, bridge) = harness().await;
+        let (_test_db, _runtime, bridge) = harness().await;
         let error = bridge
             .search_typeahead(String::from("dune"), None)
             .await
@@ -701,7 +704,7 @@ mod tests {
 
     #[tokio::test]
     async fn filter_options_reads_every_axis_from_the_catalog() {
-        let (_runtime, bridge) = harness().await;
+        let (_test_db, _runtime, bridge) = harness().await;
         let options = bridge.filter_options().await.expect("read axes");
         for axis in [
             "formats",
@@ -721,7 +724,7 @@ mod tests {
 
     #[tokio::test]
     async fn garbage_edition_ids_are_rejected_before_any_query() {
-        let (_runtime, bridge) = harness().await;
+        let (_test_db, _runtime, bridge) = harness().await;
         let error = bridge
             .get_reader_position(String::from("not-an-id"))
             .await
@@ -731,7 +734,7 @@ mod tests {
 
     #[tokio::test]
     async fn unknown_import_modes_are_rejected() {
-        let (_runtime, bridge) = harness().await;
+        let (_test_db, _runtime, bridge) = harness().await;
         let error = bridge
             .import_file(String::from("/tmp/book.epub"), String::from("sideways"))
             .await
@@ -741,7 +744,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_edition_describes_as_no_publication() {
-        let (_runtime, bridge) = harness().await;
+        let (_test_db, _runtime, bridge) = harness().await;
         let publication = bridge
             .reader_publication(DbId::new().to_string())
             .await
