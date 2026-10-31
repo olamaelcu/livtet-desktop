@@ -90,6 +90,13 @@ async function copyUrl(url: string) {
       <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
       {opdsServerErrorMessage(status.error)}
     </wa-callout>
+  {:else if !status.data}
+    <!-- `invoke` can resolve `null`; reading through it here would throw during
+         the Svelte flush and take every later effect with it. -->
+    <wa-callout variant="danger">
+      <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
+      The backend returned no OPDS server settings.
+    </wa-callout>
   {:else}
     <wa-callout variant={status.data.running ? 'success' : 'neutral'}>
       <wa-icon

@@ -116,6 +116,12 @@ export const { test, expect } = createTauriTest({
     sync_conflicts_list: () => [],
     sync_server_start: () => true,
     sync_server_stop: () => true,
+    mcp_settings_get: () => ({
+      settings: { enabled: false, port: 7777 },
+      running: false,
+      url: null,
+      env_port: null,
+    }),
     opds_server_status: () => ({
       settings: { enabled: false, port: 8080 },
       running: false,

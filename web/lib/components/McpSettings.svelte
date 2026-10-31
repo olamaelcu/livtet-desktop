@@ -89,6 +89,13 @@ async function copyUrl(url: string) {
       <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
       {mcpErrorMessage(status.error)}
     </wa-callout>
+  {:else if !status.data}
+    <!-- `invoke` can resolve `null`; reading through it here would throw during
+         the Svelte flush and take every later effect with it. -->
+    <wa-callout variant="danger">
+      <wa-icon slot="icon" name="triangle-exclamation"></wa-icon>
+      The backend returned no MCP settings.
+    </wa-callout>
   {:else}
     {#if status.data.env_port !== null}
       <wa-callout variant="warning">

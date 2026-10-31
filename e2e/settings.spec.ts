@@ -29,7 +29,11 @@ test.describe('Settings', () => {
     await tauriPage.getByRole('tab', { name: 'OPDS' }).click();
 
     await expect(tauriPage.getByRole('heading', { name: 'OPDS server' })).toBeVisible();
-    await expect(tauriPage.getByText('Not listening.')).toBeVisible();
+    // Scoped to the panel: every tab panel stays in the DOM, and the MCP panel
+    // uses the same "Not listening." copy for its own listener.
+    await expect(
+      tauriPage.getByRole('tabpanel', { name: 'OPDS' }).getByText('Not listening.'),
+    ).toBeVisible();
   });
 
   test('shows a pairing QR code and credentials after pairing a device', async ({
