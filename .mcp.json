@@ -1,11 +1,18 @@
 {
   "mcpServers": {
-    "mcp": {
+    "svelte": {
+      "type": "http",
       "url": "https://mcp.svelte.dev/mcp",
       "directTools": true
     },
     "livtet": {
+      "type": "http",
       "url": "http://127.0.0.1:7777/mcp",
+      "directTools": true
+    },
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp/olamaelcu/livtet-tauri",
       "directTools": true
     }
   }
