@@ -389,13 +389,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: '1.97.0'
-          # Installed with the toolchain: a separate `rustup component add`
-          # collides with the runner's pre-installed `cargo-fmt`
-          # ("detected conflict: 'bin/cargo-fmt'").
-          components: llvm-tools-preview
+      # Installed by hand rather than through the toolchain action: the action
+      # resolves the *default* profile, which includes `rustfmt`, and rustup then
+      # aborts with "detected conflict: 'bin/cargo-fmt'" against the runner's
+      # pre-installed shim. `--profile minimal` installs only what this job uses
+      # (cargo, rustc, rust-std) plus the one component it needs.
+      - name: Install Rust toolchain with LLVM coverage tools
+        shell: bash
+        run: |
+          rustup toolchain install 1.97.0 --profile minimal \
+            --component llvm-tools-preview --no-self-update
+          rustup default 1.97.0
+          rustup component list --installed --toolchain 1.97.0
 
       - name: Install coverage tooling
         uses: taiki-e/install-action@v2
