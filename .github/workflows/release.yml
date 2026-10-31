@@ -365,6 +365,10 @@ jobs:
         timeout-minutes: 45
         run: |
           set -euo pipefail
+          # `build.rs` also creates this directory, but only when the crate is
+          # actually compiled — an `ipc-bindings` cache hit skips that, and the
+          # `lipo` output below then has nowhere to land.
+          mkdir -p crates/livtet-desktop/binaries
           for triple in aarch64-apple-darwin x86_64-apple-darwin; do
             for package in livtet-sync-daemon livtet-plugin-host; do
               cargo build --release -p "$package" --bin "$package" --target "$triple"
@@ -496,6 +500,10 @@ jobs:
         timeout-minutes: 45
         run: |
           set -euo pipefail
+          # `build.rs` also creates this directory, but only when the crate is
+          # actually compiled — an `ipc-bindings` cache hit skips that, and the
+          # `cp` below then fails with "No such file or directory".
+          mkdir -p crates/livtet-desktop/binaries
           # Clean up any pre-existing sidecar for this target to avoid stale
           # binaries from a prior run in the shared workspace.
           for package in livtet-sync-daemon livtet-plugin-host; do
