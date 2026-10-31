@@ -922,7 +922,7 @@ return P
         fs::create_dir_all(&plugin_dir).unwrap();
         fs::write(
             plugin_dir.join("plugin.toml"),
-            "name = \"http-probe\"\nversion = \"1.0.0\"\n\n[capabilities.http]\n",
+            "name = \"http-probe\"\nversion = \"1.0.0\"\n\n[capabilities.http]\ndomains = [\"127.0.0.1\"]\n",
         )
         .unwrap();
         fs::write(
@@ -947,13 +947,15 @@ return P
         )
         .unwrap();
 
+        let callback_dir = plugins_dir.clone();
         let options = stanchion::remote::RemoteOptions::new(host_binary().into_std_path_buf())
             .config(config)
             .plugins(&plugins_dir);
         let remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
-        let allow = vec!["127.0.0.1".to_string()];
         let mut remote = remote.on_callback(move |call| {
-            crate::commands::plugin_host_callbacks::answer_http(call, &allow)
+            // The allowlist is the app's own read of the manifest intersected with
+            // the grant the host forwards with the call.
+            crate::commands::plugin_host_callbacks::answer_http(call, &callback_dir)
         });
 
         let out: serde_json::Value = remote
@@ -965,5 +967,74 @@ return P
             .expect("plugin fetches via http");
         assert_eq!(out, serde_json::json!("200:pong"));
         server.join().unwrap();
+    }
+
+    /// A manifest that grants `http` but names no domains reaches nothing: the
+    /// host forwards the empty grant, and the app refuses before any socket is
+    /// opened.
+    #[test]
+    fn http_capability_without_granted_domains_is_refused() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = dir(&root, "plugins");
+        let plugin_dir = plugins_dir.join("http-denied");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            "name = \"http-denied\"\nversion = \"1.0.0\"\n\n[capabilities.http]\n",
+        )
+        .unwrap();
+        fs::write(
+            plugin_dir.join("init.lua"),
+            r#"
+local P = {}
+P.__index = P
+function P.new(config, deps) return setmetatable({}, P) end
+function P:fetch(url)
+  local ok, err = pcall(function() return http({ url = url }) end)
+  if not ok then return "denied: " .. tostring(err) end
+  return "allowed"
+end
+return P
+"#,
+        )
+        .unwrap();
+
+        let config = dir(&root, "host.toml");
+        fs::write(
+            &config,
+            "[capabilities]\ncallbacks = [\"http\"]\n\n[signatures]\nrequired = false\n",
+        )
+        .unwrap();
+
+        let options = stanchion::remote::RemoteOptions::new(host_binary().into_std_path_buf())
+            .config(config)
+            .plugins(&plugins_dir);
+        let remote = stanchion::remote::RemoteRegistry::launch(options).expect("host launches");
+        let callback_dir = plugins_dir.clone();
+        let mut remote = remote.on_callback(move |call| {
+            crate::commands::plugin_host_callbacks::answer_http(call, &callback_dir)
+        });
+
+        let out: serde_json::Value = remote
+            .call(
+                "http-denied",
+                "fetch",
+                [serde_json::json!(format!("http://{addr}/"))],
+            )
+            .expect("the plugin catches its own refusal");
+
+        let message = out.as_str().expect("the plugin returns the refusal text");
+        assert!(
+            message.contains("manifest grants no domains"),
+            "an ungranted http call must be refused, got `{message}`"
+        );
+        assert!(
+            listener.accept().is_err(),
+            "a refused call must not reach the socket"
+        );
     }
 }

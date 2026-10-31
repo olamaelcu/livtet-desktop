@@ -326,6 +326,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         readers: Arc::new(Mutex::new(HashMap::new())),
         mcp: Arc::new(mcp::McpRuntime::new(mcp_store)),
         opds_server: Arc::new(opds_server::OpdsServerRuntime::new(opds_server_store)),
+        enrichment_cache: ArcMut::new(RwLock::new(HashMap::new())),
     };
     {
         let mut guard = state.search_index.write().await;
@@ -418,6 +419,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::atproto::atproto_complete_login,
         commands::atproto::atproto_status,
         commands::atproto::atproto_logout,
+        commands::atproto::atproto_refresh_session,
         commands::atproto::atproto_get_profile,
         commands::atproto::atproto_update_profile,
         commands::atproto::atproto_set_avatar,
@@ -433,8 +435,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::opds_server::opds_server_settings_save,
         commands::opds_server::opds_server_start,
         commands::opds_server::opds_server_stop,
-        commands::enrich::enrich_edition,
+        commands::enrich::apply_enrichment,
         commands::enrich::enrich_library,
+        commands::enrich::preview_enrichment,
     ])
 }
 

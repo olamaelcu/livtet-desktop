@@ -23,10 +23,13 @@ CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG = true
 RUST_LOG = "tao=warn,wry=warn,log=warn,trace"
 
 [tasks.generate-bindings]
+sources = ["crates/livtet-desktop/src/commands/mod.rs"]
+outputs = ["web/lib/bindings.ts"]
 depends = ["secrets-export-env", "seed-frontend-dist"]
 run = "cargo run --features bindings-export --bin generate-bindings"
 
 [tasks.seed-frontend-dist]
+outputs = ["build/index.html"]
 description = "Create a placeholder build/ so tauri::generate_context!() can compile before the frontend exists"
 # `tauri::generate_context!()` panics while `frontendDist` (`build/`) is missing,
 # and every Rust target that links the app crate trips over it — `cargo test`,
@@ -34,15 +37,6 @@ description = "Create a placeholder build/ so tauri::generate_context!() can com
 # the real frontend. A one-file placeholder satisfies the macro; the real build
 # overwrites it.
 run = 'mkdir -p build && ([ -f build/index.html ] || printf "<!doctype html>\n" > build/index.html)'
-
-[tasks."dev:atproto"]
-description = "Dev app with ATProto OAuth logging (identity, authorize URL, callback, token exchange, appview)"
-# `atrium-oauth` has no logging of its own, so these directives surface our
-# instrumentation in `src/atproto/` and the command wrappers without the
-# reqwest/tantivy trace flood.
-env = { RUST_LOG = "livtet_desktop_lib::atproto=trace,livtet_desktop_lib::commands::atproto=trace,info" }
-depends = ["generate-bindings"]
-run = ["cargo build -p livtet-plugin-host", "pnpm tauri dev"]
 
 [tasks.dev]
 depends = ["generate-bindings"]
@@ -75,6 +69,10 @@ run = [
   "cargo nextest run --workspace --all-targets",
   "pnpm test",
 ]
+
+[tasks."smoke:mcp"]
+description = "Live smoke test of the MCP tools against the running desktop app. Start the app with LIVTET_MCP_PORT=7777 (mise run dev), then run this; it drives the OPDS server tools over the real endpoint and restores the app's settings afterwards."
+run = "cargo nextest run -p livtet-desktop --test live_opds_smoke --run-ignored ignored-only"
 
 [tasks."test:e2e:browser"]
 description = "Run E2E tests in browser-only mode (mocked IPC)"
@@ -123,10 +121,7 @@ run = [
 
 [tasks."coverage:clean"]
 description = "Clean separate coverage build directory. Deleting target/llvm-cov-target prevents stale objects from deleted/renamed source from polluting future reports (same rationale as core)."
-run = [
-  "rm -rf target/llvm-cov-target target/llvm-cov",
-  "mise run coverage:rust",
-]
+run = ["rm -rf target/llvm-cov-target target/llvm-cov"]
 
 [tasks."coverage:html"]
 description = "Generate browsable HTML coverage report from the separate build dir"

@@ -16,7 +16,7 @@ use crate::{
 };
 use atrium_api::{
     agent::{Configure, SessionManager},
-    types::string::Did,
+    types::string::{Datetime, Did},
 };
 use atrium_common::{resolver::Resolver, store::Store};
 use atrium_identity::{
@@ -336,6 +336,30 @@ impl AtprotoManager {
             return Ok(None);
         };
 
+        Ok(Some(status_from_session(&current, &stored)))
+    }
+
+    /// Refresh the stored session and report it as it stands afterwards.
+    ///
+    /// Settings offers this once the expiry it shows has passed: the request
+    /// travels through the stored session, and the authorization server hands
+    /// back a fresh access token when it rejects the old one. Nothing is spent
+    /// while the token is still comfortably valid — see [`needs_refresh`].
+    /// `None` when no account is signed in.
+    pub(crate) async fn refresh_session(&self) -> Result<Option<AtprotoStatus>, AtprotoError> {
+        let Some(current) = crate::atproto::store::get_current_did(self.backend.clone()).await?
+        else {
+            return Ok(None);
+        };
+        let did = current.parse::<Did>().map_err(|_| AtprotoError::Keyring {
+            message: "invalid stored DID".to_string(),
+        })?;
+
+        self.ensure_fresh(&did).await?;
+
+        let Some(stored) = self.session_store.get(&did).await? else {
+            return Ok(None);
+        };
         Ok(Some(status_from_session(&current, &stored)))
     }
 
@@ -796,34 +820,19 @@ impl AtprotoManager {
         };
 
         let now = atrium_api::types::string::Datetime::now();
-        if let Some(expires_at) = &stored.token_set.expires_at {
-            if *expires_at > now {
-                // Proactive refresh: when token expires within REFRESH_BEFORE_EXPIRY_SECS.
-                let boundary_ts = now.as_ref().timestamp() + REFRESH_BEFORE_EXPIRY_SECS as i64;
-                if expires_at.as_ref().timestamp() <= boundary_ts {
-                    tracing::info!(
-                        did = did.as_str(),
-                        expires_at = expires_at.as_str(),
-                        "ATProto token expires soon; forcing proactive session refresh"
-                    );
-                } else {
-                    tracing::debug!(
-                        expires_at = expires_at.as_str(),
-                        "ATProto token still valid (proactive window not reached)"
-                    );
-                    return Ok(());
-                }
-            } else {
-                tracing::debug!(
-                    expires_at = expires_at.as_str(),
-                    "ATProto token still valid"
-                );
-                return Ok(());
-            }
+        let expires_at = stored.token_set.expires_at.as_ref();
+        if !needs_refresh(expires_at, &now) {
+            tracing::debug!(
+                did = did.as_str(),
+                expires_at = ?expires_at.map(|d| d.as_str()),
+                "ATProto access token still valid (outside the refresh window)"
+            );
+            return Ok(());
         }
         tracing::info!(
             did = did.as_str(),
-            "ATProto token expired or absent; forcing a session refresh"
+            expires_at = ?expires_at.map(|d| d.as_str()),
+            "ATProto access token expired or about to; sending a request to refresh it"
         );
 
         let session = self.restore_session(did).await?;
@@ -840,6 +849,20 @@ impl AtprotoManager {
 
         Ok(())
     }
+}
+
+/// Whether the stored access token has to be replaced before it is used.
+///
+/// A refresh token is single-use and every refresh rotates it, so a token that is
+/// still comfortably valid is left alone. An expired one is the case that most
+/// needs the refresh, and a session that records no expiry at all can only be
+/// judged by asking the authorization server.
+fn needs_refresh(expires_at: Option<&Datetime>, now: &Datetime) -> bool {
+    let Some(expires_at) = expires_at else {
+        return true;
+    };
+    let boundary = now.as_ref().timestamp() + REFRESH_BEFORE_EXPIRY_SECS as i64;
+    expires_at.as_ref().timestamp() <= boundary
 }
 
 #[derive(serde::Serialize)]
@@ -1432,6 +1455,39 @@ mod tests {
         let bare = status_from_session(DID_A, &session_fixture(DID_A, None, None));
         assert!(bare.scope.is_none());
         assert!(bare.expires_at.is_none());
+    }
+
+    fn expires_at(rfc3339: &str) -> atrium_api::types::string::Datetime {
+        serde_json::from_value(serde_json::json!(rfc3339)).expect("datetime fixture")
+    }
+
+    /// The refresh token is single-use, so the decision is load-bearing: spend it
+    /// for an expired token, keep it for one that has life left.
+    #[test]
+    fn needs_refresh_covers_the_proactive_window() {
+        let now = expires_at("2026-05-06T07:00:00.000Z");
+
+        // Nothing recorded: only the authorization server can say.
+        assert!(needs_refresh(None, &now));
+        // Already expired.
+        assert!(needs_refresh(
+            Some(&expires_at("2026-05-06T06:59:59.000Z")),
+            &now
+        ));
+        // Inside the window, and the boundary itself.
+        assert!(needs_refresh(
+            Some(&expires_at("2026-05-06T07:00:01.000Z")),
+            &now
+        ));
+        assert!(needs_refresh(
+            Some(&expires_at("2026-05-06T07:30:00.000Z")),
+            &now
+        ));
+        // One second past it: leave the refresh token alone.
+        assert!(!needs_refresh(
+            Some(&expires_at("2026-05-06T07:30:01.000Z")),
+            &now
+        ));
     }
 
     #[test]

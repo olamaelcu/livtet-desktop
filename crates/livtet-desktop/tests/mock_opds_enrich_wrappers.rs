@@ -12,21 +12,24 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use livtet_core::data::entities::{digital_inventory, editions};
-use livtet_core::data::orm::{ColumnTrait, EntityTrait, QueryFilter};
+use livtet_core::data::entities::{
+    digital_inventory, edition_identifiers, editions, identifiers, works,
+};
+use livtet_core::data::orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use livtet_core::data::{Kind, TestDb};
 use livtet_desktop_lib::commands::atproto_shelves::{
     ShelvedBook, import_shelved_book, list_shelved_books,
 };
 use livtet_desktop_lib::commands::calibre::import_calibre_library;
-use livtet_desktop_lib::commands::enrich::{enrich_edition, enrich_library};
+use livtet_desktop_lib::commands::enrich::{apply_enrichment, enrich_library, preview_enrichment};
+use livtet_desktop_lib::commands::enrich_merge::EnrichMode;
 use livtet_desktop_lib::commands::import::ImportMode;
 use livtet_desktop_lib::commands::opds::{
     OpdsAuthInput, OpdsAuthKind, opds_acquire, opds_catalogs_create, opds_catalogs_list,
     opds_catalogs_update, opds_page, opds_search,
 };
 use livtet_desktop_lib::{AppState, PluginError, mock_state_for_bulk};
-use livtet_types::DbId;
+use livtet_types::{DbId, now_primitive};
 use tauri::Manager;
 
 // ---------------------------------------------------------------- harness ----
@@ -574,80 +577,232 @@ async fn acquire_downloads_imports_and_catalogues_the_acquisition_file() {
 
 // ----------------------------------------------------------------- enrich ----
 
-#[tokio::test]
-async fn enrich_edition_previews_the_merged_fields() {
-    let test_db = TestDb::new(&[Kind::Business]).await.expect("db");
-    let app = mock_app_for(&test_db).await;
-
-    let preview = enrich_edition(
-        app.state::<AppState>(),
-        "01EDITION".into(),
-        Some("openlibrary".into()),
-        "union".into(),
-    )
+/// Seeds one work + edition, optionally with an ISBN, so the enrichment
+/// commands have a real row to read and write.
+async fn seed_enrichable_edition(test_db: &TestDb, with_identifier: bool) -> DbId {
+    let db = test_db.state().db_conn();
+    let work_id = DbId::new();
+    works::ActiveModel {
+        id: Set(work_id),
+        title: Set("Untitled Work".into()),
+        description: Set(None),
+        sort_title: Set(None),
+        series_type: Set(None),
+        language_id: Set(None),
+        preferred_edition_id: Set(None),
+        created_at: Set(now_primitive()),
+        updated_at: Set(None),
+    }
+    .insert(&db)
     .await
-    .expect("preview");
+    .expect("work");
 
-    // Only a field the current edition lacks is "added".
-    assert_eq!(preview.added.len(), 1);
-    assert_eq!(
-        preview.added.get("title_sort").map(String::as_str),
-        Some("Dune")
-    );
-    // A differing value is a conflict, and the preview shows both sides.
-    assert_eq!(
-        preview.conflicts.get("publisher").map(String::as_str),
-        Some("current: \"Mock Publisher\", source: \"Ace Books\"")
-    );
-    assert_eq!(
-        preview.conflicts.get("language").map(String::as_str),
-        Some("current: \"en\", source: \"eng\"")
-    );
-    assert_eq!(
-        preview.conflicts.get("published").map(String::as_str),
-        Some("current: \"2020-01-15\", source: \"1965\"")
-    );
-    assert!(preview.conflicts.contains_key("description"));
-    // Already-present subjects are not re-listed; new ones are unioned in.
-    assert_eq!(
-        preview.unioned.get("contributors"),
-        Some(&vec!["Frank Herbert".to_string()])
-    );
-    assert_eq!(
-        preview.unioned.get("subjects"),
-        Some(&vec!["Dune Universe".to_string()])
-    );
-    assert_eq!(preview.found, vec!["OL12345W".to_string()]);
+    let edition_id = DbId::new();
+    editions::ActiveModel {
+        id: Set(edition_id),
+        work_id: Set(work_id),
+        group_id: Set(None),
+        title: Set(None),
+        published_date: Set(None),
+        format_id: Set(None),
+        language_id: Set(None),
+        notes: Set(None),
+        description: Set(None),
+        format_metadata: Set(None),
+        created_at: Set(now_primitive()),
+        updated_at: Set(None),
+    }
+    .insert(&db)
+    .await
+    .expect("edition");
+
+    if with_identifier {
+        let identifier_id = DbId::new();
+        identifiers::ActiveModel {
+            id: Set(identifier_id),
+            value: Set("urn:isbn:9780441013593".to_string()),
+            kind: Set("isbn".to_string()),
+        }
+        .insert(&db)
+        .await
+        .expect("identifier");
+        edition_identifiers::ActiveModel {
+            edition_id: Set(edition_id),
+            identifier_id: Set(identifier_id),
+        }
+        .insert(&db)
+        .await
+        .expect("edition identifier");
+    }
+
+    edition_id
+}
+
+/// A mock app whose state points at a temp plugin root and host config, so the
+/// enrichment commands launch the real host binary the way the app does.
+async fn mock_app_with_enricher(
+    test_db: &TestDb,
+    plugins_dir: &camino::Utf8Path,
+    config: &camino::Utf8Path,
+) -> tauri::App<tauri::test::MockRuntime> {
+    let mut state = mock_state_for_bulk(test_db).await;
+    state.plugin_host_path = host_binary();
+    state.plugin_host_config = config.to_owned();
+    state.plugins_dir = plugins_dir.to_owned();
+    let app = tauri::test::mock_app();
+    app.manage(state);
+    app
+}
+
+/// The host binary cargo builds beside the test binary.
+fn host_binary() -> camino::Utf8PathBuf {
+    let test_binary = std::env::current_exe().expect("test binary path");
+    let profile_dir = test_binary
+        .parent()
+        .and_then(|path| path.parent())
+        .expect("profile dir");
+    camino::Utf8PathBuf::from_path_buf(profile_dir.join(if cfg!(windows) {
+        "livtet-plugin-host.exe"
+    } else {
+        "livtet-plugin-host"
+    }))
+    .expect("utf-8 host path")
+}
+
+/// Writes a static enricher (no `http`) plus the host config that forwards it.
+fn write_static_enricher(root: &tempfile::TempDir) -> (camino::Utf8PathBuf, camino::Utf8PathBuf) {
+    let plugins_dir = camino::Utf8PathBuf::from_path_buf(root.path().join("plugins"))
+        .expect("utf-8 plugins path");
+    let plugin_dir = plugins_dir.join("static-enricher");
+    fs_err::create_dir_all(&plugin_dir).expect("plugin dir");
+    fs_err::write(
+        plugin_dir.join("plugin.toml"),
+        "name = \"static-enricher\"\nversion = \"1.0.0\"\n\n[capabilities.log]\n",
+    )
+    .expect("manifest");
+    fs_err::write(
+        plugin_dir.join("init.lua"),
+        r#"
+local Enricher = {}
+Enricher.__index = Enricher
+function Enricher.new(config, deps) return setmetatable({}, Enricher) end
+function Enricher:sources() return { "isbn" } end
+function Enricher:enrich(identity)
+  return {
+    title = "Enriched Title",
+    contributors = {},
+    publisher = "Enriched Press",
+    subjects = { "Enriched Subject" },
+    found = {},
+  }
+end
+return Enricher
+"#,
+    )
+    .expect("plugin lua");
+
+    let config = camino::Utf8PathBuf::from_path_buf(root.path().join("host.toml"))
+        .expect("utf-8 config path");
+    fs_err::write(
+        &config,
+        "[capabilities]\nallow = [\"log\"]\ncallbacks = [\"http\"]\n\n[signatures]\nrequired = false\n",
+    )
+    .expect("host config");
+    (plugins_dir, config)
 }
 
 #[tokio::test]
-async fn enrich_without_a_plugin_and_bulk_enrich_report_the_plugin_surface_errors() {
+async fn a_preview_then_apply_writes_the_edition() {
     let test_db = TestDb::new(&[Kind::Business]).await.expect("db");
-    let app = mock_app_for(&test_db).await;
+    let edition_id = seed_enrichable_edition(&test_db, true).await;
+    let root = tempfile::tempdir().expect("temp dir");
+    let (plugins_dir, config) = write_static_enricher(&root);
+    let app = mock_app_with_enricher(&test_db, &plugins_dir, &config).await;
 
-    let error = enrich_edition(
+    let preview = preview_enrichment(app.state::<AppState>(), edition_id.to_string())
+        .await
+        .expect("preview");
+    assert_eq!(preview.sources, vec!["static-enricher".to_string()]);
+    assert!(
+        preview
+            .added
+            .iter()
+            .any(|change| change.field == "publisher" && change.value == "Enriched Press"),
+        "{preview:?}"
+    );
+    // Nothing is written by a preview.
+    let before = editions::Entity::find_by_id(edition_id)
+        .one(&test_db.state().db_conn())
+        .await
+        .expect("read edition")
+        .expect("edition row");
+    assert_eq!(before.title, None, "a preview leaves the row alone");
+
+    let summary = apply_enrichment(
         app.state::<AppState>(),
-        "01EDITION".into(),
-        None,
-        "union".into(),
+        edition_id.to_string(),
+        EnrichMode::Fill,
     )
     .await
-    .expect_err("no enricher selected");
+    .expect("apply");
+    assert_eq!(summary.mode, EnrichMode::Fill);
+    assert!(summary.fields_added >= 1, "{summary:?}");
+    assert!(!summary.cover_stored, "no inventory row, no cover");
+
+    let after = editions::Entity::find_by_id(edition_id)
+        .one(&test_db.state().db_conn())
+        .await
+        .expect("read edition")
+        .expect("edition row");
+    assert_eq!(after.title.as_deref(), Some("Enriched Title"));
+}
+
+#[tokio::test]
+async fn preview_refuses_an_edition_with_no_identifiers() {
+    let test_db = TestDb::new(&[Kind::Business]).await.expect("db");
+    let edition_id = seed_enrichable_edition(&test_db, false).await;
+    let app = mock_app_for(&test_db).await;
+
+    let error = preview_enrichment(app.state::<AppState>(), edition_id.to_string())
+        .await
+        .expect_err("no identifiers, nothing to match on");
     match error {
         PluginError::Invalid { message } => {
-            assert!(message.contains("no enricher plugin selected"), "{message}");
+            assert!(message.contains("no identifiers"), "{message}");
         }
         other => panic!("expected an invalid-plugin error, got {other:?}"),
     }
+}
 
-    let bulk = enrich_library(
+#[tokio::test]
+async fn apply_without_a_preview_is_refused() {
+    let test_db = TestDb::new(&[Kind::Business]).await.expect("db");
+    let edition_id = seed_enrichable_edition(&test_db, true).await;
+    let app = mock_app_for(&test_db).await;
+
+    let error = apply_enrichment(
         app.state::<AppState>(),
-        "all".into(),
-        Some("openlibrary".into()),
-        "union".into(),
+        edition_id.to_string(),
+        EnrichMode::Overwrite,
     )
     .await
-    .expect_err("bulk enrich is not implemented");
+    .expect_err("nothing was previewed");
+    match error {
+        PluginError::Invalid { message } => {
+            assert!(message.contains("preview expired"), "{message}");
+        }
+        other => panic!("expected an invalid-plugin error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn bulk_enrich_reports_unavailable_and_takes_a_mode() {
+    let test_db = TestDb::new(&[Kind::Business]).await.expect("db");
+    let app = mock_app_for(&test_db).await;
+
+    let bulk = enrich_library(app.state::<AppState>(), "all".into(), EnrichMode::Union)
+        .await
+        .expect_err("bulk enrich is not implemented");
     assert!(
         matches!(bulk, PluginError::Unavailable { ref message } if message.contains("bulk enrich")),
         "got {bulk:?}"

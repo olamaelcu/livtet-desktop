@@ -50,6 +50,11 @@ pub struct AppState {
     /// removed when their `reader-{id}` window is destroyed.
     pub readers: Arc<Mutex<HashMap<DbId, Arc<livtet_reader::Reader>>>>,
 
+    /// Previews fetched from plugin enrichers, keyed by edition id and waiting
+    /// for their apply (ADR-0046). Server-side so apply never trusts metadata the
+    /// webview supplies, and so applying does not re-run the lookup.
+    pub enrichment_cache: ArcMut<HashMap<String, crate::commands::enrich::CachedEnrichment>>,
+
     /// ATProto OAuth session and manager.
     pub(crate) atproto: Arc<crate::atproto::AtprotoManager>,
     /// The localhost-only MCP endpoint: its persisted settings and the live

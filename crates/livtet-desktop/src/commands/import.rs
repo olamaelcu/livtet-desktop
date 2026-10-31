@@ -17,25 +17,26 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use livtet_core::data::{
     entities::{
-        authors, digital_inventory, edition_authors, edition_identifiers, edition_publishers,
-        edition_subjects, editions, formats, identifiers, languages, publishers, subjects, works,
+        digital_inventory, edition_authors, edition_identifiers, edition_publishers,
+        edition_subjects, editions, formats, languages, works,
     },
     orm::{
-        ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
-        QueryFilter, Set, TransactionTrait,
+        ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+        TransactionTrait,
     },
 };
 use livtet_core::shelf::ReadingStatus;
 use livtet_importer::{
-    AudiobookImporter, EpubImporter, Importer, ImporterContributor, ImporterMeta, MobiImporter,
-    PdfImporter,
+    AudiobookImporter, EpubImporter, Importer, ImporterMeta, MobiImporter, PdfImporter,
 };
-use livtet_types::{
-    CommonLanguages, DbId, FormatMetadataSchema, Isbn, KnownFormats, Urn, now_primitive,
-};
+use livtet_types::{DbId, FormatMetadataSchema, Isbn, KnownFormats, Urn, now_primitive};
 
 use super::{
     catalog::{EditionFile, FileStatus},
+    catalog_write::{
+        contributor_bindings, resolve_language, unique_preserving_order, upsert_author,
+        upsert_identifier, upsert_publisher, upsert_subject, write_cover_file,
+    },
     importers::remote_importer_metadata,
 };
 use crate::types::AppState;
@@ -196,122 +197,6 @@ fn batch_result(files: Vec<ImportFileResult>) -> ImportBatchResult {
     }
 }
 
-/// Find-or-create a name-keyed entity, returning its id. `insert` builds the
-/// model with an id; we keep that id in both code paths.
-async fn upsert_author(txn: &DatabaseTransaction, name: &str) -> Result<DbId, ImportError> {
-    if let Some(found) = authors::Entity::find()
-        .filter(authors::Column::Name.eq(name))
-        .one(txn)
-        .await?
-    {
-        return Ok(found.id);
-    }
-    let id = DbId::new();
-    authors::ActiveModel {
-        id: Set(id),
-        name: Set(name.to_string()),
-    }
-    .insert(txn)
-    .await?;
-    Ok(id)
-}
-
-async fn upsert_identifier(
-    txn: &DatabaseTransaction,
-    value: &str,
-    kind: &str,
-) -> Result<DbId, ImportError> {
-    if let Some(found) = identifiers::Entity::find()
-        .filter(identifiers::Column::Value.eq(value))
-        .one(txn)
-        .await?
-    {
-        return Ok(found.id);
-    }
-    let id = DbId::new();
-    identifiers::ActiveModel {
-        id: Set(id),
-        value: Set(value.to_string()),
-        kind: Set(kind.to_string()),
-    }
-    .insert(txn)
-    .await?;
-    Ok(id)
-}
-
-async fn upsert_publisher(txn: &DatabaseTransaction, name: &str) -> Result<DbId, ImportError> {
-    if let Some(found) = publishers::Entity::find()
-        .filter(publishers::Column::Name.eq(name))
-        .one(txn)
-        .await?
-    {
-        return Ok(found.id);
-    }
-    let id = DbId::new();
-    publishers::ActiveModel {
-        id: Set(id),
-        name: Set(name.to_string()),
-        website: Set(None),
-        logo_url: Set(None),
-        created_at: Set(now_primitive()),
-        updated_at: Set(None),
-    }
-    .insert(txn)
-    .await?;
-    Ok(id)
-}
-
-async fn upsert_subject(txn: &DatabaseTransaction, name: &str) -> Result<DbId, ImportError> {
-    if let Some(found) = subjects::Entity::find()
-        .filter(subjects::Column::Name.eq(name))
-        .one(txn)
-        .await?
-    {
-        return Ok(found.id);
-    }
-    let id = DbId::new();
-    subjects::ActiveModel {
-        id: Set(id),
-        name: Set(name.to_string()),
-        created_at: Set(now_primitive()),
-        updated_at: Set(None),
-    }
-    .insert(txn)
-    .await?;
-    Ok(id)
-}
-
-/// Resolve the `languages` row for the normalized code, creating it when the
-/// language is not in the seeded set.
-async fn resolve_language(
-    txn: &DatabaseTransaction,
-    language: Option<&str>,
-) -> Result<Option<DbId>, ImportError> {
-    let Some(raw) = language else { return Ok(None) };
-    let Some(info) = CommonLanguages::normalize_language_code(raw) else {
-        return Ok(None);
-    };
-    if let Some(found) = languages::Entity::find()
-        .filter(languages::Column::Code.eq(&info.code))
-        .one(txn)
-        .await?
-    {
-        return Ok(Some(found.id));
-    }
-    let id = DbId::new();
-    languages::ActiveModel {
-        id: Set(id),
-        name: Set(info.english_name),
-        code: Set(info.code),
-        flag_emoji: Set(info.flag_emoji),
-        created_at: Set(now_primitive()),
-        updated_at: Set(None),
-    }
-    .insert(txn)
-    .await?;
-    Ok(Some(id))
-}
-
 /// Filesystem name for a library-owned file: `{hash}-{original_filename}`.
 /// Only the final component of `source` is used, so the store can never escape
 /// `books_dir`. The name is length-capped for `NAME_MAX` (the hash prefix is
@@ -406,22 +291,6 @@ fn cover_extension(mime: &str) -> &'static str {
         "image/gif" => "gif",
         _ => "img",
     }
-}
-
-/// Write cover bytes to `path`, creating its parent directory.
-///
-/// Callers record the path in the database, so a failure here means "null the
-/// path", not "fail the write": a cover is re-derivable, a catalog row is not.
-async fn write_cover_file(path: &str, bytes: &[u8]) -> Result<(), String> {
-    let path = camino::Utf8Path::new(path);
-    if let Some(parent) = path.parent() {
-        fs_err::tokio::create_dir_all(parent)
-            .await
-            .map_err(|e| e.to_string())?;
-    }
-    fs_err::tokio::write(path, bytes)
-        .await
-        .map_err(|e| e.to_string())
 }
 
 /// Download a cover for a virtual book, returning the bytes and the file
@@ -601,7 +470,7 @@ fn is_core_contributor_role(role: &str) -> bool {
 
 /// Normalizes a contributor role for storage, reporting whether it is one of
 /// the core MARC relator codes the native importer produces.
-fn normalize_contributor_role(role: Option<&str>) -> (String, bool) {
+pub(crate) fn normalize_contributor_role(role: Option<&str>) -> (String, bool) {
     let normalized = role
         .map(str::trim)
         .filter(|role| !role.is_empty())
@@ -609,37 +478,6 @@ fn normalize_contributor_role(role: Option<&str>) -> (String, bool) {
         .to_ascii_lowercase();
     let known = is_core_contributor_role(&normalized);
     (normalized, known)
-}
-
-/// Collapse a list of strings to its unique non-empty entries, in first-seen
-/// order. Importers already dedupe their output, but this fence guarantees a
-/// repeated subject or ISBN can never violate a composite primary key on
-/// `edition_subjects` / `edition_identifiers` regardless of what it hands us.
-fn unique_preserving_order(values: &[String]) -> Vec<String> {
-    let mut unique: Vec<String> = Vec::with_capacity(values.len());
-    for value in values {
-        let value = value.trim();
-        if !value.is_empty() && !unique.iter().any(|seen| seen == value) {
-            unique.push(value.to_string());
-        }
-    }
-    unique
-}
-
-/// Collapse contributor records to the `(name, normalized_role)` pairs that
-/// become `edition_authors` rows, in input order and deduplicated. The importer
-/// already dedupes its output, but this fence guarantees a repeated binding can
-/// never violate the composite primary key regardless of what it hands us.
-fn contributor_bindings(contributors: &[ImporterContributor]) -> Vec<(String, String)> {
-    let mut bindings: Vec<(String, String)> = Vec::with_capacity(contributors.len());
-    for contributor in contributors {
-        let (role, _) = normalize_contributor_role(contributor.role.as_deref());
-        let binding = (contributor.name.clone(), role);
-        if !bindings.contains(&binding) {
-            bindings.push(binding);
-        }
-    }
-    bindings
 }
 
 fn format_id_for_extension(extension: &str) -> Option<DbId> {
@@ -1758,10 +1596,10 @@ mod tests {
     use super::{
         FileImporterSource, ImportBatchProgress, ImportContext, ImportError, ImportFileProgress,
         ImportFileResult, ImportMode, ImportOutcome, ImportPhase, LibraryTarget, batch_result,
-        contributor_bindings, cover_extension, file_result, format_id_for_extension,
-        identifier_kind, import_batch, import_one_inner, importer_source_for_extension,
-        is_inside_dir, library_store_name, materialize_library_file, normalize_contributor_role,
-        persist_import, relink_edition, validate_importer_meta,
+        cover_extension, file_result, format_id_for_extension, identifier_kind, import_batch,
+        import_one_inner, importer_source_for_extension, is_inside_dir, library_store_name,
+        materialize_library_file, normalize_contributor_role, persist_import, relink_edition,
+        validate_importer_meta,
     };
     use crate::commands::catalog::FileStatus;
     use livtet_core::data::orm::{ActiveModelTrait, Set};
@@ -2012,15 +1850,6 @@ mod tests {
             role: role.map(str::to_string),
             file_as: None,
         }
-    }
-
-    /// The `(name, role)` bindings produced for the given `(name, role)` input.
-    fn bindings(pairs: &[(&str, Option<&str>)]) -> Vec<(String, String)> {
-        let contributors: Vec<ImporterContributor> = pairs
-            .iter()
-            .map(|(name, role)| contributor(name, *role))
-            .collect();
-        contributor_bindings(&contributors)
     }
 
     fn importable_record(title: &str, title_sort: Option<&str>) -> ImporterMeta {
@@ -2456,55 +2285,6 @@ mod tests {
             .await
             .expect("blank query never touches the network");
         assert!(results.is_empty());
-    }
-
-    #[test]
-    fn contributor_bindings_dedupes_same_name_and_role() {
-        assert_eq!(
-            bindings(&[
-                ("Susana M. Morris", Some("aut")),
-                ("Susana M. Morris", Some("aut")),
-            ]),
-            vec![("Susana M. Morris".to_string(), "aut".to_string())]
-        );
-    }
-
-    #[test]
-    fn contributor_bindings_keeps_distinct_roles() {
-        assert_eq!(
-            bindings(&[
-                ("Susana M. Morris", Some("aut")),
-                ("Susana M. Morris", Some("ill")),
-            ]),
-            vec![
-                ("Susana M. Morris".to_string(), "aut".to_string()),
-                ("Susana M. Morris".to_string(), "ill".to_string()),
-            ]
-        );
-    }
-
-    #[test]
-    fn contributor_bindings_blank_role_defaults_to_aut() {
-        assert_eq!(
-            bindings(&[("Susana M. Morris", None), ("Susana M. Morris", Some("  ")),]),
-            vec![("Susana M. Morris".to_string(), "aut".to_string())]
-        );
-    }
-
-    #[test]
-    fn contributor_bindings_preserves_order() {
-        assert_eq!(
-            bindings(&[
-                ("First", Some("aut")),
-                ("Second", Some("edt")),
-                ("Third", Some("ill")),
-            ]),
-            vec![
-                ("First".to_string(), "aut".to_string()),
-                ("Second".to_string(), "edt".to_string()),
-                ("Third".to_string(), "ill".to_string()),
-            ]
-        );
     }
 
     #[tokio::test]

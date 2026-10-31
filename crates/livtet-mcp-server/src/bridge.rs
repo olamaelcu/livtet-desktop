@@ -143,4 +143,23 @@ pub trait DesktopBridge: Clone + Send + Sync + 'static {
         &self,
         bookmark_id: String,
     ) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `opds_server_status`: the OPDS server's stored settings and listener state.
+    fn opds_server_status(&self) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `opds_server_settings_save`: reconcile the OPDS listener with `settings`.
+    ///
+    /// `settings` is `{ "enabled": bool, "port": number }`, the same shape the
+    /// desktop panel sends. A refused save changes nothing: neither the bound
+    /// listener nor the stored settings.
+    fn opds_server_settings_save(
+        &self,
+        settings: Value,
+    ) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `opds_server_start`: bind the listener at the stored port on every interface.
+    fn opds_server_start(&self) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `opds_server_stop`: unbind the listener.
+    fn opds_server_stop(&self) -> impl Future<Output = Result<Value, BridgeError>> + Send;
 }

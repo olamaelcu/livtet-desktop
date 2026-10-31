@@ -25,10 +25,13 @@ const DID = 'did:plc:aaaaaaaaaaaaaaaaaaaaaaaa'
 
 let status: Record<string, unknown> | null
 let profile: Record<string, unknown> | null
+/** What the refresh command reports, and what the status query sees afterwards. */
+let refreshed: Record<string, unknown> | null
 
 beforeEach(() => {
   status = null
   profile = null
+  refreshed = null
 
   invoke.mockReset()
   listen.mockReset()
@@ -54,6 +57,8 @@ beforeEach(() => {
         return { did: DID, display_name: 'New name', description: 'New bio' }
       case 'atproto_set_avatar':
         return { did: DID, avatar_url: 'https://pds.example/blob?cid=new' }
+      case 'atproto_refresh_session':
+        return refreshed
       default:
         throw new Error(`unexpected command: ${command} ${JSON.stringify(args)}`)
     }
@@ -122,7 +127,8 @@ test('signed in shows the DID, scope and expiry with a sign-out action', async (
   status = {
     did: DID,
     scope: 'atproto repo:x',
-    expires_at: '2026-01-02T03:04:05.000Z',
+    // Relative to the moment the test runs, so the bracketed reading is stable.
+    expires_at: new Date(Date.now() + 42 * 60_000).toISOString(),
   }
   profile = { did: DID, display_name: 'Reader', handle: 'reader.example' }
 
@@ -134,7 +140,14 @@ test('signed in shows the DID, scope and expiry with a sign-out action', async (
   expect(
     [...container.querySelectorAll('.session-details ul code')].map((n) => n.textContent),
   ).toEqual(['atproto', 'repo:x'])
-  expect(details).toContain('2026-01-02T03:04:05.000Z')
+
+  // The raw instant stays available as the machine-readable value; what a reader
+  // sees is their own clock and, beside it, how long that leaves.
+  const time = container.querySelector<HTMLTimeElement>('.session-details time')
+  expect(time?.getAttribute('datetime')).toBe(status.expires_at)
+  expect(time?.textContent).toContain('(in 42 minutes)')
+  expect(time?.querySelector('.relative')?.textContent).toBe('(in 42 minutes)')
+  expect(time?.textContent ?? '').not.toContain('T')
 
   await expect
     .poll(() => container.querySelector('.profile-card .display-name')?.textContent ?? '')
@@ -145,6 +158,79 @@ test('signed in shows the DID, scope and expiry with a sign-out action', async (
   expect(
     [...container.querySelectorAll('wa-button')].map((node) => node.textContent?.trim() ?? ''),
   ).toContain('Sign out')
+})
+
+test('an expired session offers to spend the refresh token, and follows the result', async () => {
+  const expiredAt = new Date(Date.now() - 5 * 60_000).toISOString()
+  const renewedAt = new Date(Date.now() + 60 * 60_000).toISOString()
+  status = { did: DID, scope: 'atproto', expires_at: expiredAt }
+  profile = { did: DID, display_name: 'Reader', handle: 'reader.example' }
+  // The Rust side stores the refreshed session, so the status query sees it too.
+  refreshed = { did: DID, scope: 'atproto', expires_at: renewedAt }
+
+  const { container } = await render(AccountSettingsFixture)
+
+  await expect.poll(() => container.querySelector('.expired')).not.toBeNull()
+
+  status = refreshed
+  await clickButton(container, 'Refresh session')
+
+  await expect.poll(() => toast.success.mock.calls).toEqual([['Access token refreshed']])
+  expect(invoke).toHaveBeenCalledWith('atproto_refresh_session')
+  // The row goes away once the panel is showing a token with life left.
+  await expect.poll(() => container.querySelector('.expired')).toBeNull()
+  await expect.poll(() => container.querySelector('time')?.getAttribute('datetime')).toBe(renewedAt)
+})
+
+// The button is only about an expiry that has passed; a token with time left
+// spends no refresh token just because the panel was opened.
+test('a session that is still valid offers no refresh', async () => {
+  status = {
+    did: DID,
+    scope: 'atproto',
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+  }
+  profile = { did: DID, display_name: 'Reader', handle: 'reader.example' }
+
+  const { container } = await render(AccountSettingsFixture)
+
+  await expect.poll(() => container.querySelector('.session-details')).not.toBeNull()
+  expect(container.querySelector('.expired')).toBeNull()
+})
+
+// A refresh that rotates nothing means the old token was still accepted. The
+// stored timestamp cannot move on its own, so the panel stops calling it expired:
+// telling a reader their session is dead sends them to sign in for nothing.
+test('a refresh that changes nothing stops calling the token expired', async () => {
+  const expiredAt = new Date(Date.now() - 5 * 60_000).toISOString()
+  status = { did: DID, scope: 'atproto', expires_at: expiredAt }
+  profile = { did: DID, display_name: 'Reader', handle: 'reader.example' }
+  refreshed = { did: DID, scope: 'atproto', expires_at: expiredAt }
+
+  const { container } = await render(AccountSettingsFixture)
+  await expect.poll(() => container.querySelector('.expired')).not.toBeNull()
+
+  await clickButton(container, 'Refresh session')
+
+  await expect.poll(() => toast.success.mock.calls).toEqual([['The access token is still valid']])
+  // The status query refetches the same expiry; it must not come back as expired.
+  await expect.poll(() => container.querySelector('.expired')).toBeNull()
+  await expect
+    .poll(() => invoke.mock.calls.filter(([command]) => command === 'atproto_status'))
+    .toHaveLength(2)
+})
+
+// A timestamp the platform cannot parse must not surface as "Invalid Date" once
+// the panel has decided to humanise it: the stored value is the honest fallback.
+test('an unparseable expiry is shown as stored', async () => {
+  status = { did: DID, scope: 'atproto', expires_at: 'whenever' }
+  profile = { did: DID, display_name: 'Reader', handle: 'reader.example' }
+
+  const { container } = await render(AccountSettingsFixture)
+
+  await expect.poll(() => container.querySelector('.session-details')).not.toBeNull()
+  expect(container.querySelector('.session-details time')).toBeNull()
+  expect(container.querySelector('.session-details')?.textContent ?? '').toContain('whenever')
 })
 
 test('a null profile reports that no record exists yet', async () => {

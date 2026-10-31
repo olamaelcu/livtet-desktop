@@ -145,10 +145,11 @@ impl OpdsServerRuntime {
         }
     }
 
-    /// Persist `settings`, then reconcile the listener with them.
+    /// Reconcile the listener with `settings`, then persist them.
     ///
     /// A port of 0 is refused: it would bind an ephemeral port no e-reader
-    /// could be configured with.
+    /// could be configured with. A refused save changes nothing — neither the
+    /// bound listener nor the stored settings.
     pub(crate) async fn save(
         &self,
         settings: OpdsServerSettings,
@@ -161,10 +162,14 @@ impl OpdsServerRuntime {
             ));
         }
 
+        // Reach the requested configuration *before* remembering it. A port that
+        // cannot bind (already taken) must not cost the listener that is serving
+        // right now, and must not be written to `opds-server.json` — otherwise the
+        // next launch starts with a configuration that cannot start.
+        self.apply(&settings, deps).await?;
         self.store
             .write(&settings)
             .map_err(|message| OpdsServerError::new("storage", message))?;
-        self.apply(&settings, deps).await?;
         Ok(self.status().await)
     }
 
@@ -208,19 +213,20 @@ impl OpdsServerRuntime {
             return Ok(());
         }
 
-        if let Some(mut current) = running.take() {
-            current
-                .server
-                .stop()
-                .await
-                .map_err(|error| OpdsServerError::new("stop", error.to_string()))?;
-            tracing::info!("OPDS server stopped");
-        }
-
         let Some(port) = desired else {
+            if let Some(mut current) = running.take() {
+                current
+                    .server
+                    .stop()
+                    .await
+                    .map_err(|error| OpdsServerError::new("stop", error.to_string()))?;
+                tracing::info!("OPDS server stopped");
+            }
             return Ok(());
         };
 
+        // Bind the replacement first: a failed bind then leaves the listener that
+        // is already serving untouched.
         let url = base_url(port);
         let mut server = PoemOpdsServer::new(deps.handler(url.clone()).await?);
         server
@@ -228,7 +234,14 @@ impl OpdsServerRuntime {
             .await
             .map_err(|error| OpdsServerError::new("bind", error.to_string()))?;
         tracing::info!(%url, "OPDS server listening on every interface");
-        *running = Some(Running { server, url });
+
+        if let Some(mut previous) = running.replace(Running { server, url })
+            && let Err(error) = previous.server.stop().await
+        {
+            // The new listener is live and carries the requested configuration;
+            // a join failure only means the old task did not shut down cleanly.
+            tracing::warn!(%error, "the previous OPDS listener did not shut down cleanly");
+        }
         Ok(())
     }
 }
@@ -297,10 +310,15 @@ pub struct OpdsServerDeps {
 impl OpdsServerDeps {
     /// Build the dependency set for a running app state.
     pub(crate) fn from_state(state: &AppState) -> Self {
-        Self {
-            db: state.db.clone(),
-            search_index: state.search_index.clone(),
-        }
+        Self::new(state.db.clone(), state.search_index.clone())
+    }
+
+    /// Build the dependency set from the two handles it reads.
+    ///
+    /// The MCP bridge holds both already (see `crate::mcp::CommandBridge`), so it
+    /// reaches the server without a second `AppState`.
+    pub(crate) fn new(db: SharedState, search_index: ArcMut<Option<Arc<SearchIndex>>>) -> Self {
+        Self { db, search_index }
     }
 
     /// Wrap the live repository in the handler the routes call.
@@ -681,6 +699,55 @@ mod tests {
         );
 
         runtime.stop(&fixture.deps).await.expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn a_port_that_cannot_bind_leaves_the_listener_and_the_store_alone() {
+        let port = free_port();
+        let fixture = fixture(port).await;
+        let runtime = runtime(fixture.store.clone());
+        runtime.start(&fixture.deps).await.expect("server starts");
+
+        // Hold a port on every interface so the server's bind must fail.
+        let held =
+            std::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, 0)).expect("hold a port");
+        let taken = held.local_addr().expect("held address").port();
+
+        let error = runtime
+            .save(
+                OpdsServerSettings {
+                    enabled: true,
+                    port: taken,
+                },
+                &fixture.deps,
+            )
+            .await
+            .expect_err("a taken port is refused");
+        assert_eq!(error.code, "bind");
+
+        let status = runtime.status().await;
+        assert!(status.running, "the running listener survived the refusal");
+        assert!(
+            status
+                .url
+                .as_deref()
+                .is_some_and(|url| url.ends_with(&format!(":{port}"))),
+            "still publishing the old port: {:?}",
+            status.url
+        );
+        assert_eq!(
+            fixture.store.read().expect("settings").port,
+            port,
+            "a refused save is not remembered, so the next launch can still start"
+        );
+        assert_eq!(
+            get(port, "/").await.status(),
+            reqwest::StatusCode::OK,
+            "the original catalog still answers"
+        );
+
+        runtime.stop(&fixture.deps).await.expect("cleanup");
+        drop(held);
     }
 
     #[tokio::test]

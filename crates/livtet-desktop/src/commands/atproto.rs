@@ -75,6 +75,19 @@ pub async fn atproto_logout(state: State<'_, AppState>) -> Result<(), AtprotoErr
     state.atproto.logout().await
 }
 
+/// Give the stored session a fresh access token, using the refresh token.
+///
+/// Settings offers this when the expiry it shows has already passed. A token that
+/// is still comfortably valid is left alone, so pressing it never spends a
+/// refresh token for nothing; `None` means nobody is signed in.
+#[tauri::command]
+#[specta::specta]
+pub async fn atproto_refresh_session(
+    state: State<'_, AppState>,
+) -> Result<Option<atproto::AtprotoStatus>, AtprotoError> {
+    state.atproto.refresh_session().await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn atproto_get_profile(

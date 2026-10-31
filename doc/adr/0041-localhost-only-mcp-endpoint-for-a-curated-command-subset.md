@@ -60,9 +60,12 @@ desktop process.
   `create_virtual_book`, `reader_publication`, `reader_resource`,
   `get_reader_position`, `save_reader_position`, `list_reader_bookmarks`,
   `add_reader_bookmark`, `remove_reader_bookmark`. Deliberately absent:
-  `open_reader` (it opens a window — a UI act with no meaning to a headless
-  client), bulk delete/export, plugin installation, OPDS acquisition, sync
-  pairing, and every ATProto identity write.
+  `add_reader_bookmark`, `remove_reader_bookmark`, and (added 2026-10-31,
+  ADR-0045) `opds_server_status`, `opds_server_settings_save`,
+  `opds_server_start`, `opds_server_stop`. Deliberately absent: `open_reader`
+  (it opens a window — a UI act with no meaning to a headless client), bulk
+  delete/export, plugin installation, OPDS acquisition, sync pairing, and
+  every ATProto identity write.
 - **Binding.** `127.0.0.1` only, never a wildcard address, and the transport
   keeps its default loopback `Host` allowlist so a forged `Host` (the
   DNS-rebinding path a browser page could take) is answered with 403.
@@ -84,6 +87,13 @@ desktop process.
   shared machine that means a shared library; `import_file`/`import_files`
   write catalog rows and index documents, so a local client can mutate the
   library. This is the accepted cost of not inventing a token.
+- The OPDS server tools are the first ones that change what this machine
+  offers to *other* machines, not just what the library contains: a trusted
+  local client can open an unauthenticated catalog on every network
+  interface. Accepted because the alternative is an assistant that cannot
+  answer "is my catalog reachable, and at what address?", and because a
+  refused save is inert (ADR-0045), so the worst case is a port the user did
+  not want rather than a lost one.
 - The published tool names are pinned by
   `crates/livtet-mcp-server/tests/endpoint.rs`, so a tool can neither vanish
   nor appear unnoticed, and the forged-`Host` guard is asserted there too.

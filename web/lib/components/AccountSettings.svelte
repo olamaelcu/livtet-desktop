@@ -9,9 +9,11 @@ import {
   atprotoStatus,
   beginAtprotoLogin,
   completeAtprotoLogin,
+  refreshAtprotoSession,
   setAtprotoAvatar,
   updateAtprotoProfile,
 } from '../atproto'
+import { describeMoment } from '../datetime'
 import { atprotoKeys } from '../query/keys'
 import ActionButton from './ActionButton.svelte'
 
@@ -55,9 +57,79 @@ $effect(() => {
 
 const signedIn = $derived(status.data ?? null)
 
+/** Clock the token's countdown is measured against; it moves while a session shows. */
+let now = $state(new Date())
+
+/**
+ * The expiry on the reader's own clock, and how far off it is.
+ *
+ * `undefined` for a missing or unparseable timestamp, so the panel falls back to
+ * the raw value rather than printing "Invalid Date".
+ */
+const expiry = $derived(signedIn?.expires_at ? describeMoment(signedIn.expires_at, now) : undefined)
+
+/**
+ * Expiry the backend confirmed the server still accepts.
+ *
+ * A PDS can serve requests with an access token past the lifetime it advertised,
+ * and a token that is still accepted must not be reported as expired: that reads
+ * as "sign in again" when nothing is wrong. Refreshing the session settles it,
+ * and the verdict holds until the stored expiry itself changes.
+ */
+let confirmedLive = $state<string | null>(null)
+
+/**
+ * Whether the stored expiry has already passed, and has not been shown to be
+ * still accepted.
+ *
+ * An unparseable timestamp compares false, so nothing offers to refresh a value
+ * that cannot be reasoned about.
+ */
+const expired = $derived(
+  signedIn?.expires_at
+    ? Date.parse(signedIn.expires_at) <= now.getTime() && signedIn.expires_at !== confirmedLive
+    : false,
+)
+
+// "In 42 minutes" is wrong a minute after it is drawn, so the clock ticks for as
+// long as an expiry is on screen. Thirty seconds keeps the minute reading honest
+// without waking for a change that would not show.
+$effect(() => {
+  if (!signedIn?.expires_at) return
+  now = new Date()
+  const id = setInterval(() => (now = new Date()), 30_000)
+  return () => clearInterval(id)
+})
+
 function invalidate() {
   queryClient.invalidateQueries({ queryKey: atprotoKeys.all })
 }
+
+/**
+ * Ask the backend to spend the refresh token, and report what actually happened.
+ *
+ * The expiry only moves when the authorization server issued a new access token,
+ * so an unchanged one means the old token was still accepted: worth saying rather
+ * than claiming a refresh that did not occur.
+ */
+const refreshSession = createMutation(() => ({
+  mutationFn: refreshAtprotoSession,
+  onSuccess: (fresh) => {
+    if (!fresh) {
+      // The account went away between the click and the reply; nothing rotated.
+      toast.error('No ATProto account is signed in')
+      invalidate()
+      return
+    }
+    const rotated = fresh?.expires_at !== signedIn?.expires_at
+    // Nothing rotated means the old token is still being served, so stop calling
+    // it expired; a rotation moves the expiry and the question with it.
+    if (!rotated) confirmedLive = signedIn?.expires_at ?? null
+    toast.success(rotated ? 'Access token refreshed' : 'The access token is still valid')
+    invalidate()
+  },
+  onError: (error) => toast.error(atprotoErrorMessage(error)),
+}))
 
 const signIn = createMutation(() => ({
   mutationFn: () => beginAtprotoLogin(handle.trim()),
@@ -157,7 +229,28 @@ const scopes = $derived(signedIn?.scope.split(' ') || [])
           {#if signedIn.expires_at}
             <div>
               <dt>Access token expires</dt>
-              <dd>{signedIn.expires_at}</dd>
+              <dd>
+                {#if expiry}
+                  <time datetime={signedIn.expires_at}>
+                    {expiry.local}
+                    <span class="relative">({expiry.relative})</span>
+                  </time>
+                {:else}
+                  {signedIn.expires_at}
+                {/if}
+                {#if expired}
+                  <div class="expired">
+                    <span>The stored access token has expired.</span>
+                    <ActionButton
+                      size="small"
+                      onclick={() => refreshSession.mutate()}
+                      disabled={refreshSession.isPending}
+                    >
+                      {refreshSession.isPending ? 'Refreshing…' : 'Refresh session'}
+                    </ActionButton>
+                  </div>
+                {/if}
+              </dd>
             </div>
           {/if}
         </dl>
@@ -316,6 +409,21 @@ const scopes = $derived(signedIn?.scope.split(' ') || [])
 
   .session-details dd {
     margin: 0;
+  }
+
+  /* The relative reading is secondary: the wall clock is the fact. */
+  .relative {
+    color: var(--wa-color-text-quiet);
+  }
+
+  /* An expired token is a state to act on, not a detail, so it gets its own row
+     under the expiry rather than being folded into it. */
+  .expired {
+    display: flex;
+    align-items: center;
+    gap: var(--wa-space-s);
+    margin-block-start: var(--wa-space-2xs);
+    color: var(--wa-color-warning-fill-loud, var(--wa-color-text-quiet));
   }
 
   .profile-card {

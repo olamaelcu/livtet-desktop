@@ -13,7 +13,7 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::DesktopBridge;
 
@@ -144,6 +144,15 @@ pub struct AddReaderBookmarkArgs {
     /// Fraction of the publication the location names, for `kind = "epub"`.
     #[serde(default)]
     pub fraction: Option<f64>,
+}
+
+/// Arguments for [`LivtetMcpServer::opds_server_settings_save`].
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct OpdsServerSettingsArgs {
+    /// Whether the server listens at all.
+    pub enabled: bool,
+    /// TCP port to bind on every interface; 1-65535, and 0 is refused.
+    pub port: u16,
 }
 
 /// Arguments for [`LivtetMcpServer::remove_reader_bookmark`].
@@ -342,11 +351,54 @@ impl<B: DesktopBridge> LivtetMcpServer<B> {
     ) -> ToolResult {
         finish(self.bridge.remove_reader_bookmark(args.bookmark_id).await)
     }
+
+    /// The OPDS server's settings and listener state (`opdsServerStatus`).
+    #[tool(
+        name = "opds_server_status",
+        description = "Report whether the OPDS catalog server is listening, on which port, and the URL an e-reader uses."
+    )]
+    async fn opds_server_status(&self) -> ToolResult {
+        finish(self.bridge.opds_server_status().await)
+    }
+
+    /// Save the OPDS server settings (`opdsServerSettingsSave`).
+    #[tool(
+        name = "opds_server_settings_save",
+        description = "Set whether the OPDS catalog server runs and on which port (1-65535); applies immediately and is remembered. Publishes the library to every network interface with no authentication."
+    )]
+    async fn opds_server_settings_save(
+        &self,
+        Parameters(args): Parameters<OpdsServerSettingsArgs>,
+    ) -> ToolResult {
+        finish(
+            self.bridge
+                .opds_server_settings_save(json!({ "enabled": args.enabled, "port": args.port }))
+                .await,
+        )
+    }
+
+    /// Bind the OPDS listener at the stored port (`opdsServerStart`).
+    #[tool(
+        name = "opds_server_start",
+        description = "Start the OPDS catalog server on the stored port, publishing the on-disk library to e-readers on the network."
+    )]
+    async fn opds_server_start(&self) -> ToolResult {
+        finish(self.bridge.opds_server_start().await)
+    }
+
+    /// Unbind the OPDS listener (`opdsServerStop`).
+    #[tool(
+        name = "opds_server_stop",
+        description = "Stop the OPDS catalog server, closing the port it was publishing on."
+    )]
+    async fn opds_server_stop(&self) -> ToolResult {
+        finish(self.bridge.opds_server_stop().await)
+    }
 }
 
 #[tool_handler(
     router = self.tool_router,
     name = "livtet-desktop",
-    instructions = "Tools for the Livtet desktop library: search the catalog, import books, and read or bookmark them. Everything runs against the local library on this machine."
+    instructions = "Tools for the Livtet desktop library: search the catalog, import books, read or bookmark them, and report or move the OPDS catalog server that publishes the library to e-readers. Everything runs against the local library on this machine."
 )]
 impl<B: DesktopBridge> ServerHandler for LivtetMcpServer<B> {}

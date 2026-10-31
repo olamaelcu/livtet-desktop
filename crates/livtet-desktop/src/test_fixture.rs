@@ -100,6 +100,7 @@ pub async fn mock_state_for_bulk(test_db: &TestDb) -> AppState {
             token: "mock".into(),
         },
         readers: Arc::new(Mutex::new(HashMap::new())),
+        enrichment_cache: ArcMut::new(tokio::sync::RwLock::new(HashMap::new())),
         mcp: Arc::new(crate::mcp::McpRuntime::new(Arc::new(
             MemoryMcpSettings::default(),
         ))),

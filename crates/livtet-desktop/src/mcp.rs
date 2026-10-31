@@ -37,6 +37,7 @@ use crate::commands::reader::{
 use crate::commands::search::{
     EditionFilters, filter_options_inner, search_editions_inner, search_typeahead_inner,
 };
+use crate::opds_server::{OpdsServerDeps, OpdsServerError, OpdsServerSettings};
 use crate::types::{AppState, ArcMut};
 
 /// The environment variable that overrides the stored settings.
@@ -290,6 +291,10 @@ pub(crate) struct CommandBridge {
     plugins_dir: Utf8PathBuf,
     readers: Arc<ReaderCache>,
     loopback: crate::commands::byte_server::LoopbackServer,
+    /// The OPDS catalog server, so a tool call can report or move it. Distinct
+    /// from [`AppState::mcp`] in the doc above: the OPDS runtime owns a listener
+    /// and settings, never this bridge, so holding it closes no loop.
+    opds_server: Arc<crate::opds_server::OpdsServerRuntime>,
 }
 
 impl CommandBridge {
@@ -306,6 +311,7 @@ impl CommandBridge {
             plugins_dir: state.plugins_dir.clone(),
             readers: state.readers.clone(),
             loopback: state.loopback.clone(),
+            opds_server: state.opds_server.clone(),
         }
     }
 
@@ -500,6 +506,53 @@ impl DesktopBridge for CommandBridge {
             .map_err(|error| bridge_error("reader", &error))?;
         serialized(removed)
     }
+
+    async fn opds_server_status(&self) -> Result<Value, BridgeError> {
+        serialized(self.opds_server.status().await)
+    }
+
+    async fn opds_server_settings_save(&self, settings: Value) -> Result<Value, BridgeError> {
+        let settings: OpdsServerSettings = serde_json::from_value(settings)
+            .map_err(|error| BridgeError::new("invalid-parameter", error.to_string()))?;
+        let status = self
+            .opds_server
+            .save(settings, &self.opds_deps())
+            .await
+            .map_err(opds_server_error)?;
+        serialized(status)
+    }
+
+    async fn opds_server_start(&self) -> Result<Value, BridgeError> {
+        let status = self
+            .opds_server
+            .start(&self.opds_deps())
+            .await
+            .map_err(opds_server_error)?;
+        serialized(status)
+    }
+
+    async fn opds_server_stop(&self) -> Result<Value, BridgeError> {
+        let status = self
+            .opds_server
+            .stop(&self.opds_deps())
+            .await
+            .map_err(opds_server_error)?;
+        serialized(status)
+    }
+}
+
+impl CommandBridge {
+    /// The server's view of the library: the same pool and index it already holds.
+    fn opds_deps(&self) -> OpdsServerDeps {
+        OpdsServerDeps::new(self.db.clone(), self.search_index.clone())
+    }
+}
+
+/// Render an OPDS settings failure under its own stable code (`bind`,
+/// `invalid-port`, `index`, `storage`, `stop`), so a client can branch on it
+/// exactly as the Settings panel does.
+fn opds_server_error(error: OpdsServerError) -> BridgeError {
+    BridgeError::new(error.code, error.message)
 }
 
 /// Parse an edition id, matching the command's own `invalid-id` code.
@@ -1090,5 +1143,69 @@ mod tests {
             .await
             .expect_err("nothing to read");
         assert_eq!(error.code, "reader");
+    }
+
+    #[tokio::test]
+    async fn opds_server_status_reports_the_stored_settings() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let status = bridge
+            .opds_server_status()
+            .await
+            .expect("status is readable");
+
+        assert_eq!(status["settings"]["enabled"], json!(false));
+        assert_eq!(status["settings"]["port"], json!(8080));
+        assert_eq!(status["running"], json!(false));
+        assert_eq!(status["url"], json!(null));
+    }
+
+    #[tokio::test]
+    async fn opds_server_settings_save_refuses_port_zero_under_its_own_code() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .opds_server_settings_save(json!({ "enabled": true, "port": 0 }))
+            .await
+            .expect_err("port 0 is refused");
+
+        assert_eq!(error.code, "invalid-port");
+        assert!(
+            !bridge
+                .opds_server_status()
+                .await
+                .expect("status")
+                .pointer("/settings/enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true),
+            "a refused save leaves the stored settings alone"
+        );
+    }
+
+    #[tokio::test]
+    async fn opds_server_settings_save_persists_a_disabled_configuration() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let saved = bridge
+            .opds_server_settings_save(json!({ "enabled": false, "port": 9100 }))
+            .await
+            .expect("a disabled save binds nothing");
+        assert_eq!(saved["settings"]["port"], json!(9100));
+        assert_eq!(saved["running"], json!(false));
+
+        let status = bridge.opds_server_status().await.expect("status");
+        assert_eq!(status["settings"]["port"], json!(9100));
+    }
+
+    #[tokio::test]
+    async fn opds_server_start_without_an_index_reports_the_index_code() {
+        let (_db, bridge, _edition) = seeded_catalog().await;
+
+        let error = bridge
+            .opds_server_start()
+            .await
+            .expect_err("no index, no listener");
+
+        assert_eq!(error.code, "index");
     }
 }

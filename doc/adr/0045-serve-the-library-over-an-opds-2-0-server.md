@@ -73,6 +73,17 @@ the live `AppState`, and give it a Settings tab.
 - The listener is a process-wide resource, so an `opds-server.json` port already
   in use surfaces as a `bind` error in Settings instead of a silent fallback to
   another port.
+- A refused save is inert: the replacement listener binds *before* the old one is
+  dropped and before anything is persisted, so a port already in use reports the
+  `bind` error while the catalog keeps serving on its old port and
+  `opds-server.json` keeps the configuration that works.
+- The four commands are also tools on the app's own MCP endpoint (ADR-0041), and
+  the whole path — tool call → bridge → runtime → listener → real catalog — has a
+  live smoke test: `crates/livtet-desktop/tests/live_opds_smoke.rs`, run with
+  `mise run smoke:mcp` against a dev app started with `LIVTET_MCP_PORT`. It is
+  `#[ignore]`d, picks its own port, asserts that a refused save leaves the catalog
+  serving, and restores the app's stored settings before asserting, so a failed
+  run does not leave the user's catalog moved or stopped.
 - `AppState::search_index` changed shape, touching every reader of the index
   (search, bulk, import, calibre, ATProto shelves, the MCP bridge). That is
   mechanical but load-bearing: a second `SearchIndex` on the same directory would

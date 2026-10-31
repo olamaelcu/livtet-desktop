@@ -22,7 +22,7 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Every tool the endpoint is expected to publish.
-const EXPECTED_TOOLS: [&str; 13] = [
+const EXPECTED_TOOLS: [&str; 17] = [
     "add_reader_bookmark",
     "create_virtual_book",
     "filter_options",
@@ -30,6 +30,10 @@ const EXPECTED_TOOLS: [&str; 13] = [
     "import_file",
     "import_files",
     "list_reader_bookmarks",
+    "opds_server_settings_save",
+    "opds_server_start",
+    "opds_server_status",
+    "opds_server_stop",
     "reader_publication",
     "reader_resource",
     "remove_reader_bookmark",
@@ -172,6 +176,33 @@ impl DesktopBridge for StubBridge {
             return Err(BridgeError::new("invalid-id", "bookmark id is invalid"));
         }
         Ok(json!({ "bookmark_id": bookmark_id }))
+    }
+
+    async fn opds_server_status(&self) -> Result<Value, BridgeError> {
+        self.called("opds_server_status");
+        Ok(json!({ "running": false, "settings": { "enabled": false, "port": 8080 }, "url": null }))
+    }
+
+    async fn opds_server_settings_save(&self, settings: Value) -> Result<Value, BridgeError> {
+        self.called("opds_server_settings_save");
+        // A refused save is the interesting branch: the port is already taken.
+        if settings.get("port") == Some(&json!(1420)) {
+            return Err(BridgeError::new(
+                "bind",
+                "bind 0.0.0.0:1420: Address already in use",
+            ));
+        }
+        Ok(settings)
+    }
+
+    async fn opds_server_start(&self) -> Result<Value, BridgeError> {
+        self.called("opds_server_start");
+        Ok(json!({ "running": true }))
+    }
+
+    async fn opds_server_stop(&self) -> Result<Value, BridgeError> {
+        self.called("opds_server_stop");
+        Ok(json!({ "running": false }))
     }
 }
 
@@ -411,6 +442,35 @@ async fn every_tool_routes_its_arguments_to_the_bridge() {
     )
     .await;
 
+    expect_echoed(
+        &client,
+        "opds_server_settings_save",
+        json!({ "enabled": true, "port": 8099 }),
+    )
+    .await;
+
+    // The three no-argument OPDS tools return the bridge payload.
+    let opds_status = call(&client, "opds_server_status", json!({})).await;
+    assert_eq!(opds_status.is_error, Some(false), "opds_server_status");
+    assert_eq!(
+        opds_status.structured_content,
+        Some(
+            json!({ "running": false, "settings": { "enabled": false, "port": 8080 }, "url": null })
+        )
+    );
+
+    let opds_started = call(&client, "opds_server_start", json!({})).await;
+    assert_eq!(
+        opds_started.structured_content,
+        Some(json!({ "running": true }))
+    );
+
+    let opds_stopped = call(&client, "opds_server_stop", json!({})).await;
+    assert_eq!(
+        opds_stopped.structured_content,
+        Some(json!({ "running": false }))
+    );
+
     // Omitted `mode` defaults to `"link"` for both import tools.
     let linked = call(&client, "import_file", json!({ "path": "/books/one.epub" })).await;
     assert_eq!(linked.is_error, Some(false), "import_file must succeed");
@@ -453,6 +513,10 @@ async fn every_tool_routes_its_arguments_to_the_bridge() {
             "list_reader_bookmarks",
             "add_reader_bookmark",
             "remove_reader_bookmark",
+            "opds_server_settings_save",
+            "opds_server_status",
+            "opds_server_start",
+            "opds_server_stop",
             "import_file",
             "import_files",
         ]

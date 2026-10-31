@@ -4,7 +4,8 @@ Date: 2026-09-29
 
 ## Status
 
-Accepted. Builds on [ADR-0029](0029-livtet-plugin-host-sidecar.md) and
+Accepted, amended 2026-10-30 (see [Amendment](#amendment-2026-10-30)). Builds on
+[ADR-0029](0029-livtet-plugin-host-sidecar.md) and
 [ADR-0030](0030-plugin-management-ipc.md).
 
 ## Context
@@ -46,3 +47,36 @@ livtet reimplements stanchion internals.
   and directly); `xml`/`sqlite` surface as function-bearing tables while `http`
   is a function. A capability is still gated by policy (host-config allowlist +
   the plugin declaring it).
+
+## Amendment (2026-10-30)
+
+The `http` decision above said the fetch runs under "a domain allowlist", which
+reads as one list the application supplies. It has two inputs, and the
+distinction is the security boundary ([ADR-0046](0046-enrich-edition-metadata-from-plugin-enrichers.md)):
+
+- **The application's own read of the plugin manifest.** `granted_domains_for_plugin`
+  parses `<plugins_dir>/<plugin>/plugin.toml` → `[capabilities.http] domains`. This
+  is the trust anchor: the app decides what a plugin may reach, from a file on a
+  root it owns (ADR-0034).
+- **The grant the host forwards with the call.** `CallbackCall.grant` is an untrusted
+  hint, because the callback travels from the host process to the app and the child
+  chose it. stanchion's own note on `on_callback`
+  (`crates/stanchion-remote/src/client.rs:268-277`): "Re-checking `call.grant` proves
+  nothing, because the child chose it… treat `call.grant` as an untrusted hint."
+
+`answer_http(call, plugins_dir)` therefore permits the **intersection** of the two,
+and refuses every host when either side is empty or when they are disjoint — each with
+its own message, so a misconfigured manifest is distinguishable from a host that
+forwarded nothing. A plugin name that is not a single path segment reads no manifest,
+so `../x` cannot escape the plugins root; unparsable manifests, non-string entries and
+blank entries grant nothing. The enricher host client binds the handler with
+`on_callback` and restricts `allow_capabilities(["http"])`, so no other capability
+reaches it.
+
+This corrects the closing sentence of Consequences. A capability is gated by the
+manifest the **application** reads plus the plugin declaring it — not by "host-config
+allowlist" — and the forwarded grant only narrows that further. It also makes the
+forward-looking clause above concrete: the first `http` client is the enricher, whose
+OpenLibrary plugin declares `domains = ["openlibrary.org", "covers.openlibrary.org"]`.
+ADR-0030's deferred per-capability grant store would replace the manifest read, not
+the intersection rule.

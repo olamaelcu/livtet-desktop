@@ -183,9 +183,10 @@ async function copyUrl(url: string) {
 
   .controls {
     display: flex;
-    align-items: flex-end;
+    align-items: start;
     gap: var(--wa-space-m);
     flex-wrap: wrap;
+  flex-direction: column;
   }
 
   .controls wa-input {

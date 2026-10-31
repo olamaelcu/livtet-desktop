@@ -21,6 +21,17 @@ export async function atprotoLogout(): Promise<void> {
   return invoke<void>('atproto_logout')
 }
 
+/**
+ * Ask the session for a fresh access token, using the stored refresh token.
+ *
+ * The Rust side only spends the refresh token when the access token has expired
+ * or is about to, and reports the session as it stands afterwards; `null` means
+ * nobody is signed in.
+ */
+export async function refreshAtprotoSession(): Promise<AtprotoStatus | null> {
+  return invoke<AtprotoStatus | null>('atproto_refresh_session')
+}
+
 export async function updateAtprotoProfile(input: {
   displayName: string
   description: string

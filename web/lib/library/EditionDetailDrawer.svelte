@@ -6,13 +6,23 @@ import { toast } from 'svelte-sonner'
 import { commands } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
 import { sanitizeHtml } from '../html'
-import { atprotoKeys, catalogKeys } from '../query/keys'
+import { pluginErrorMessage } from '../plugins'
+import { atprotoKeys, catalogKeys, searchKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
 import { DEFAULT_HIGHLIGHT, HIGHLIGHTS } from '../reader/highlights'
 import { filterNotes } from '../reader/notes'
 import { formatNoteDate, loadAnnotations } from '../reader/progress'
 import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
+import {
+  applyEnrichment,
+  type EnrichMode,
+  type EnrichmentPreview,
+  enrichDisabledReason,
+  previewEnrichment,
+  previewIsEmpty,
+  summaryMessage,
+} from './enrich'
 import { formatFileSize, formatIdentifier } from './format'
 import { relinkEditionFile } from './import'
 import ReviewInsert from './ReviewInsert.svelte'
@@ -80,18 +90,103 @@ const signedIn = $derived(
 let reviewForm = $state<{ ok?: boolean; error?: string }>()
 let reviewSubmitting = $state(false)
 
+const ENRICH_MODES: { mode: EnrichMode; label: string; hint: string }[] = [
+  { mode: 'fill', label: 'Fill gaps', hint: 'Only adds fields this book is missing.' },
+  {
+    mode: 'union',
+    label: 'Union',
+    hint: 'Keeps what is here and appends missing list entries.',
+  },
+  {
+    mode: 'overwrite',
+    label: 'Overwrite',
+    hint: 'Takes the source value wherever the two differ.',
+  },
+]
+
+/**
+ * The previewed diff, shown as a review screen in place of the record.
+ * `null` means the body is back on the detail view.
+ */
+let enrichPreview = $state<EnrichmentPreview | null>(null)
+/** How apply will write the preview; `union` keeps the most and loses nothing. */
+let enrichMode = $state<EnrichMode>('union')
+let previewing = $state(false)
+let applying = $state(false)
+
+/** Why enrichment cannot run on this edition, or `null` when it can. */
+const enrichBlocked = $derived(
+  detail.isPending ? 'Loading this book…' : enrichDisabledReason(book?.identifiers),
+)
+/** Which side of a conflict the selected mode writes. */
+const winningSide = $derived<'current' | 'incoming'>(
+  enrichMode === 'overwrite' ? 'incoming' : 'current',
+)
+const enrichModeHint = $derived(
+  ENRICH_MODES.find((option) => option.mode === enrichMode)?.hint ?? '',
+)
+// `ActionButton` forwards undeclared attributes, which is the only way a
+// disabled `wa-button` can explain itself: its own `title` prop is not typed.
+const enrichTitle = $derived({ title: enrichBlocked ?? undefined })
+
+/**
+ * Fetch the diff and switch the drawer to the review screen. A source that
+ * answered with nothing keeps the record on screen instead of opening an empty
+ * review.
+ */
 async function triggerEnrich() {
-  const result = await commands.enrichEdition(editionId, null, 'union')
-  if (result.status === 'ok') {
-    toast.success('Enrichment preview loaded')
-  } else {
-    if (result.error.Host) {
-      toast.error(`Enrichment failed: ${result.error.Host.message}`)
-    } else if (result.error.Invalid) {
-      toast.error(`Enrichment failed: ${result.error.Invalid.message}`)
-    } else if (result.error.Unavailable) {
-      toast.error(`Enrichment failed: ${result.error.Unavailable.message}`)
+  if (!editionId || previewing || applying || enrichBlocked !== null) return
+  try {
+    previewing = true
+    const next = await previewEnrichment(editionId)
+    if (previewIsEmpty(next)) {
+      enrichPreview = null
+      toast.info('Nothing new — the installed sources found no changes for this book')
+      return
     }
+    enrichPreview = next
+  } catch (error) {
+    toast.error(`Enrichment failed: ${pluginErrorMessage(error)}`)
+  } finally {
+    previewing = false
+  }
+}
+
+/** Drop the preview without writing anything. */
+function cancelEnrich() {
+  enrichPreview = null
+  enrichMode = 'union'
+}
+
+/**
+ * Write the preview under the selected mode. The diff is classification only,
+ * so the summary, not the preview, decides what the catalog and the search
+ * index now hold.
+ */
+async function applyEnrich() {
+  if (!editionId || applying || !enrichPreview) return
+  try {
+    applying = true
+    const summary = await applyEnrichment(editionId, enrichMode)
+    enrichPreview = null
+    enrichMode = 'union'
+    void queryClient.invalidateQueries({ queryKey: catalogKeys.editionDetail(editionId) })
+    // A stored cover rewrites `digital_inventory`, which the cover cache and
+    // the catalog list both read.
+    if (summary.cover_stored) {
+      void queryClient.invalidateQueries({ queryKey: catalogKeys.all })
+    }
+    const changed = summary.fields_added + summary.fields_overwritten + summary.fields_unioned
+    if (changed > 0) {
+      void queryClient.invalidateQueries({ queryKey: searchKeys.all })
+    }
+    toast.success(summaryMessage(summary))
+  } catch (error) {
+    // The preview is kept: a retry is still possible unless it expired, and
+    // the backend says so in the message.
+    toast.error(`Enrichment failed: ${pluginErrorMessage(error)}`)
+  } finally {
+    applying = false
   }
 }
 /** The reviewed book's page in the Livtet web app, once publishing resolved it. */
@@ -106,6 +201,15 @@ let localReviewCount = $state(0)
 $effect(() => {
   void editionId
   reviewPageUrl = null
+})
+
+// Same reuse, and the drawer is only hidden rather than unmounted: a preview
+// from another book, or from before it was closed, must never come back.
+$effect(() => {
+  void editionId
+  void open
+  enrichPreview = null
+  enrichMode = 'union'
 })
 
 /**
@@ -238,7 +342,13 @@ async function revealFile(path: string) {
   <wa-button-group slot="header-actions">
     {@const file = book?.file}
     {@const path = file?.file_path}
-    <ActionButton onclick={() => triggerEnrich()}>Enrich</ActionButton>
+    <ActionButton
+      {...enrichTitle}
+      onclick={() => triggerEnrich()}
+      disabled={enrichBlocked !== null || previewing}
+    >
+      {previewing ? 'Enriching…' : 'Enrich'}
+    </ActionButton>
     {#if file?.file_status === 'missing'}
       <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
     {:else}
@@ -266,7 +376,145 @@ async function revealFile(path: string) {
 
   </wa-button-group>
   <div class="body">
-    {#if detail.isPending}
+    {#if enrichPreview}
+      <div class="enrich-review">
+        <header class="enrich-head">
+          <h2 class="title">Enrichment preview</h2>
+          <p class="muted">
+            Nothing is written until you apply. The mode decides which side of a conflict wins.
+          </p>
+        </header>
+
+        <section class="section">
+          <h3 class="section-title">Sources</h3>
+          <ul class="chips">
+            {#each enrichPreview.sources as source (source)}
+              <li><wa-badge>{source}</wa-badge></li>
+            {/each}
+          </ul>
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">Added</h3>
+          {#if enrichPreview.added.length > 0}
+            <ul class="changes">
+              {#each enrichPreview.added as change (change.field)}
+                <li class="change">
+                  <span class="change-field">{change.field}</span>
+                  <span class="change-value">{change.value}</span>
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty">Nothing new.</p>
+          {/if}
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">Unioned</h3>
+          {#if enrichPreview.unioned.length > 0}
+            <ul class="changes">
+              {#each enrichPreview.unioned as addition (addition.field)}
+                <li class="change">
+                  <span class="change-field">{addition.field}</span>
+                  <span class="change-value">{addition.values.join(', ')}</span>
+                </li>
+              {/each}
+            </ul>
+            {#if enrichMode === 'fill'}
+              <p class="muted">Fill gaps leaves existing lists untouched.</p>
+            {/if}
+          {:else}
+            <p class="empty">No lists to extend.</p>
+          {/if}
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">Conflicts</h3>
+          {#if enrichPreview.conflicts.length > 0}
+            <p class="muted">
+              {winningSide === 'incoming'
+                ? 'Overwrite takes the incoming value.'
+                : 'Your current value is kept; the incoming one is shown next to it.'}
+            </p>
+            <ul class="changes">
+              {#each enrichPreview.conflicts as conflict (conflict.field)}
+                <li class="conflict">
+                  <span class="change-field">{conflict.field}</span>
+                  <span
+                    class="conflict-side"
+                    data-side="current"
+                    class:wins={winningSide === 'current'}
+                    class:loses={winningSide !== 'current'}>{conflict.current}</span
+                  >
+                  <span
+                    class="conflict-side"
+                    data-side="incoming"
+                    class:wins={winningSide === 'incoming'}
+                    class:loses={winningSide !== 'incoming'}>{conflict.incoming}</span
+                  >
+                </li>
+              {/each}
+            </ul>
+          {:else}
+            <p class="empty">No conflicts.</p>
+          {/if}
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">Found identifiers</h3>
+          {#if enrichPreview.found.length > 0}
+            <ul class="identifiers">
+              {#each enrichPreview.found as identifier (`${identifier.kind}:${identifier.value}`)}
+                <li class="identifier">
+                  <wa-badge>{identifier.kind}</wa-badge>
+                  <span class="mono">{formatIdentifier(identifier.value)}</span>
+                </li>
+              {/each}
+            </ul>
+            <p class="muted">Saved whichever mode you pick.</p>
+          {:else}
+            <p class="empty">No new identifiers.</p>
+          {/if}
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">Cover</h3>
+          {#if enrichPreview.cover}
+            <p>
+              {enrichPreview.cover.mime}
+              {enrichPreview.cover.storable ? '— will be saved' : '— cannot be stored'}
+            </p>
+          {:else}
+            <p class="empty">No cover offered.</p>
+          {/if}
+        </section>
+
+        <section class="section">
+          <h3 class="section-title">Mode</h3>
+          <div class="mode-control" role="group" aria-label="Enrichment mode">
+            {#each ENRICH_MODES as option (option.mode)}
+              <ActionButton
+                aria-pressed={enrichMode === option.mode}
+                variant={enrichMode === option.mode ? 'brand' : undefined}
+                disabled={applying}
+                onclick={() => (enrichMode = option.mode)}
+              >
+                {option.label}
+              </ActionButton>
+            {/each}
+          </div>
+          <p class="muted">{enrichModeHint}</p>
+        </section>
+
+        <div class="review-actions">
+          <ActionButton onclick={applyEnrich} disabled={applying}>
+            {applying ? 'Applying…' : 'Apply'}
+          </ActionButton>
+          <ActionButton onclick={cancelEnrich} disabled={applying}>Cancel</ActionButton>
+        </div>
+      </div>
+    {:else if detail.isPending}
       <p class="muted">Loading…</p>
     {:else if detail.isError}
       <p class="error">Could not load this book's details.</p>
@@ -634,6 +882,80 @@ font-size: var(--wa-font-size-s);
 
 .error {
 color: var(--wa-color-danger);
+}
+
+.enrich-review {
+display: flex;
+flex-direction: column;
+gap: var(--wa-space-l);
+}
+
+.enrich-head {
+display: flex;
+flex-direction: column;
+gap: var(--wa-space-2xs);
+}
+
+.enrich-head p {
+margin: 0;
+}
+
+.chips,
+.changes {
+display: flex;
+flex-direction: column;
+gap: var(--wa-space-2xs);
+margin: 0;
+padding: 0;
+list-style: none;
+}
+
+.chips {
+flex-direction: row;
+flex-wrap: wrap;
+}
+
+.change,
+.conflict {
+display: flex;
+flex-wrap: wrap;
+align-items: center;
+gap: var(--wa-space-xs);
+}
+
+.change-field {
+min-width: 7rem;
+color: var(--wa-color-text-quiet);
+font-size: var(--wa-font-size-s);
+}
+
+.change-value,
+.conflict-side {
+overflow-wrap: anywhere;
+}
+
+.conflict-side {
+padding: 0 var(--wa-space-2xs);
+border: 1px solid var(--wa-color-border-default);
+border-radius: var(--wa-border-radius);
+}
+
+/* The same diff reads differently per mode: mark the side apply will write. */
+.conflict-side.wins {
+background: var(--wa-color-surface-alt);
+border-color: var(--wa-color-text-normal);
+font-weight: 600;
+}
+
+.conflict-side.loses {
+opacity: 0.55;
+text-decoration: line-through;
+}
+
+.mode-control {
+display: flex;
+flex-wrap: wrap;
+gap: var(--wa-space-xs);
 }
 
 .review-actions {

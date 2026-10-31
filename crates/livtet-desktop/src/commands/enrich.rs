@@ -1,639 +1,667 @@
-use std::collections::{BTreeMap, HashSet};
+//! Edition metadata enrichment from plugin enrichers (ADR-0046).
+//!
+//! Two commands, both keyed on an edition:
+//!
+//! - [`preview_enrichment`] asks every installed enricher that understands the
+//!   edition's identifiers, combines their answers, and reports the diff without
+//!   touching the catalog. The combined answer is cached.
+//! - [`apply_enrichment`] re-reads the edition, re-merges the cached answer under
+//!   the requested mode, writes the result in one transaction, stores the cover
+//!   afterwards, and reindexes the edition.
+//!
+//! Preview and apply call the same [`merge`], so the diff a reader confirms
+//! cannot drift from what lands. Bulk enrichment is not implemented.
 
-use crate::error::PluginError;
-use crate::types::AppState;
-use livtet_importer::{
-    Enrichment, Identifier, ImporterContributor, ImporterCover, ImporterPublicationDate,
-};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use camino::Utf8Path;
+use serde_json::{Value as Json, json};
+use stanchion::remote::{RemoteOptions, RemoteRegistry};
 use tauri::State;
 
-/// Fields we track for enrichment
-#[derive(Debug, Clone, serde::Serialize, Default)]
-pub struct EditionFields {
-    pub title: Option<String>,
-    pub title_sort: Option<String>,
-    pub contributors: Vec<String>,
-    pub publisher: Option<String>,
-    pub language: Option<String>,
-    pub published: Option<ImporterPublicationDate>,
-    pub description: Option<String>,
-    pub subjects: Vec<String>,
-    pub cover: Option<ImporterCover>,
+use super::enrich_merge::{
+    EnrichMode, EnrichmentPreview, EnrichmentSummary, MergeContext, combine, merge,
+};
+use super::enrich_store::{read_snapshot, write_enrichment};
+use super::plugin_host_callbacks::answer_http;
+use crate::error::PluginError;
+use crate::types::AppState;
+use livtet_importer::{BookIdentity, Enrichment};
+use livtet_types::DbId;
+
+/// How long a preview stays applicable. A reader who leaves the review screen
+/// open longer than this is asked to run Enrich again rather than applying a
+/// result fetched against a stale catalog.
+const PREVIEW_TTL: Duration = Duration::from_secs(600);
+
+/// Bounds the cache. One entry per edition previewed, oldest evicted first.
+const PREVIEW_CAPACITY: usize = 32;
+
+/// The combined answer a preview fetched, waiting for its apply.
+///
+/// Held server-side rather than round-tripped through the webview: apply must not
+/// trust client-supplied metadata, and re-running the lookup would double the
+/// network and let the applied result differ from the previewed one.
+pub struct CachedEnrichment {
+    pub enrichment: Enrichment,
+    pub sources: Vec<String>,
+    fetched_at: Instant,
 }
 
-#[derive(Debug, Clone, serde::Serialize, specta::Type)]
-pub struct EnrichmentPreview {
-    pub added: BTreeMap<String, String>,
-    pub unioned: BTreeMap<String, Vec<String>>,
-    pub conflicts: BTreeMap<String, String>,
-    pub found: Vec<String>,
+/// Cache a preview, dropping entries that have aged out and evicting the oldest
+/// when full.
+fn store_cached(
+    cache: &mut HashMap<String, CachedEnrichment>,
+    edition_id: String,
+    entry: CachedEnrichment,
+) {
+    cache.retain(|_, cached| cached.fetched_at.elapsed() < PREVIEW_TTL);
+    let already_present = cache.contains_key(&edition_id);
+    if !already_present
+        && cache.len() >= PREVIEW_CAPACITY
+        && let Some(oldest) = cache
+            .iter()
+            .min_by_key(|(_, cached)| cached.fetched_at)
+            .map(|(key, _)| key.clone())
+    {
+        cache.remove(&oldest);
+    }
+    cache.insert(edition_id, entry);
 }
 
-#[derive(Debug, Clone, serde::Serialize, specta::Type)]
-pub struct EnrichmentSummary {
-    pub edition_id: String,
-    pub enricher: String,
-    pub mode: String,
-    pub fields_added: u32,
-    pub fields_unioned: u32,
-    pub identifiers_persisted: u32,
+/// Take a cached preview for apply, refusing one that has aged out.
+fn take_cached(
+    cache: &mut HashMap<String, CachedEnrichment>,
+    edition_id: &str,
+    ttl: Duration,
+) -> Option<CachedEnrichment> {
+    let entry = cache.remove(edition_id)?;
+    (entry.fetched_at.elapsed() < ttl).then_some(entry)
 }
 
-fn format_date(date: &ImporterPublicationDate) -> String {
-    match (date.year, date.month, date.day) {
-        (y, Some(m), Some(d)) => format!("{y:04}-{m:02}-{d:02}"),
-        (y, Some(m), None) => format!("{y:04}-{m:02}"),
-        (y, None, _) => format!("{y:04}"),
-    }
+fn parse_edition_id(raw: &str) -> Result<DbId, PluginError> {
+    raw.parse::<DbId>()
+        .map_err(|_| PluginError::invalid(format!("`{raw}` is not an edition id")))
 }
 
-fn compute_merge(
-    current: &EditionFields,
-    enrichment: &Enrichment,
-    _mode: &str,
-) -> EnrichmentPreview {
-    let mut added = BTreeMap::new();
-    let mut unioned: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut conflicts = BTreeMap::new();
-    let found: Vec<String> = enrichment.found.iter().map(|id| id.value.clone()).collect();
-
-    if let (None, Some(src)) = (&current.title_sort, &enrichment.title_sort) {
-        added.insert("title_sort".to_string(), src.clone());
-    }
-
-    match (&current.publisher, &enrichment.publisher) {
-        (None, Some(src)) => {
-            added.insert("publisher".to_string(), src.clone());
-        }
-        (Some(cur), Some(src)) if cur != src => {
-            conflicts.insert(
-                "publisher".to_string(),
-                format!("current: \"{}\", source: \"{}\"", cur, src),
-            );
-        }
-        _ => {}
-    }
-
-    match (&current.description, &enrichment.description) {
-        (None, Some(src)) => {
-            added.insert("description".to_string(), src.clone());
-        }
-        (Some(cur), Some(src)) if cur != src => {
-            conflicts.insert(
-                "description".to_string(),
-                format!("current: \"{}\", source: \"{}\"", cur, src),
-            );
-        }
-        _ => {}
-    }
-
-    match (&current.language, &enrichment.language) {
-        (None, Some(src)) => {
-            added.insert("language".to_string(), src.clone());
-        }
-        (Some(cur), Some(src)) if cur != src => {
-            conflicts.insert(
-                "language".to_string(),
-                format!("current: \"{}\", source: \"{}\"", cur, src),
-            );
-        }
-        _ => {}
-    }
-
-    match (&current.published, &enrichment.published) {
-        (None, Some(src)) => {
-            added.insert("published".to_string(), format_date(src));
-        }
-        (Some(cur), Some(src)) => {
-            let (cur_str, src_str) = (format_date(cur), format_date(src));
-            if cur_str != src_str {
-                conflicts.insert(
-                    "published".to_string(),
-                    format!("current: \"{cur_str}\", source: \"{src_str}\""),
-                );
-            }
-        }
-        _ => {}
-    }
-
-    if current.cover.is_none() && enrichment.cover.is_some() {
-        added.insert("cover".to_string(), "present".to_string());
-    }
-
-    let mut existing_contributors: HashSet<String> = current.contributors.iter().cloned().collect();
-    for contrib in &enrichment.contributors {
-        if !existing_contributors.contains(&contrib.name) {
-            unioned
-                .entry("contributors".to_string())
-                .or_default()
-                .push(contrib.name.clone());
-            existing_contributors.insert(contrib.name.clone());
-        }
-    }
-
-    let mut existing_subjects: HashSet<String> = current.subjects.iter().cloned().collect();
-    for subj in &enrichment.subjects {
-        if !existing_subjects.contains(subj) {
-            unioned
-                .entry("subjects".to_string())
-                .or_default()
-                .push(subj.clone());
-            existing_subjects.insert(subj.clone());
-        }
-    }
-
-    EnrichmentPreview {
-        added,
-        unioned,
-        conflicts,
-        found,
-    }
-}
-
+/// Fetch what the installed enrichers know about one edition, then report the
+/// diff. Nothing in the catalog is written.
 #[tauri::command]
 #[specta::specta]
-pub async fn enrich_edition(
-    _state: State<'_, AppState>,
+pub async fn preview_enrichment(
+    state: State<'_, AppState>,
     edition_id: String,
-    plugin_name: Option<String>,
-    mode: String,
 ) -> Result<EnrichmentPreview, PluginError> {
-    preview_enrichment(edition_id.as_str(), plugin_name.as_deref(), &mode)
-}
+    let id = parse_edition_id(&edition_id)?;
+    let snapshot = read_snapshot(&state.db.db_conn(), id)
+        .await
+        .map_err(PluginError::host)?
+        .ok_or_else(|| PluginError::invalid(format!("no edition `{edition_id}`")))?;
 
-/// State-free body of [`enrich_edition`]: rejects a missing enricher, otherwise
-/// merges the (placeholder) enrichment into the (placeholder) current edition.
-fn preview_enrichment(
-    _edition_id: &str,
-    plugin_name: Option<&str>,
-    mode: &str,
-) -> Result<EnrichmentPreview, PluginError> {
-    if plugin_name.is_none() {
+    if snapshot.identity.identifiers.is_empty() {
         return Err(PluginError::invalid(
-            "no enricher plugin selected; open /plugins to add one",
+            "this edition carries no identifiers, so no enricher can be matched to it",
         ));
     }
 
-    let current_edition = EditionFields {
-        title: Some("Mock Title".to_string()),
-        title_sort: None,
-        contributors: Vec::new(),
-        publisher: Some("Mock Publisher".to_string()),
-        language: Some("en".to_string()),
-        published: Some(ImporterPublicationDate {
-            year: 2020,
-            month: Some(1),
-            day: Some(15),
-        }),
-        description: Some("Existing description".to_string()),
-        subjects: vec!["Science Fiction".to_string()],
-        cover: Some(ImporterCover {
-            mime: "image/jpeg".to_string(),
-            data_base64: "existing".to_string(),
-        }),
-    };
-    let enrichment = Enrichment {
-        title: Some("Dune".to_string()),
-        title_sort: Some("Dune".to_string()),
-        contributors: vec![ImporterContributor {
-            name: "Frank Herbert".to_string(),
-            role: Some("author".to_string()),
-            file_as: None,
-        }],
-        publisher: Some("Ace Books".to_string()),
-        language: Some("eng".to_string()),
-        published: Some(ImporterPublicationDate {
-            year: 1965,
-            month: None,
-            day: None,
-        }),
-        description: Some("A science fiction epic set on the desert planet Arrakis.".to_string()),
-        subjects: vec!["Science Fiction".to_string(), "Dune Universe".to_string()],
-        cover: Some(ImporterCover {
-            mime: "image/jpeg".to_string(),
-            data_base64: "...".to_string(),
-        }),
-        found: vec![Identifier {
-            kind: "olid".to_string(),
-            value: "OL12345W".to_string(),
-        }],
-    };
+    let answers = enrich_from_plugins(
+        &state.plugin_host_path,
+        &state.plugin_host_config,
+        &state.plugins_dir,
+        snapshot.identity.clone(),
+    )
+    .await?;
 
-    Ok(compute_merge(&current_edition, &enrichment, mode))
+    if answers.is_empty() {
+        return Err(PluginError::unavailable(
+            "no installed enricher understands this edition's identifiers; open /plugins to add one",
+        ));
+    }
+
+    let (sources, combined) = combine(answers);
+    let context = MergeContext {
+        sources: sources.clone(),
+        cover_storable: snapshot.cover_storable,
+    };
+    // Any mode classifies identically; `Fill` is the resolution apply would take
+    // unless the reader picks another, and the preview never reads `applied`.
+    let classified = merge(&snapshot.fields, &combined, EnrichMode::Fill, &context);
+
+    {
+        let mut cache = state.enrichment_cache.write().await;
+        store_cached(
+            &mut cache,
+            edition_id,
+            CachedEnrichment {
+                enrichment: combined,
+                sources,
+                fetched_at: Instant::now(),
+            },
+        );
+    }
+
+    Ok(classified.preview)
 }
 
+/// Apply the previewed enrichment under `mode`.
+#[tauri::command]
+#[specta::specta]
+pub async fn apply_enrichment(
+    state: State<'_, AppState>,
+    edition_id: String,
+    mode: EnrichMode,
+) -> Result<EnrichmentSummary, PluginError> {
+    let id = parse_edition_id(&edition_id)?;
+
+    let cached = {
+        let mut cache = state.enrichment_cache.write().await;
+        take_cached(&mut cache, &edition_id, PREVIEW_TTL)
+    }
+    .ok_or_else(|| PluginError::invalid("preview expired; run Enrich again"))?;
+
+    // Re-read: the catalog may have moved since the preview, and the merge — not
+    // the cached preview — decides what is written.
+    let snapshot = read_snapshot(&state.db.db_conn(), id)
+        .await
+        .map_err(PluginError::host)?
+        .ok_or_else(|| PluginError::invalid(format!("no edition `{edition_id}`")))?;
+
+    let context = MergeContext {
+        sources: cached.sources.clone(),
+        cover_storable: snapshot.cover_storable,
+    };
+    let resolved = merge(&snapshot.fields, &cached.enrichment, mode, &context);
+
+    let outcome = write_enrichment(&state.db, &state.covers_dir, id, &resolved.applied)
+        .await
+        .map_err(PluginError::host)?;
+
+    let connection = state.db.db_conn();
+    if let Some(index) = state.search_index.read().await.as_deref() {
+        index
+            .add_edition(&connection, id)
+            .await
+            .map_err(|error| PluginError::host(format!("reindexing the edition: {error}")))?;
+    }
+
+    let overwritten = if mode == EnrichMode::Overwrite {
+        count(resolved.preview.conflicts.len())
+    } else {
+        0
+    };
+    Ok(EnrichmentSummary {
+        edition_id,
+        sources: cached.sources,
+        mode,
+        fields_added: count(resolved.preview.added.len()),
+        fields_overwritten: overwritten,
+        fields_unioned: count(resolved.preview.unioned.len()),
+        identifiers_persisted: count(outcome.identifiers_written),
+        cover_stored: outcome.cover_path.is_some(),
+    })
+}
+
+/// Counts cross the IPC boundary as `u32`: Specta will not export `usize`, whose
+/// TypeScript analogue is a BigInt with different precision.
+fn count(value: usize) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+/// Bulk enrichment across a filter. Not implemented; the signature carries
+/// [`EnrichMode`] so it cannot drift from the single-edition contract when it is.
 #[tauri::command]
 #[specta::specta]
 pub async fn enrich_library(
     _state: State<'_, AppState>,
     _filter: String,
-    _plugin_name: Option<String>,
-    _mode: String,
+    _mode: EnrichMode,
 ) -> Result<Vec<EnrichmentSummary>, PluginError> {
     bulk_enrich_unavailable()
 }
 
-/// State-free body of [`enrich_library`]: bulk enrichment is not implemented.
 fn bulk_enrich_unavailable() -> Result<Vec<EnrichmentSummary>, PluginError> {
     Err(PluginError::unavailable(
         "bulk enrich library is planned for a future release",
     ))
 }
 
+/// Runs every installed enricher plugin that understands this identity, pairing
+/// each answer with the plugin that produced it.
+///
+/// The host is launched per call on a blocking worker (the registry is not
+/// `Send`) and answers only `http`, under the policy in
+/// [`super::plugin_host_callbacks::answer_http`]: the allowlist is the app's own
+/// read of the plugin's manifest, so nothing here trusts what the host claims.
+///
+/// `sources` selects the candidates, since an enricher decides which identifier
+/// kinds it understands. A plugin that fails `sources` — an importer, say — is
+/// skipped, and a plugin whose kinds miss the identity is never asked. No
+/// candidate is not an error: the caller decides what to say about an empty
+/// result. Every candidate failing `enrich` is, and reports the last failure.
+pub(crate) async fn enrich_from_plugins(
+    host: &Utf8Path,
+    config: &Utf8Path,
+    plugins_dir: &Utf8Path,
+    identity: BookIdentity,
+) -> Result<Vec<(String, Enrichment)>, PluginError> {
+    let host = host.to_owned();
+    let config = config.to_owned();
+    let plugins_dir = plugins_dir.to_owned();
+    tokio::task::spawn_blocking(move || enrich_on_host(&host, &config, &plugins_dir, identity))
+        .await
+        .map_err(|err| PluginError::host(format!("enrich worker failed: {err}")))?
+}
+
+/// The blocking body of [`enrich_from_plugins`], run on a worker thread.
+fn enrich_on_host(
+    host: &Utf8Path,
+    config: &Utf8Path,
+    plugins_dir: &Utf8Path,
+    identity: BookIdentity,
+) -> Result<Vec<(String, Enrichment)>, PluginError> {
+    let options = RemoteOptions::new(host.as_std_path())
+        .config(config)
+        .plugins(plugins_dir)
+        .inherit_stderr(false);
+    let remote = RemoteRegistry::launch(options).map_err(PluginError::host)?;
+    let callback_dir = plugins_dir.to_owned();
+    let mut remote = remote
+        .on_callback(move |call| answer_http(call, &callback_dir))
+        .allow_capabilities(["http"]);
+
+    let outcomes = remote.dispatch("sources", []).map_err(PluginError::host)?;
+    let mut results = Vec::new();
+    let mut last_error: Option<String> = None;
+    for outcome in outcomes {
+        // A plugin that cannot answer `sources` is not an enricher; its failure
+        // is expected, not a reason to abandon the others.
+        let Some(value) = outcome.value else {
+            continue;
+        };
+        let Ok(sources) = serde_json::from_value::<Vec<String>>(value) else {
+            continue;
+        };
+        if !enricher_matches_identity(&sources, &identity) {
+            continue;
+        }
+
+        let plugin = outcome.plugin;
+        let answer = remote
+            .call::<Json>(&plugin, "enrich", [json!(identity)])
+            .map_err(|err| format!("{plugin}: {err}"))
+            .and_then(|value| {
+                Enrichment::from_wire_json(value).map_err(|err| format!("{plugin}: {err}"))
+            });
+        match answer {
+            Ok(enrichment) => results.push((plugin, enrichment)),
+            Err(err) => last_error = Some(err),
+        }
+    }
+
+    if results.is_empty()
+        && let Some(error) = last_error
+    {
+        return Err(PluginError::host(error));
+    }
+    Ok(results)
+}
+
+/// Whether an enricher's `sources` answers for this identity.
+///
+/// `sources` names the identifier kinds the plugin keys on (`["isbn", "olid"]`);
+/// a plugin that understands none of the identity's kinds is never asked, since
+/// it would only come back empty-handed.
+fn enricher_matches_identity(sources: &[String], identity: &BookIdentity) -> bool {
+    identity.identifiers.iter().any(|identifier| {
+        sources
+            .iter()
+            .any(|kind| kind.trim().eq_ignore_ascii_case(&identifier.kind))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use camino::Utf8PathBuf;
+    use fs_err as fs;
+
     use super::*;
+    use livtet_importer::Identifier;
 
-    /// `Enrichment` has no `Default`, so tests start from an empty one and set
-    /// only the field under test.
-    fn empty() -> Enrichment {
-        Enrichment {
-            title: None,
-            title_sort: None,
-            contributors: Vec::new(),
-            publisher: None,
-            language: None,
-            published: None,
-            description: None,
-            subjects: Vec::new(),
-            cover: None,
-            found: Vec::new(),
-        }
-    }
-
-    fn date(year: i32, month: Option<u8>, day: Option<u8>) -> ImporterPublicationDate {
-        ImporterPublicationDate { year, month, day }
-    }
-
-    #[test]
-    fn format_date_renders_year_month_day() {
-        assert_eq!(format_date(&date(2024, Some(3), Some(7))), "2024-03-07");
-    }
-
-    #[test]
-    fn format_date_omits_absent_day() {
-        assert_eq!(format_date(&date(2024, Some(3), None)), "2024-03");
-    }
-
-    #[test]
-    fn format_date_renders_year_alone() {
-        assert_eq!(format_date(&date(2024, None, None)), "2024");
-    }
-
-    #[test]
-    fn merge_adds_a_field_absent_from_current() {
-        let enrichment = Enrichment {
-            publisher: Some("Verso".to_string()),
-            ..empty()
-        };
-
-        let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
-
-        assert_eq!(
-            preview.added.get("publisher").map(String::as_str),
-            Some("Verso")
-        );
-        assert!(preview.conflicts.is_empty());
-    }
-
-    #[test]
-    fn merge_reports_a_conflict_when_both_sides_differ() {
-        let current = EditionFields {
-            publisher: Some("Verso".to_string()),
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            publisher: Some("Pluto".to_string()),
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert!(preview.added.is_empty());
-        assert_eq!(
-            preview.conflicts.get("publisher").map(String::as_str),
-            Some("current: \"Verso\", source: \"Pluto\"")
-        );
-    }
-
-    #[test]
-    fn merge_unions_list_valued_fields_without_duplicating() {
-        let current = EditionFields {
-            subjects: vec!["politics".to_string()],
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            subjects: vec!["politics".to_string(), "history".to_string()],
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert_eq!(
-            preview.unioned.get("subjects"),
-            Some(&vec!["history".to_string()])
-        );
-    }
-
-    #[test]
-    fn merge_collects_found_identifiers() {
-        let enrichment = Enrichment {
-            found: vec![Identifier {
-                kind: "olid".to_string(),
-                value: "OL123M".to_string(),
-            }],
-            ..empty()
-        };
-
-        let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
-
-        assert_eq!(preview.found, vec!["OL123M".to_string()]);
-    }
-
-    /// The `mode` parameter is bound as `_mode` and never read, so every mode
-    /// produces the same preview. Pinned so the dead parameter is visible
-    /// rather than assumed to work.
-    #[test]
-    fn merge_ignores_its_mode_argument() {
-        let current = EditionFields {
-            publisher: Some("Verso".to_string()),
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            publisher: Some("Pluto".to_string()),
-            subjects: vec!["history".to_string()],
-            ..empty()
-        };
-
-        let union = compute_merge(&current, &enrichment, "union");
-        let replace = compute_merge(&current, &enrichment, "replace");
-
-        assert_eq!(union.added, replace.added);
-        assert_eq!(union.unioned, replace.unioned);
-        assert_eq!(union.conflicts, replace.conflicts);
-    }
-
-    /// Unlike publisher, description and language, `title_sort` has only an
-    /// "added" branch: a differing title_sort is silently dropped.
-    #[test]
-    fn merge_never_reports_a_title_sort_conflict() {
-        let current = EditionFields {
-            title_sort: Some("Capital".to_string()),
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            title_sort: Some("Kapital, Das".to_string()),
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert!(preview.added.is_empty());
-        assert!(preview.conflicts.is_empty());
-    }
-
-    fn contributor(name: &str) -> ImporterContributor {
-        ImporterContributor {
-            name: name.to_string(),
-            role: Some("aut".to_string()),
-            file_as: None,
-        }
-    }
-
-    fn cover(data: &str) -> ImporterCover {
-        ImporterCover {
-            mime: "image/jpeg".to_string(),
-            data_base64: data.to_string(),
-        }
-    }
-
-    #[test]
-    fn merge_fills_every_scalar_field_absent_from_current() {
-        let enrichment = Enrichment {
-            title_sort: Some("Dawn of Everything, The".to_string()),
-            description: Some("A new history.".to_string()),
-            language: Some("eng".to_string()),
-            published: Some(date(2021, Some(11), None)),
-            ..empty()
-        };
-
-        let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
-
-        let added: Vec<(&str, &str)> = preview
-            .added
-            .iter()
-            .map(|(k, v)| (k.as_str(), v.as_str()))
-            .collect();
-        assert_eq!(
-            added,
-            vec![
-                ("description", "A new history."),
-                ("language", "eng"),
-                ("published", "2021-11"),
-                ("title_sort", "Dawn of Everything, The"),
-            ]
-        );
-        assert!(preview.conflicts.is_empty());
-    }
-
-    #[test]
-    fn merge_reports_description_and_language_conflicts_without_adding() {
-        let current = EditionFields {
-            description: Some("Old blurb".to_string()),
-            language: Some("en".to_string()),
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            description: Some("New blurb".to_string()),
-            language: Some("fr".to_string()),
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert!(preview.added.is_empty());
-        assert_eq!(
-            preview.conflicts.get("description").map(String::as_str),
-            Some("current: \"Old blurb\", source: \"New blurb\"")
-        );
-        assert_eq!(
-            preview.conflicts.get("language").map(String::as_str),
-            Some("current: \"en\", source: \"fr\"")
-        );
-    }
-
-    #[test]
-    fn merge_treats_equal_values_as_agreement() {
-        let current = EditionFields {
-            publisher: Some("Verso".to_string()),
-            description: Some("Same".to_string()),
-            language: Some("en".to_string()),
-            published: Some(date(1999, Some(5), Some(4))),
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            publisher: Some("Verso".to_string()),
-            description: Some("Same".to_string()),
-            language: Some("en".to_string()),
-            published: Some(date(1999, Some(5), Some(4))),
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert!(preview.added.is_empty());
-        assert!(preview.conflicts.is_empty());
-    }
-
-    #[test]
-    fn merge_keeps_current_values_when_source_is_silent() {
-        let current = EditionFields {
-            title_sort: Some("Capital".to_string()),
-            publisher: Some("Verso".to_string()),
-            description: Some("Blurb".to_string()),
-            language: Some("en".to_string()),
-            published: Some(date(1867, None, None)),
-            cover: Some(cover("existing")),
-            ..Default::default()
-        };
-
-        let preview = compute_merge(&current, &empty(), "union");
-
-        assert!(preview.added.is_empty());
-        assert!(preview.unioned.is_empty());
-        assert!(preview.conflicts.is_empty());
-    }
-
-    /// Dates are compared by their rendered precision: a year-only source
-    /// date conflicts with a full current date even when the years match.
-    #[test]
-    fn merge_reports_published_conflict_at_differing_precision() {
-        let current = EditionFields {
-            published: Some(date(1965, Some(8), Some(1))),
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            published: Some(date(1965, None, None)),
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert!(preview.added.is_empty());
-        assert_eq!(
-            preview.conflicts.get("published").map(String::as_str),
-            Some("current: \"1965-08-01\", source: \"1965\"")
-        );
-    }
-
-    #[test]
-    fn merge_adds_a_cover_only_when_current_has_none() {
-        let enrichment = Enrichment {
-            cover: Some(cover("new")),
-            ..empty()
-        };
-
-        let missing = compute_merge(&EditionFields::default(), &enrichment, "union");
-        let present = compute_merge(
-            &EditionFields {
-                cover: Some(cover("existing")),
-                ..Default::default()
+    fn cached_at(age: Duration) -> CachedEnrichment {
+        CachedEnrichment {
+            enrichment: Enrichment {
+                title: None,
+                title_sort: None,
+                contributors: Vec::new(),
+                publisher: None,
+                language: None,
+                published: None,
+                description: None,
+                subjects: Vec::new(),
+                cover: None,
+                found: Vec::new(),
             },
-            &enrichment,
-            "union",
-        );
-
-        assert_eq!(
-            missing.added.get("cover").map(String::as_str),
-            Some("present")
-        );
-        assert!(present.added.is_empty());
-        assert!(present.conflicts.is_empty());
+            sources: vec![String::from("openlibrary")],
+            fetched_at: Instant::now() - age,
+        }
     }
 
     #[test]
-    fn merge_unions_new_contributors_once_in_source_order() {
-        let current = EditionFields {
-            contributors: vec!["David Graeber".to_string()],
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            contributors: vec![
-                contributor("David Wengrow"),
-                contributor("David Graeber"),
-                contributor("David Wengrow"),
-                contributor("Another Author"),
-            ],
-            ..empty()
-        };
+    fn a_preview_is_available_until_its_ttl_expires() {
+        let mut cache = HashMap::new();
+        store_cached(&mut cache, String::from("ed-1"), cached_at(Duration::ZERO));
 
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert_eq!(
-            preview.unioned.get("contributors"),
-            Some(&vec![
-                "David Wengrow".to_string(),
-                "Another Author".to_string()
-            ])
-        );
-        assert!(!preview.unioned.contains_key("subjects"));
-    }
-
-    #[test]
-    fn merge_omits_union_entries_when_nothing_is_new() {
-        let current = EditionFields {
-            contributors: vec!["Octavia Butler".to_string()],
-            subjects: vec!["Fiction".to_string()],
-            ..Default::default()
-        };
-        let enrichment = Enrichment {
-            contributors: vec![contributor("Octavia Butler")],
-            subjects: vec!["Fiction".to_string(), "Fiction".to_string()],
-            ..empty()
-        };
-
-        let preview = compute_merge(&current, &enrichment, "union");
-
-        assert!(preview.unioned.is_empty());
-    }
-
-    #[test]
-    fn merge_dedupes_repeated_new_subjects_from_the_source() {
-        let enrichment = Enrichment {
-            subjects: vec![
-                "History".to_string(),
-                "Anthropology".to_string(),
-                "History".to_string(),
-            ],
-            ..empty()
-        };
-
-        let preview = compute_merge(&EditionFields::default(), &enrichment, "union");
-
-        assert_eq!(
-            preview.unioned.get("subjects"),
-            Some(&vec!["History".to_string(), "Anthropology".to_string()])
-        );
-    }
-
-    #[test]
-    fn enrich_edition_without_a_plugin_is_rejected_as_invalid() {
-        let error = preview_enrichment("ol-1", None, "union").expect_err("no plugin selected");
-
+        let fresh = take_cached(&mut cache, "ed-1", PREVIEW_TTL);
+        assert!(fresh.is_some(), "a just-fetched preview applies");
         assert!(
-            matches!(error, PluginError::Invalid { .. }),
-            "expected Invalid, got {error:?}"
+            take_cached(&mut cache, "ed-1", PREVIEW_TTL).is_none(),
+            "apply consumes the entry"
         );
     }
 
     #[test]
-    fn enrich_library_reports_unavailable_not_a_host_failure() {
-        let error = bulk_enrich_unavailable().expect_err("bulk enrich is not implemented");
+    fn an_expired_preview_is_refused_and_dropped() {
+        let mut cache = HashMap::new();
+        store_cached(
+            &mut cache,
+            String::from("ed-1"),
+            cached_at(Duration::from_secs(601)),
+        );
 
+        assert!(take_cached(&mut cache, "ed-1", PREVIEW_TTL).is_none());
+        assert!(cache.is_empty(), "the stale entry is gone, not left to age");
+    }
+
+    #[test]
+    fn storing_drops_entries_that_have_already_expired() {
+        let mut cache = HashMap::new();
+        store_cached(
+            &mut cache,
+            String::from("stale"),
+            cached_at(Duration::from_secs(700)),
+        );
+        store_cached(&mut cache, String::from("fresh"), cached_at(Duration::ZERO));
+
+        assert_eq!(cache.len(), 1);
+        assert!(cache.contains_key("fresh"));
+    }
+
+    #[test]
+    fn the_cache_evicts_the_oldest_entry_when_full() {
+        let mut cache = HashMap::new();
+        for index in 0..PREVIEW_CAPACITY {
+            // Older first, so eviction has a determinate target.
+            let age = Duration::from_secs(u64::try_from(PREVIEW_CAPACITY - index).unwrap());
+            store_cached(&mut cache, format!("ed-{index}"), cached_at(age));
+        }
+        assert_eq!(cache.len(), PREVIEW_CAPACITY);
+
+        let oldest = String::from("ed-0");
+        store_cached(
+            &mut cache,
+            String::from("overflow"),
+            cached_at(Duration::ZERO),
+        );
+
+        assert_eq!(cache.len(), PREVIEW_CAPACITY, "the cap holds");
+        assert!(!cache.contains_key(&oldest), "the oldest entry made room");
+        assert!(cache.contains_key("overflow"));
+    }
+
+    fn dir(root: &tempfile::TempDir, name: &str) -> Utf8PathBuf {
+        Utf8PathBuf::from_path_buf(root.path().join(name)).unwrap()
+    }
+
+    /// The host binary cargo builds beside the test binary.
+    fn host_binary() -> Utf8PathBuf {
+        let test_binary = std::env::current_exe().unwrap();
+        let profile_dir = test_binary.parent().and_then(|path| path.parent()).unwrap();
+        Utf8PathBuf::from_path_buf(profile_dir.join(if cfg!(windows) {
+            "livtet-plugin-host.exe"
+        } else {
+            "livtet-plugin-host"
+        }))
+        .unwrap()
+    }
+
+    /// Forwards `http` callbacks to the app and nothing else. No signatures, so
+    /// the fixture plugins load unmodified.
+    fn write_host_config(root: &tempfile::TempDir) -> Utf8PathBuf {
+        let config = dir(root, "host.toml");
+        fs::write(
+            &config,
+            "[capabilities]\nallow = [\"log\"]\ncallbacks = [\"http\"]\n\n[signatures]\nrequired = false\n",
+        )
+        .unwrap();
+        config
+    }
+
+    /// Writes a plugin directory; `capabilities` is appended to the manifest as
+    /// written, so each test declares exactly the grant it is about.
+    fn write_plugin(plugins_dir: &Utf8Path, name: &str, capabilities: &str, lua: &str) {
+        let plugin_dir = plugins_dir.join(name);
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            format!("name = \"{name}\"\nversion = \"1.0.0\"\n\n{capabilities}"),
+        )
+        .unwrap();
+        fs::write(plugin_dir.join("init.lua"), lua).unwrap();
+    }
+
+    fn identity(kind: &str, value: &str) -> BookIdentity {
+        BookIdentity {
+            identifiers: vec![Identifier {
+                kind: kind.to_string(),
+                value: value.to_string(),
+            }],
+            title: None,
+            authors: Vec::new(),
+        }
+    }
+
+    /// A one-shot HTTP/1.1 server on loopback, no async runtime involved.
+    fn serve_once(body: &'static str) -> (std::net::SocketAddr, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                use std::io::{Read, Write};
+                let _ = stream.read(&mut [0u8; 1024]);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: text/plain\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        (addr, handle)
+    }
+
+    #[test]
+    fn sources_select_the_enricher_by_identifier_kind() {
+        let isbn = identity("isbn", "9780441013593");
+
+        assert!(enricher_matches_identity(&["isbn".to_string()], &isbn));
+        assert!(enricher_matches_identity(
+            &["olid".to_string(), " ISBN ".to_string()],
+            &isbn
+        ));
+        assert!(!enricher_matches_identity(&["olid".to_string()], &isbn));
+        assert!(!enricher_matches_identity(&[], &isbn));
+    }
+
+    /// A bundled-style enricher declares its domains and actually fetches over
+    /// `http` through the app, and what it returns is decoded as an `Enrichment`.
+    #[tokio::test]
+    async fn a_granted_enricher_fetches_and_returns_metadata() {
+        let (addr, server) = serve_once("Dune");
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = dir(&root, "plugins");
+        let lua = format!(
+            r#"
+local Enricher = {{}}
+Enricher.__index = Enricher
+function Enricher.new(config, deps) return setmetatable({{}}, Enricher) end
+function Enricher:sources() return {{ "isbn" }} end
+function Enricher:enrich(identity)
+  local res = http({{ url = "http://{addr}/" }})
+  return {{
+    title = res.body,
+    contributors = {{}},
+    publisher = "Loopback Press",
+    subjects = {{}},
+    found = {{ {{ kind = "olid", value = "OL1W" }} }},
+  }}
+end
+return Enricher
+"#
+        );
+        write_plugin(
+            &plugins_dir,
+            "loopback-enricher",
+            "[capabilities.http]\ndomains = [\"127.0.0.1\"]\n",
+            &lua,
+        );
+        let config = write_host_config(&root);
+
+        let results = enrich_from_plugins(
+            &host_binary(),
+            &config,
+            &plugins_dir,
+            identity("isbn", "9780441013593"),
+        )
+        .await
+        .expect("the enricher answers");
+
+        assert_eq!(results.len(), 1, "one enricher matched: {results:?}");
+        let (plugin, enrichment) = &results[0];
+        assert_eq!(plugin, "loopback-enricher");
+        assert_eq!(enrichment.title.as_deref(), Some("Dune"));
+        assert_eq!(enrichment.publisher.as_deref(), Some("Loopback Press"));
+        assert_eq!(
+            enrichment.found,
+            vec![Identifier {
+                kind: "olid".to_string(),
+                value: "OL1W".to_string(),
+            }]
+        );
+        server.join().unwrap();
+    }
+
+    /// An importer has no `sources`, so `dispatch` reports its failure in place.
+    /// That is a skip, not an error, and the enricher beside it still answers.
+    #[tokio::test]
+    async fn a_plugin_without_sources_is_skipped_not_failed() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = dir(&root, "plugins");
+        write_plugin(
+            &plugins_dir,
+            "txt-importer",
+            "[capabilities.log]\n",
+            r#"
+local Importer = {}
+Importer.__index = Importer
+function Importer.new(config, deps) return setmetatable({}, Importer) end
+function Importer:extensions() return { "txt" } end
+function Importer:read_metadata(path) return { title = "T" } end
+return Importer
+"#,
+        );
+        write_plugin(
+            &plugins_dir,
+            "static-enricher",
+            "[capabilities.log]\n",
+            r#"
+local Enricher = {}
+Enricher.__index = Enricher
+function Enricher.new(config, deps) return setmetatable({}, Enricher) end
+function Enricher:sources() return { "olid" } end
+function Enricher:enrich(identity)
+  return {
+    title = "Static Title",
+    contributors = {},
+    publisher = "Static Press",
+    subjects = {},
+    found = {},
+  }
+end
+return Enricher
+"#,
+        );
+        let config = write_host_config(&root);
+
+        let results = enrich_from_plugins(
+            &host_binary(),
+            &config,
+            &plugins_dir,
+            identity("olid", "OL1W"),
+        )
+        .await
+        .expect("a plugin failing sources is not an error");
+
+        assert_eq!(results.len(), 1, "only the enricher answers: {results:?}");
+        assert_eq!(results[0].0, "static-enricher");
+        assert_eq!(results[0].1.publisher.as_deref(), Some("Static Press"));
+    }
+
+    /// Declaring `http` without domains grants nothing: the app refuses on its own
+    /// read of the manifest, and no connection is attempted.
+    #[tokio::test]
+    async fn http_without_a_manifest_domain_is_refused_before_any_socket() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let root = tempfile::tempdir().unwrap();
+        let plugins_dir = dir(&root, "plugins");
+        let lua = format!(
+            r#"
+local Enricher = {{}}
+Enricher.__index = Enricher
+function Enricher.new(config, deps) return setmetatable({{}}, Enricher) end
+function Enricher:sources() return {{ "isbn" }} end
+function Enricher:enrich(identity)
+  local ok, err = pcall(function() return http({{ url = "http://{addr}/" }}) end)
+  return {{
+    title = tostring(ok),
+    contributors = {{}},
+    publisher = tostring(err),
+    subjects = {{}},
+    found = {{}},
+  }}
+end
+return Enricher
+"#
+        );
+        write_plugin(
+            &plugins_dir,
+            "no-grant-enricher",
+            "[capabilities.http]\n",
+            &lua,
+        );
+        let config = write_host_config(&root);
+
+        let results = enrich_from_plugins(
+            &host_binary(),
+            &config,
+            &plugins_dir,
+            identity("isbn", "9780441013593"),
+        )
+        .await
+        .expect("the plugin catches its own refusal");
+
+        assert_eq!(results.len(), 1, "got {results:?}");
+        let refusal = results[0].1.publisher.as_deref().unwrap_or_default();
         assert!(
-            matches!(error, PluginError::Unavailable { .. }),
-            "expected Unavailable, got {error:?}"
+            refusal.contains("manifest grants no domains"),
+            "the refusal must name the missing grant, got `{refusal}`"
+        );
+        assert!(
+            listener.accept().is_err(),
+            "a refused call must not reach the socket"
         );
     }
 }
