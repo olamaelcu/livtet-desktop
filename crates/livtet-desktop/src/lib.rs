@@ -6,14 +6,11 @@ mod mcp;
 mod opds_server;
 mod paths;
 mod plugin_host;
-mod roles;
-mod secrets;
 pub mod secrets_embed;
 pub mod secrets;
 pub mod roles;
 pub mod types;
 pub mod sync;
-mod types;
 
 pub use error::{PluginError, SearchIndexError};
 pub use paths::Paths;
