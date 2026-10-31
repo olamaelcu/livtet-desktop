@@ -281,7 +281,7 @@ fn endpoint_port(raw: Option<&str>) -> Option<u16> {
 #[derive(Clone)]
 pub(crate) struct CommandBridge {
     db: SharedState,
-    search_index: ArcMut<Option<Arc<SearchIndex>>>,
+    search_index: ArcMut<Option<SearchIndex>>,
     covers_dir: Utf8PathBuf,
     opds_http: reqwest::Client,
     books_dir: Utf8PathBuf,
@@ -330,7 +330,7 @@ impl DesktopBridge for CommandBridge {
         limit: Option<i32>,
     ) -> Result<Value, BridgeError> {
         let index = self.search_index.read().await;
-        let hits = search_typeahead_inner(index.as_deref(), &query, limit)
+        let hits = search_typeahead_inner(index.as_ref(), &query, limit)
             .await
             .map_err(|error| bridge_error("search", &error))?;
         serialized(hits)
@@ -353,7 +353,7 @@ impl DesktopBridge for CommandBridge {
 
         let index = self.search_index.read().await;
         let response = search_editions_inner(
-            index.as_deref(),
+            index.as_ref(),
             &self.db.db_conn(),
             query.as_deref(),
             filters,
