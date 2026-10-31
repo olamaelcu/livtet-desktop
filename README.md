@@ -41,7 +41,7 @@ loop, and how to produce a release build.
 ### macOS (Homebrew)
 
 ```sh
-brew tap olamaelcu/tap
+brew tap olamaelcu/homebrew-tap
 brew install --cask livtet
 ```
 

@@ -5,10 +5,8 @@ mod http;
 mod mcp;
 mod paths;
 mod plugin_host;
-mod roles;
-mod secrets;
+pub mod secrets_embed;
 pub mod sync;
-mod types;
 
 pub use error::{PluginError, SearchIndexError};
 pub use paths::Paths;
