@@ -67,9 +67,9 @@ test('the tab body scrolls and the pane does not', async () => {
 test('switching tabs does not grow the pane', async () => {
   const { group, part, pane } = await mount()
   const before = pane.clientHeight
-  ;(group as HTMLElement & { active: string }).active = 'catalogs'
+  ;(group as HTMLElement & { active: string }).active = 'mcp'
   await vi.waitFor(() =>
-    expect(group.querySelector('wa-tab-panel[name="catalogs"]')?.hasAttribute('active')).toBe(true),
+    expect(group.querySelector('wa-tab-panel[name="mcp"]')?.hasAttribute('active')).toBe(true),
   )
   expect(pane.clientHeight).toBe(before)
   expect(pane.scrollHeight).toBe(pane.clientHeight)
@@ -104,8 +104,8 @@ describe('the tab the query parameter selects', () => {
 
     const { group } = await mount()
 
-    expect(group.getAttribute('active')).toBe('sync')
-    expect(group.querySelector('wa-tab-panel[name="sync"]')?.hasAttribute('active')).toBe(true)
+    expect(group.getAttribute('active')).toBe('opds')
+    expect(group.querySelector('wa-tab-panel[name="opds"]')?.hasAttribute('active')).toBe(true)
   })
 
   // After mount, the `active` attribute is the route's only lever: the panel it
@@ -138,10 +138,10 @@ describe('the tab the query parameter selects', () => {
   // `/settings` is the default tab, so returning to it leaves no parameter:
   // one panel, one address.
   test('drops the parameter when the reader returns to the first tab', async () => {
-    page.url.search = '?tab=opds'
+    page.url.search = '?tab=mcp'
     const { group } = await mount()
 
-    group.querySelector<HTMLElement>('wa-tab[panel="sync"]')?.click()
+    group.querySelector<HTMLElement>('wa-tab[panel="opds"]')?.click()
 
     await vi.waitFor(() => expect(replacedUrls).not.toHaveLength(0))
     expect(writtenTab()).toBeNull()

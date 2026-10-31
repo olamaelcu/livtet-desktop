@@ -6,11 +6,11 @@ mod mcp;
 mod opds_server;
 mod paths;
 mod plugin_host;
-pub mod secrets_embed;
-pub mod secrets;
 pub mod roles;
-pub mod types;
+pub mod secrets;
+pub mod secrets_embed;
 pub mod sync;
+pub mod types;
 
 pub use error::{PluginError, SearchIndexError};
 pub use paths::Paths;
@@ -362,6 +362,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new().commands(collect_commands![
         commands::catalog::get_edition_detail,
         commands::catalog::get_edition_covers,
+        commands::identifier_edit::remove_edition_identifier,
+        commands::identifier_edit::update_edition_identifier,
         commands::search::search_editions,
         commands::search::search_typeahead,
         commands::search::filter_options,

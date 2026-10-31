@@ -29,12 +29,37 @@ pub enum CatalogError {
 
     #[error("Catalog database error: {message}")]
     Database { message: String },
+
+    #[error("Invalid identifier: {message}")]
+    InvalidIdentifier { message: String },
+
+    #[error("No {kind} identifier {value} on edition {edition_id}")]
+    IdentifierNotFound {
+        edition_id: String,
+        kind: String,
+        value: String,
+    },
+
+    #[error(
+        "Identifier value {value} is already stored as kind `{existing_kind}`, not `{requested_kind}`"
+    )]
+    IdentifierConflict {
+        value: String,
+        existing_kind: String,
+        requested_kind: String,
+    },
 }
 
 impl CatalogError {
     pub fn database<E: std::fmt::Display>(err: E) -> Self {
         Self::Database {
             message: err.to_string(),
+        }
+    }
+
+    pub fn invalid_identifier(message: impl Into<String>) -> Self {
+        Self::InvalidIdentifier {
+            message: message.into(),
         }
     }
 }

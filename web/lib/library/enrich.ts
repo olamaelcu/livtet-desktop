@@ -1,3 +1,4 @@
+import { toast } from 'svelte-sonner'
 import {
   type CoverOffer,
   commands,
@@ -10,6 +11,7 @@ import {
   type FoundIdentifier,
   type PluginError,
 } from '../bindings'
+import { pluginErrorMessage } from '../plugins'
 
 // Strict re-export of the generated contract — single source of truth.
 export type {
@@ -114,4 +116,24 @@ export function summaryMessage(summary: EnrichmentSummary): string {
           .map((part) => `, ${part}`)
           .join('')}`
   return summary.cover_stored ? `${sentence}.` : `${sentence}; the cover could not be stored.`
+}
+
+/**
+ * Report a failed enrichment, with the message copyable.
+ *
+ * The text comes from a plugin, so it is what someone pastes into a bug report
+ * or a message to the plugin's author. A toast that vanishes in four seconds
+ * cannot serve that, hence the Copy action and the longer stay.
+ */
+export function reportEnrichmentError(error: unknown): void {
+  const message = `Enrichment failed: ${pluginErrorMessage(error)}`
+  toast.error(message, {
+    duration: 10_000,
+    action: {
+      label: 'Copy',
+      onClick: () => {
+        void navigator.clipboard.writeText(message)
+      },
+    },
+  })
 }

@@ -115,3 +115,25 @@ test('the description is sanitized before it reaches the DOM', async () => {
   expect(section()?.querySelector('[onclick]')).toBeNull()
   expect(document.body.dataset.pwned).toBeUndefined()
 })
+
+test('a wa-after-hide bubbling from a control inside the drawer does not close it', async () => {
+  const onclose = vi.fn()
+  await render(EditionDetailDrawerFixture, { props: { onclose } })
+
+  const drawer = await vi.waitFor(() => {
+    const found = document.querySelector('wa-drawer')
+    if (!found) throw new Error('drawer missing')
+    return found as HTMLElement
+  })
+  await expect.poll(() => drawer.querySelector('.identifier-table')).not.toBeNull()
+
+  // `wa-dropdown` hides its menu with this same bubbling event; the drawer must
+  // only close on its own.
+  ;(drawer.querySelector('.identifier-table') as HTMLElement).dispatchEvent(
+    new CustomEvent('wa-after-hide', { bubbles: true, composed: true }),
+  )
+  expect(onclose).not.toHaveBeenCalled()
+
+  drawer.dispatchEvent(new CustomEvent('wa-after-hide', { bubbles: true }))
+  expect(onclose).toHaveBeenCalledTimes(1)
+})

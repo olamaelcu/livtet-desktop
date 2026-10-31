@@ -32,12 +32,15 @@ describe('plugins page', () => {
 })
 
 describe('settings page', () => {
-  test('renders the settings heading with all three tab panels', () => {
+  test('renders the settings heading, the merged OPDS tab, and no sync tab', () => {
     const { body } = render(SsrShell, { props: { page: SettingsPage } })
 
     expect(body).toContain('Settings')
-    expect(body).toContain('name="sync"')
+    expect(body).toContain('name="opds"')
+    // Catalogs and the built-in server are panes of that one tab.
     expect(body).toContain('name="catalogs"')
+    expect(body).toContain('name="server"')
     expect(body).toContain('name="hotkeys"')
+    expect(body).not.toContain('name="sync"')
   })
 })

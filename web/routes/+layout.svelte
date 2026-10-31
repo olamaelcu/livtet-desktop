@@ -6,11 +6,12 @@ import { createHotkey } from '@tanstack/svelte-hotkeys'
 import { QueryClientProvider } from '@tanstack/svelte-query'
 import { SvelteQueryDevtools } from '@tanstack/svelte-query-devtools'
 import { onMount } from 'svelte'
-import { Toaster, toast } from 'svelte-sonner'
+import { toast } from 'svelte-sonner'
 import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { listenToAtprotoEvents } from '../lib/atproto'
 import CommandPalette from '../lib/components/CommandPalette.svelte'
+import TopLayerToaster from '../lib/components/TopLayerToaster.svelte'
 import { bindingFor, initBindings } from '../lib/hotkeys/bindings.svelte'
 import type { CommandId } from '../lib/hotkeys/commands'
 import { focusSearchTarget } from '../lib/hotkeys/searchTarget.svelte'
@@ -113,7 +114,7 @@ onMount(() => {
     {@render children?.()}
   </AppFrame>
 
-  <Toaster theme="system" position="bottom-left" />
+  <TopLayerToaster />
 
   {#if paletteOpen}
     <CommandPalette onrun={runCommand} onclose={() => (paletteOpen = false)} />

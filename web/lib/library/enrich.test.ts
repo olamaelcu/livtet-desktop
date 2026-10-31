@@ -5,6 +5,9 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: (...args: unknown[]) => invoke(...args),
 }))
 
+const { errorToast } = vi.hoisted(() => ({ errorToast: vi.fn() }))
+vi.mock('svelte-sonner', () => ({ toast: { error: errorToast } }))
+
 import {
   applyEnrichment,
   type EnrichmentPreview,
@@ -12,6 +15,7 @@ import {
   enrichDisabledReason,
   previewEnrichment,
   previewIsEmpty,
+  reportEnrichmentError,
   summaryMessage,
 } from './enrich'
 
@@ -146,5 +150,38 @@ describe('invokers', () => {
     invoke.mockRejectedValue(error)
 
     await expect(applyEnrichment('e1', 'fill')).rejects.toBe(error)
+  })
+})
+
+describe('reportEnrichmentError', () => {
+  beforeEach(() => {
+    errorToast.mockReset()
+  })
+
+  it('offers the failure for copying, for longer than a plain toast', () => {
+    reportEnrichmentError({ Invalid: { message: 'no enricher answered' } })
+
+    const [message, options] = errorToast.mock.calls[0] as [string, { duration: number }]
+    expect(message).toContain('Enrichment failed')
+    expect(message).toContain('no enricher answered')
+    expect(options.duration).toBeGreaterThan(4000)
+  })
+
+  it('writes the whole message to the clipboard when Copy is clicked', async () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+
+    reportEnrichmentError({ Invalid: { message: 'preview expired; run Enrich again' } })
+    const [, options] = errorToast.mock.calls[0] as [
+      string,
+      { action: { label: string; onClick: () => void } },
+    ]
+
+    expect(options.action.label).toBe('Copy')
+    options.action.onClick()
+
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+    expect(writeText.mock.calls[0][0]).toContain('preview expired; run Enrich again')
+    vi.unstubAllGlobals()
   })
 })

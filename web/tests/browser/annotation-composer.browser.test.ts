@@ -24,16 +24,17 @@ function saveButton(container: HTMLElement): WaButton {
   return element as WaButton
 }
 
-test('saving is refused until the note has text', async () => {
+// A highlight is worth keeping without a comment, so Save carries no gate: the
+// empty draft is what gets stored when nothing is typed.
+test('saves a highlight with no note text', async () => {
   const saved: SavedNote[] = []
   const { container } = await render(AnnotationComposerFixture, { saved })
 
-  expect(saveButton(container).disabled).toBe(true)
+  expect(saveButton(container).disabled).toBe(false)
 
-  input(container).value = 'Key point'
-  input(container).dispatchEvent(new Event('input', { bubbles: true }))
+  saveButton(container).click()
 
-  await expect.poll(() => saveButton(container).disabled).toBe(false)
+  await expect.poll(() => saved).toEqual([{ text: '', color: undefined }])
 })
 
 test('saves the trimmed note text', async () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { fileName, formatFileSize, formatIdentifier } from './format'
+import {
+  composeIdentifier,
+  describeCatalogError,
+  fileName,
+  formatFileSize,
+  formatIdentifier,
+} from './format'
 
 describe('formatFileSize', () => {
   it('renders bytes without a unit divisor', () => {
@@ -49,5 +55,61 @@ describe('formatIdentifier', () => {
 
   it('leaves a prefix with an empty value unchanged', () => {
     expect(formatIdentifier('urn:isbn:')).toBe('urn:isbn:')
+  })
+})
+
+describe('composeIdentifier', () => {
+  it('rebuilds the stored urn under the edited kind', () => {
+    expect(composeIdentifier('oclc', '12345', 'urn:isbn:9780306406157')).toBe('urn:oclc:12345')
+  })
+
+  it('round-trips the display form of a stored urn', () => {
+    const stored = 'urn:isbn:9780306406157'
+    expect(composeIdentifier('isbn', formatIdentifier(stored), stored)).toBe(stored)
+    const web = 'urn:http:https://example.com/books/1'
+    expect(composeIdentifier('http', formatIdentifier(web), web)).toBe(web)
+  })
+
+  it('keeps a value typed out in full verbatim', () => {
+    expect(composeIdentifier('isbn', ' urn:oclc:12345 ', 'urn:isbn:9780306406157')).toBe(
+      'urn:oclc:12345',
+    )
+  })
+
+  it('adds no prefix to an entry that was never a urn', () => {
+    expect(composeIdentifier('other', ' abc ', 'abc')).toBe('abc')
+  })
+
+  it('trims the kind it writes', () => {
+    expect(composeIdentifier(' isbn ', ' 978 ', 'urn:isbn:1')).toBe('urn:isbn:978')
+  })
+})
+
+describe('describeCatalogError', () => {
+  it('reports the id of an unparseable edition', () => {
+    expect(describeCatalogError({ InvalidId: { id: 'nope' } })).toBe('Invalid edition id: nope')
+  })
+
+  it('passes a database failure through', () => {
+    expect(describeCatalogError({ Database: { message: 'disk is full' } })).toBe('disk is full')
+  })
+
+  it('reports a rejected field and an entry that moved', () => {
+    expect(describeCatalogError({ InvalidIdentifier: { message: 'kind is blank' } })).toBe(
+      'kind is blank',
+    )
+    expect(
+      describeCatalogError({
+        IdentifierNotFound: { edition_id: 'e', kind: 'isbn', value: 'urn:isbn:1' },
+      }),
+    ).toBe('That identifier is no longer on this book')
+  })
+
+  it('explains a kind clash on a shared value', () => {
+    expect(
+      describeCatalogError({
+        IdentifierConflict: { value: 'urn:oclc:1', existing_kind: 'oclc', requested_kind: 'lccn' },
+      }),
+    ).toBe('Value urn:oclc:1 is already stored as oclc')
   })
 })

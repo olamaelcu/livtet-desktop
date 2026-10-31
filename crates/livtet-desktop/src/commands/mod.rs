@@ -8,6 +8,7 @@ pub mod catalog_write;
 pub mod enrich;
 pub mod enrich_merge;
 pub mod enrich_store;
+pub mod identifier_edit;
 pub mod import;
 pub mod importers;
 pub mod mcp;

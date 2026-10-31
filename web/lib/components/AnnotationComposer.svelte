@@ -100,7 +100,7 @@ function handleKeydown(event: KeyboardEvent) {
     {/if}
     <div class="actions">
       <ActionButton onclick={oncancel}>Cancel</ActionButton>
-      <ActionButton variant="brand" onclick={submit} disabled={draft.trim()===''}>
+      <ActionButton variant="brand" onclick={submit}>
         {editing ? 'Save changes' : 'Save note'}
       </ActionButton>
     </div>

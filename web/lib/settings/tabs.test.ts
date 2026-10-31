@@ -5,7 +5,7 @@ describe('SETTINGS_TABS', () => {
   it('names every tab the route draws panels for, once each', () => {
     const names = SETTINGS_TABS.map((tab) => tab.name)
 
-    expect(names).toEqual(['sync', 'catalogs', 'account', 'hotkeys', 'mcp', 'opds'])
+    expect(names).toEqual(['opds', 'account', 'hotkeys', 'mcp'])
     expect(new Set(names).size).toBe(names.length)
   })
 })
@@ -24,6 +24,10 @@ describe('settingsTabFrom', () => {
     expect(settingsTabFrom('?tab=nope')).toBeUndefined()
     expect(settingsTabFrom('?tab=MCP')).toBeUndefined()
     expect(settingsTabFrom('?tab=')).toBeUndefined()
+    // Sync is hidden and Catalogs moved inside the OPDS tab, so stale links to
+    // either land on the default tab.
+    expect(settingsTabFrom('?tab=sync')).toBeUndefined()
+    expect(settingsTabFrom('?tab=catalogs')).toBeUndefined()
   })
 })
 
@@ -31,10 +35,10 @@ describe('settingsTabUrl', () => {
   const url = new URL('http://localhost/settings')
 
   it('writes the tab into the query and keeps the path', () => {
-    const next = settingsTabUrl(url, 'opds')
+    const next = settingsTabUrl(url, 'account')
 
     expect(next.pathname).toBe('/settings')
-    expect(next.searchParams.get('tab')).toBe('opds')
+    expect(next.searchParams.get('tab')).toBe('account')
     // The caller's URL is untouched: the address bar is the only thing that moves.
     expect(url.search).toBe('')
   })
@@ -52,7 +56,7 @@ describe('settingsTabUrl', () => {
   // `/settings` is the default tab, so clicking back to it must leave no trace:
   // otherwise one panel would have two addresses.
   it('drops the parameter for the default tab', () => {
-    const next = settingsTabUrl(new URL('http://localhost/settings?tab=mcp'), 'sync')
+    const next = settingsTabUrl(new URL('http://localhost/settings?tab=mcp'), 'opds')
 
     expect(next.search).toBe('')
   })

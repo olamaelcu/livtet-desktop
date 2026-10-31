@@ -8,7 +8,7 @@ import Pane from '../../lib/layout/Pane.svelte'
 import RouteShell from '../../lib/layout/RouteShell.svelte'
 import { SETTINGS_TABS, settingsTabFrom, settingsTabUrl } from '../../lib/settings/tabs'
 
-/** `children` are the `<wa-tab-panel>`s for the sync, catalogs, account, hotkeys, MCP, and OPDS tabs. */
+/** `children` are the `<wa-tab-panel>`s for the OPDS, account, hotkeys, and MCP tabs. */
 let { children }: { children: Snippet } = $props()
 
 /**
@@ -41,6 +41,9 @@ function shownTab(event: Event): string | undefined {
  * switching is not a new page and must not stack history entries.
  */
 function tabShown(event: Event) {
+  // The OPDS tab hosts a nested tab group, whose `wa-tab-show` bubbles through
+  // this one; only the strip this layout owns may write the query string.
+  if (event.target !== event.currentTarget) return
   const name = shownTab(event)
   if (name === undefined || name === active) return
   replaceState(settingsTabUrl(page.url, name), page.state)
@@ -64,7 +67,10 @@ function tabShown(event: Event) {
     -->
     <wa-tab-group class="settings__tabs" data-scroll-region {active} onwa-tab-show={tabShown}>
       {#each SETTINGS_TABS as tab (tab.name)}
-        <wa-tab slot="nav" panel={tab.name}>{tab.label}</wa-tab>
+        <wa-tab slot="nav" panel={tab.name}>
+          <wa-icon name={tab.icon}></wa-icon>
+          {tab.label}
+        </wa-tab>
       {/each}
       {@render children()}
     </wa-tab-group>
@@ -102,5 +108,16 @@ function tabShown(event: Event) {
     min-height: 0;
     overflow: auto;
     padding: var(--wa-space-xl);
+  }
+
+  /* The strip starts at the same edge as the toolbar title rather than
+     centering itself over the pane. */
+  .settings__tabs::part(nav) {
+    justify-content: flex-start;
+    padding-inline: var(--wa-space-l);
+  }
+
+  .settings__tabs wa-tab wa-icon {
+    margin-inline-end: var(--wa-space-2xs);
   }
 </style>

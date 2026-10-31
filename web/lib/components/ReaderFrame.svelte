@@ -15,7 +15,7 @@ import {
   SEMANTIC_STYLESHEET,
 } from '$lib/reader/decorations'
 import { ReaderFetcher } from '$lib/reader/fetcher'
-import { DEFAULT_FONT_SIZE, stepFontSize } from '$lib/reader/fontSize'
+import { DEFAULT_FONT_SIZE, loadFontSize, saveFontSize, stepFontSize } from '$lib/reader/fontSize'
 import {
   arrivalMatches,
   bookFraction,
@@ -120,8 +120,13 @@ const computedStyle = () => getComputedStyle(document.documentElement)
  * travel the same path and a frame opened later starts on the reader's settings.
  */
 const presentation = $state({
-  /** Multiplier on the frame's zoom: 1 is 100%, Readium accepts 0.7–4. */
-  fontSize: DEFAULT_FONT_SIZE,
+  /**
+   * Multiplier on the frame's zoom: 1 is 100%, Readium accepts 0.7–4.
+   *
+   * Read from storage in the initialiser rather than an effect: the first frame Readium
+   * opens paints with this object, so a later assignment would flash the default size first.
+   */
+  fontSize: loadFontSize(),
   // SSR renders without a DOM. These are placeholders only for that pass:
   // extractRootVariables() re-reads the live values as soon as the reader
   // mounts, and Readium never sees a frame before that.
@@ -164,6 +169,12 @@ $effect(() => {
   if (!mq) return
   mq.addEventListener('change', extractRootVariables)
   return () => mq.removeEventListener('change', extractRootVariables)
+})
+
+// The reader's text size outlives the book: every change lands in `presentation.fontSize`
+// (see `adjustFontSize`), so watching it is enough to keep the preference up to date.
+$effect(() => {
+  saveFontSize(presentation.fontSize)
 })
 
 /** What the navigator was last told to paint with, so a no-op change costs no repaint. */

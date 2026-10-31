@@ -10,6 +10,9 @@ import ReaderFrameFixture from './fixtures/ReaderFrameFixture.svelte'
 
 const XHTML = 'application/xhtml+xml'
 
+/** Where the frame keeps the reader's text size; a mount reads it, stepping rewrites it. */
+const FONT_SIZE_KEY = 'livtet.reader.fontSize'
+
 /** Minimal RWPM manifest the frame can open: a title and one spine item. */
 const MANIFEST = {
   metadata: { title: 'Test Book', identifier: 'urn:uuid:1', language: 'en' },
@@ -218,6 +221,9 @@ const mounted: (() => void)[] = []
 
 afterEach(() => {
   for (const unmount of mounted.splice(0)) unmount()
+  // The text size is a real preference now, so a test that steps it would otherwise
+  // leave the next mount on that size instead of Readium's default.
+  localStorage.removeItem(FONT_SIZE_KEY)
 })
 
 /** Wait for the navigator to be constructed and loaded, i.e. the frame is ready. */
@@ -435,6 +441,30 @@ test('steps the text size back down', async () => {
   doc.dispatchEvent(new KeyboardEvent('keydown', { key: '-', cancelable: true }))
 
   await expect.poll(() => submittedPreferences().at(-1)?.fontSize).toBeLessThan(DEFAULT_FONT_SIZE)
+})
+
+test('opens on the text size the reader last chose', async () => {
+  localStorage.setItem(FONT_SIZE_KEY, '1.5')
+
+  const { container } = await mount()
+  const instance = await settledFrame(container)
+  instance.callbacks.frameLoaded(asWindow(frameDocument()))
+
+  // The restored size has to reach Readium in the first submit, before the reader can
+  // press a key: anything later would paint the default first.
+  await expect.poll(() => submittedPreferences()[0]?.fontSize).toBe(1.5)
+})
+
+test('keeps the text size the reader chose for the next book', async () => {
+  const { container } = await mount()
+  const instance = await settledFrame(container)
+  const doc = frameDocument()
+  instance.callbacks.frameLoaded(asWindow(doc))
+  await expect.poll(() => submittedPreferences().length).toBeGreaterThan(0)
+
+  doc.dispatchEvent(new KeyboardEvent('keydown', { key: '+', cancelable: true }))
+
+  await expect.poll(() => localStorage.getItem(FONT_SIZE_KEY)).toBe('1.05')
 })
 
 test('samples the current locator and the text anchor at it', async () => {

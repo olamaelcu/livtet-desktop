@@ -19,16 +19,14 @@ const client = new QueryClient({
 <QueryClientProvider {client}>
   <AppFrame>
     <SettingsLayout>
-      <wa-tab-panel name="sync">
-        <div style="height: 3000px">tall sync panel</div>
-      </wa-tab-panel>
-      <wa-tab-panel name="catalogs">
-        <div style="height: 6000px">taller catalogs panel</div>
+      <wa-tab-panel name="opds">
+        <div style="height: 3000px">tall opds panel</div>
       </wa-tab-panel>
       <wa-tab-panel name="account">account</wa-tab-panel>
       <wa-tab-panel name="hotkeys">hotkeys</wa-tab-panel>
-      <wa-tab-panel name="mcp">mcp</wa-tab-panel>
-      <wa-tab-panel name="opds">opds</wa-tab-panel>
+      <wa-tab-panel name="mcp">
+        <div style="height: 6000px">taller mcp panel</div>
+      </wa-tab-panel>
     </SettingsLayout>
   </AppFrame>
 </QueryClientProvider>

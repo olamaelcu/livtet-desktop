@@ -121,6 +121,9 @@ test('renders a card per edition once results arrive', async () => {
   // The empty state is the other arm of the same branch, so it must be gone
   // rather than merely hidden.
   expect(emptyState(container)).toBeNull()
+  // The count lives in the floating pill now; the in-view part depends on
+  // layout, so only the total is pinned here.
+  expect(container.querySelector('.view-counter')?.textContent).toContain('2 books')
 })
 
 function actionBar(container: HTMLElement): HTMLElement | null {

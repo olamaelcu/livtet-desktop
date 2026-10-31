@@ -13,6 +13,8 @@ interface Props {
   in_filesystem?: boolean
   onclick?: () => void
   ondblclick?: () => void
+  /** Extra declarations, e.g. `--i` so the shelf can stagger its entrance. */
+  style?: string
 }
 
 let {
@@ -23,6 +25,7 @@ let {
   in_filesystem = undefined,
   onclick,
   ondblclick,
+  style = undefined,
 }: Props = $props()
 
 let failedUrl = $state<string | undefined>(undefined)
@@ -40,7 +43,7 @@ $effect(() => {
 })
 </script>
 
-<div class="card-wrap">
+<div class="card-wrap" {style}>
   <button
     class="card {selectable && selected ? 'is-selected' : ''}"
     type="button"
@@ -77,6 +80,22 @@ $effect(() => {
     display: block;
     min-width: 0;
     padding: var(--wa-space-2xs);
+  }
+
+  /* New results settle in rather than appearing: the shelf passes `--i` so the
+     stagger follows reading order. Capped so a deep row is not left waiting. */
+  @media (prefers-reduced-motion: no-preference) {
+    .card-wrap {
+      animation: card-settle 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      animation-delay: calc(min(var(--i, 0), 12) * 18ms);
+    }
+  }
+
+  @keyframes card-settle {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.985);
+    }
   }
 
   .card {

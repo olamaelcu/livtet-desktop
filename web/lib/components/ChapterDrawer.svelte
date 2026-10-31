@@ -20,7 +20,7 @@ let { chapters, currentHref, onselect, onclose }: Props = $props()
   reading order: choosing one moves the reader to its start and closes the
   drawer, which would otherwise cover the text it just went to.
 -->
-<wa-drawer placement="end" open onwa-after-hide={onclose}>
+<wa-drawer class="chapter-drawer" placement="end" open onwa-after-hide={onclose}>
   {#if chapters.length === 0}
     <p class="empty">This book names no chapters.</p>
   {:else}
@@ -43,6 +43,12 @@ let { chapters, currentHref, onselect, onclose }: Props = $props()
 </wa-drawer>
 
 <style>
+  /* `wa-drawer` sizes itself from `--size` (25rem by default); the chapter list
+     takes the whole window rather than a slice of it. */
+  :global(.chapter-drawer) {
+    --size: 100%;
+  }
+
   .chapters {
     display: flex;
     flex-direction: column;

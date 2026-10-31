@@ -3,17 +3,18 @@ import { createQuery, useQueryClient } from '@tanstack/svelte-query'
 import { open as openDialog } from '@tauri-apps/plugin-dialog'
 import { openUrl, revealItemInDir } from '@tauri-apps/plugin-opener'
 import { toast } from 'svelte-sonner'
+import type { IdentifierRef } from '../bindings'
 import { commands } from '../bindings'
 import ActionButton from '../components/ActionButton.svelte'
+import AnnotationList from '../components/AnnotationList.svelte'
 import { sanitizeHtml } from '../html'
-import { pluginErrorMessage } from '../plugins'
+
 import { atprotoKeys, catalogKeys, searchKeys } from '../query/keys'
 import { openReader as openAudiobookReader } from '../reader'
-import { DEFAULT_HIGHLIGHT, HIGHLIGHTS } from '../reader/highlights'
-import { filterNotes } from '../reader/notes'
-import { formatNoteDate, loadAnnotations } from '../reader/progress'
+import { loadAnnotations } from '../reader/progress'
 import { canOpenInReader, openReaderWindow } from '../reader/read'
 import { coverUrlFor, loadEditionDetail } from '../search'
+import ConfirmDialog from './ConfirmDialog.svelte'
 import {
   applyEnrichment,
   type EnrichMode,
@@ -21,9 +22,11 @@ import {
   enrichDisabledReason,
   previewEnrichment,
   previewIsEmpty,
+  reportEnrichmentError,
   summaryMessage,
 } from './enrich'
-import { formatFileSize, formatIdentifier } from './format'
+import { describeCatalogError, formatFileSize, formatIdentifier } from './format'
+import IdentifierEditDialog from './IdentifierEditDialog.svelte'
 import { relinkEditionFile } from './import'
 import ReviewInsert from './ReviewInsert.svelte'
 import ReviewsDrawer from './ReviewsDrawer.svelte'
@@ -54,8 +57,6 @@ const readerNotes = createQuery(() => ({
   queryFn: async () => (editionId ? loadAnnotations(editionId) : []),
   enabled: open && editionId !== null,
 }))
-let searchQuery = $state('')
-const visibleNotes = $derived(filterNotes(readerNotes.data ?? [], searchQuery))
 const coverUrl = $derived(coverUrlFor(book?.file?.cover_path))
 let failedCoverId = $state<string | null>(null)
 const showCover = $derived(coverUrl !== undefined && failedCoverId !== book?.id)
@@ -67,6 +68,11 @@ let listening = $state(false)
 let selectedShelf = $state<string>('to-read')
 let showReviewDialog = $state(false)
 let showReviewsDrawer = $state(false)
+/** The identifier row the edit dialog is open on, or `null` when it is shut. */
+let activeIdentifier = $state<IdentifierRef | null>(null)
+let showIdentifierDialog = $state(false)
+/** The identifier awaiting confirmation, or `null` when nothing is being removed. */
+let pendingRemoval = $state<IdentifierRef | null>(null)
 
 /**
  * Whether a PDS account is signed in, asked only while the review form is
@@ -146,7 +152,7 @@ async function triggerEnrich() {
     }
     enrichPreview = next
   } catch (error) {
-    toast.error(`Enrichment failed: ${pluginErrorMessage(error)}`)
+    reportEnrichmentError(error)
   } finally {
     previewing = false
   }
@@ -184,7 +190,7 @@ async function applyEnrich() {
   } catch (error) {
     // The preview is kept: a retry is still possible unless it expired, and
     // the backend says so in the message.
-    toast.error(`Enrichment failed: ${pluginErrorMessage(error)}`)
+    reportEnrichmentError(error)
   } finally {
     applying = false
   }
@@ -310,6 +316,39 @@ async function relinkFile() {
   }
 }
 
+function openIdentifierDialog(identifier: IdentifierRef) {
+  activeIdentifier = identifier
+  showIdentifierDialog = true
+}
+
+/**
+ * An identifier edit changes this record and the search document built from it
+ * (`identifier_values` is searchable), so both caches go stale together.
+ */
+function refreshAfterIdentifierChange() {
+  if (!editionId) return
+  void queryClient.invalidateQueries({ queryKey: catalogKeys.editionDetail(editionId) })
+  void queryClient.invalidateQueries({ queryKey: searchKeys.all })
+}
+
+/**
+ * Remove the identifier the row's trash button asked about. The dialog's own
+ * Delete does not come through here: it is already an explicit choice inside a
+ * modal, while a table row's icon is one stray click away.
+ */
+async function removeIdentifier() {
+  const target = pendingRemoval
+  pendingRemoval = null
+  if (!target || !editionId) return
+  const result = await commands.removeEditionIdentifier(editionId, target.kind, target.value)
+  if (result.status === 'error') {
+    toast.error(describeCatalogError(result.error))
+    return
+  }
+  toast.success('Identifier removed')
+  refreshAfterIdentifierChange()
+}
+
 async function readBook() {
   const file = book?.file ?? null
   console.debug('[reader] Read action clicked', {
@@ -338,7 +377,19 @@ async function revealFile(path: string) {
 }
 </script>
 
-<wa-drawer class="drawer" placement="end" open={open} onwa-after-hide={onclose}>
+<!--
+  `wa-after-hide` bubbles, and the drawer contains components that dispatch it
+  too — a shelf dropdown closes its menu with the same event. Only the drawer's
+  own hide may close it, or selecting a menu item would shut the whole drawer.
+-->
+<wa-drawer
+  class="drawer"
+  placement="end"
+  {open}
+  onwa-after-hide={(event) => {
+    if (event.target === event.currentTarget) onclose()
+  }}
+>
   <wa-button-group slot="header-actions">
     {@const file = book?.file}
     {@const path = file?.file_path}
@@ -543,39 +594,86 @@ async function revealFile(path: string) {
               {/each}
             </ul>
           {/if}
+          <dl class="facts">
+            {#if book.format}
+              <div class="fact"><dt>Format</dt><dd>{book.format}</dd></div>
+            {/if}
+            {#if book.published_date}
+              <div class="fact"><dt>Published</dt><dd>{book.published_date}</dd></div>
+            {/if}
+            {#if book.language_name}
+              <div class="fact"><dt>Language</dt><dd>{book.language_name}</dd></div>
+            {/if}
+            {#if book.publishers.length > 0}
+              <div class="fact"><dt>Publisher</dt><dd>{book.publishers.join(', ')}</dd></div>
+            {/if}
+          </dl>
         </div>
       </header>
+
+      <section class="section">
+        <h3 class="section-title">Shelf</h3>
+        <ShelfSelection
+          {editionId}
+          shelfKey={selectedShelf}
+          bookTitle={book.title ?? ''}
+          onChange={(k) => (selectedShelf = k)}
+        />
+      </section>
 
       {#if book.file?.file_status === 'missing'}
         <p class="error">The linked file is missing — the original was moved or deleted.</p>
       {/if}
 
-      <dl class="facts">
-        {#if book.format}
-          <div class="fact"><dt>Format</dt><dd>{book.format}</dd></div>
-        {/if}
-        {#if book.published_date}
-          <div class="fact"><dt>Published</dt><dd>{book.published_date}</dd></div>
-        {/if}
-        {#if book.language_name}
-          <div class="fact"><dt>Language</dt><dd>{book.language_name}</dd></div>
-        {/if}
-        {#if book.publishers.length > 0}
-          <div class="fact"><dt>Publisher</dt><dd>{book.publishers.join(', ')}</dd></div>
-        {/if}
-      </dl>
-
       {#if book.identifiers.length > 0}
         <section class="section">
           <h3 class="section-title">Identifiers</h3>
-          <ul class="identifiers">
-            {#each book.identifiers as identifier (identifier.value)}
-              <li class="identifier">
-                <wa-badge>{identifier.kind}</wa-badge>
-                <span class="mono" title={identifier.value}>{formatIdentifier(identifier.value)}</span>
-              </li>
-            {/each}
-          </ul>
+          <table class="identifier-table">
+            <thead>
+              <tr>
+                <th scope="col">Kind</th>
+                <th scope="col">Value</th>
+                <th scope="col"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each book.identifiers as identifier (identifier.value)}
+                <tr>
+                  <td class="identifier-kind">{identifier.kind}</td>
+                  <td class="mono">
+                    <button
+                      type="button"
+                      class="identifier-value"
+                      title={identifier.value}
+                      onclick={() => openIdentifierDialog(identifier)}
+                    >
+                      {formatIdentifier(identifier.value)}
+                    </button>
+                  </td>
+                  <td class="identifier-actions">
+                    <button
+                      type="button"
+                      class="identifier-action"
+                      title="Edit identifier"
+                      aria-label="Edit {identifier.kind} {identifier.value}"
+                      onclick={() => openIdentifierDialog(identifier)}
+                    >
+                      <wa-icon name="square-pen"></wa-icon>
+                    </button>
+                    <button
+                      type="button"
+                      class="identifier-action is-remove"
+                      title="Remove identifier"
+                      aria-label="Remove {identifier.kind} {identifier.value}"
+                      onclick={() => (pendingRemoval = identifier)}
+                    >
+                      <wa-icon name="trash"></wa-icon>
+                    </button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
         </section>
       {/if}
 
@@ -585,13 +683,6 @@ async function revealFile(path: string) {
           <p>{@html sanitizeHtml(book.description)}</p>
         </section>
       {/if}
-
-      <ShelfSelection
-        { editionId }
-        shelfKey={selectedShelf}
-        bookTitle={book.title ?? ''}
-        onChange={(k) => (selectedShelf = k)}
-      />
 
       <section class="section" id="review-section">
         <h3 class="section-title">Write a Review</h3>
@@ -626,36 +717,35 @@ async function revealFile(path: string) {
         />
       </wa-dialog>
 
+      <wa-dialog
+        open={showIdentifierDialog}
+        label="Edit identifier"
+        onwa-after-hide={() => (showIdentifierDialog = false)}
+      >
+        <IdentifierEditDialog
+          {editionId}
+          identifier={activeIdentifier}
+          open={showIdentifierDialog}
+          onSaved={refreshAfterIdentifierChange}
+          onClose={() => (showIdentifierDialog = false)}
+        />
+      </wa-dialog>
+
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title="Remove identifier"
+        message={pendingRemoval
+          ? `Remove ${pendingRemoval.kind} ${pendingRemoval.value} from this book? The catalog entry stops carrying it.`
+          : ''}
+        confirmLabel="Remove"
+        onconfirm={removeIdentifier}
+        oncancel={() => (pendingRemoval = null)}
+      />
+
 
       {#if readerNotes.data && readerNotes.data.length > 0}
         <section class="section">
-          <h3 class="section-title">Reader notes ({visibleNotes.length}/{readerNotes.data.length})</h3>
-          <div class="search-row">
-            <wa-input class="search" type="search" placeholder="Search notes…" value={searchQuery} oninput={(e) => (searchQuery = (e.target as HTMLInputElement).value)}></wa-input>
-          </div>
-          <ul class="notes">
-            {#each visibleNotes as note (note.id)}
-              <li class="note">
-                {#if note.quote}
-                  <blockquote
-                    class="note-quote"
-                    style:background={HIGHLIGHTS[note.color ?? DEFAULT_HIGHLIGHT]?.tint}
-                  >
-                    {note.quote}
-                  </blockquote>
-                {/if}
-                <p class="note-text">{note.text}</p>
-                {#if formatNoteDate(note.createdAt)}
-                  <time class="note-date" datetime={note.createdAt}>
-                    {formatNoteDate(note.createdAt)}
-                  </time>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          {#if visibleNotes.length === 0 && (readerNotes.data?.length ?? 0) > 0}
-            <p class="empty">No notes match “{searchQuery || ''}”.</p>
-          {/if}
+          <AnnotationList notes={readerNotes.data} title="Reader notes" />
         </section>
       {/if}
 
@@ -689,26 +779,27 @@ gap: var(--wa-space-l);
 }
 
 .drawer {
---size: 70vw;
+/* `wa-drawer` sets `width: var(--size)`. */
+--size: 90vw;
 }
 
+/* Cover left, everything else in one column beside it: the facts are part of
+   the record's identity, not a separate list below the fold. */
 .header {
-display: flex;
+display: grid;
+grid-template-columns: 12rem minmax(0, 1fr);
 gap: var(--wa-space-l);
-align-items: center;
-flex-direction: column;
+align-items: start;
 }
 
 .cover {
---size: 50%;
-width: var(--size);
-min-width: var(--size);
-height: calc(var(--size) * 1.5);
-margin: 0 auto;
+width: 100%;
+aspect-ratio: 2 / 3;
+margin: 0;
 overflow: hidden;
-border: 0.0625rem solid var(--wa-color-border-default);
+border: 0.0625rem solid var(--wa-color-surface-border);
 border-radius: var(--wa-border-radius);
-background: var(--wa-color-surface-alt);
+background: var(--wa-color-fill-quiet);
 }
 
 .cover img {
@@ -738,7 +829,11 @@ min-width: 0;
 
 .title {
 margin: 0;
-font-size: var(--wa-font-size-l);
+font-family: var(--wa-font-family-heading);
+font-size: 1.55rem;
+font-weight: 500;
+line-height: 1.15;
+text-wrap: balance;
 }
 
 .authors {
@@ -754,33 +849,45 @@ list-style: none;
 display: flex;
 align-items: center;
 gap: var(--wa-space-xs);
-
-> span {
-flex: 1 1;
-}
 }
 
 .facts {
-display: flex;
-flex-direction: column;
-gap: var(--wa-space-3xs);
+display: grid;
+grid-template-columns: repeat(2, minmax(0, 1fr));
+gap: var(--wa-space-s) var(--wa-space-l);
 margin: 0;
+padding-top: var(--wa-space-3xs);
 }
 
 .fact {
 display: flex;
-justify-content: space-between;
-gap: var(--wa-space-m);
+flex-direction: column;
+gap: 0.1rem;
+min-width: 0;
 }
 
 .fact dt {
 color: var(--wa-color-text-quiet);
+font-size: var(--wa-font-size-2xs, 0.7rem);
+font-weight: 600;
+letter-spacing: 0.06em;
+text-transform: uppercase;
 }
 
 .fact dd {
 margin: 0;
-text-align: right;
 overflow-wrap: anywhere;
+}
+
+/* A narrow drawer cannot hold a 12rem cover and a two-column fact grid. */
+@media (max-width: 52rem) {
+.header {
+grid-template-columns: 8rem minmax(0, 1fr);
+}
+
+.facts {
+grid-template-columns: minmax(0, 1fr);
+}
 }
 
 .section {
@@ -802,19 +909,99 @@ margin: 0;
 overflow-wrap: anywhere;
 }
 
-.identifiers {
-display: flex;
-flex-direction: column;
-gap: var(--wa-space-3xs);
-margin: 0;
-padding: 0;
-list-style: none;
+.identifier-table {
+width: 100%;
+border-collapse: collapse;
+font-size: var(--wa-font-size-s, 0.9rem);
 }
 
-.identifier {
-display: flex;
-align-items: center;
-gap: var(--wa-space-xs);
+.identifier-table th {
+padding: 0 0 var(--wa-space-3xs);
+border-bottom: 0.0625rem solid var(--wa-color-surface-border);
+color: var(--wa-color-text-quiet);
+font-size: var(--wa-font-size-2xs, 0.7rem);
+font-weight: 600;
+letter-spacing: 0.06em;
+text-align: start;
+text-transform: uppercase;
+}
+
+.identifier-table td {
+padding: var(--wa-space-3xs) var(--wa-space-xs) var(--wa-space-3xs) 0;
+border-bottom: 0.0625rem solid var(--wa-color-surface-border);
+vertical-align: baseline;
+}
+
+.identifier-table tbody tr:hover td {
+background: var(--wa-color-fill-quiet);
+}
+
+.identifier-kind {
+width: 6rem;
+color: var(--wa-color-text-quiet);
+font-family: var(--wa-font-family-mono, monospace);
+font-size: var(--wa-font-size-2xs, 0.7rem);
+letter-spacing: 0.04em;
+text-transform: uppercase;
+}
+
+/* A button so the value is reachable from the keyboard; it reads as text. */
+.identifier-value {
+padding: 0;
+border: 0;
+background: none;
+color: inherit;
+font: inherit;
+text-align: start;
+cursor: text;
+overflow-wrap: anywhere;
+}
+
+.identifier-value:hover,
+.identifier-value:focus-visible {
+color: var(--wa-color-text-normal);
+text-decoration: underline;
+text-underline-offset: 0.2em;
+}
+
+.identifier-actions {
+width: 3.5rem;
+text-align: end;
+white-space: nowrap;
+}
+
+/* Dimmed but present, so the affordance is discoverable without hovering. */
+.identifier-action {
+padding: 0;
+border: 0;
+border-radius: var(--wa-border-radius);
+background: none;
+color: var(--wa-color-text-quiet);
+cursor: pointer;
+opacity: 0.35;
+transition: opacity 120ms ease;
+}
+
+.identifier-table tbody tr:hover .identifier-action,
+.identifier-action:focus-visible {
+opacity: 1;
+}
+
+.identifier-action:hover {
+color: var(--wa-color-text-normal);
+}
+
+.identifier-action.is-remove:hover {
+color: var(--wa-color-danger);
+}
+
+.sr-only {
+position: absolute;
+width: 1px;
+height: 1px;
+overflow: hidden;
+clip-path: inset(50%);
+white-space: nowrap;
 }
 
 .mono {
@@ -822,55 +1009,8 @@ font-family: var(--wa-font-family-mono, monospace);
 overflow-wrap: anywhere;
 }
 
-.notes {
-display: flex;
-flex-direction: column;
-gap: var(--wa-space-s);
-margin: 0;
-padding: 0;
-list-style: none;
-}
-
-.note {
-display: flex;
-flex-direction: column;
-gap: var(--wa-space-3xs);
-padding-block-start: var(--wa-space-s);
-border-block-start: 1px solid var(--wa-color-border-default);
-}
-
-.note-quote {
-margin: 0;
-padding: var(--wa-space-s);
-border-inline-start: 2px solid var(--wa-color-border-default);
-color: var(--wa-color-text-normal);
-border-radius: var(--wa-space-2xs);
-font-style: italic;
-font-size: 115%;
-}
-
-.note-text {
-margin: 0;
-overflow-wrap: anywhere;
-color: var(--wa-color-text-quiet);
-font-size: 85%;
-}
-
-.note-date {
-font-size: var(--wa-font-size-2xs, 0.75rem);
-color: var(--wa-color-text-muted);
-}
-
 .muted {
 color: var(--wa-color-text-quiet);
-}
-
-.search-row {
-margin-block-start: var(--wa-space-2xs);
-}
-
-.search {
---wa-input-width: 100%;
 }
 
 .empty {

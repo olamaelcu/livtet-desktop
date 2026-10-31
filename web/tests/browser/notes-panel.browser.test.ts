@@ -20,7 +20,8 @@ const dated = note({
 const undated = note({ id: 'b', text: 'second note' })
 
 function rows(container: HTMLElement): HTMLElement[] {
-  return [...container.querySelectorAll('.note-row')] as HTMLElement[]
+  // `AnnotationList` renders one `li` per note; the panel is only chrome.
+  return [...container.querySelectorAll('.note')] as HTMLElement[]
 }
 
 test('lists every note with its text', async () => {
@@ -30,7 +31,7 @@ test('lists every note with its text', async () => {
   })
 
   expect(rows(container)).toHaveLength(2)
-  expect(container.querySelector('.panel-heading')?.textContent).toContain('Notes (2)')
+  expect(container.querySelector('.annotations-title')?.textContent).toContain('Notes (2)')
   expect(container.textContent).toContain('dated note')
   expect(container.textContent).toContain('second note')
 })
@@ -121,7 +122,7 @@ test('filters the rows as the reader types', async () => {
   expect(container.textContent).toContain('dated note')
   expect(container.textContent).not.toContain('second note')
   // Heading reports the filtered count against the total.
-  expect(container.querySelector('.panel-heading')?.textContent).toContain('(1/2)')
+  expect(container.querySelector('.annotations-title')?.textContent).toContain('(1/2)')
 })
 
 test('matches the quoted passage too', async () => {

@@ -247,6 +247,36 @@ function loadMore() {
 }
 
 let scrollElement = $state<HTMLElement>()
+
+/** Cards crossing the shelf's viewport, counted for the floating counter. */
+let inViewCount = $state(0)
+let shelfElement = $state<HTMLElement>()
+const cardsInView = new Set<Element>()
+
+/**
+ * The counter reports what is actually on screen, so it moves while scrolling
+ * and as pages load, rather than restating the result count.
+ */
+$effect(() => {
+  const shelf = shelfElement
+  const count = books.length
+  cardsInView.clear()
+  inViewCount = 0
+  if (!shelf || count === 0) return
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) cardsInView.add(entry.target)
+        else cardsInView.delete(entry.target)
+      }
+      inViewCount = cardsInView.size
+    },
+    { root: scrollElement ?? null, threshold: 0.5 },
+  )
+  for (const card of shelf.querySelectorAll('.card-wrap')) observer.observe(card)
+  return () => observer.disconnect()
+})
 let searchInput = $state<HTMLElement>()
 
 onMount(() => registerSearchTarget(() => searchInput?.focus()))
@@ -346,28 +376,21 @@ function selectSuggestion(title: string) {
     {/if}
   </div>
 </div>
-{#if !editions.isPending && !editions.isError && totalCount !== null}
-  <div class="result-count" role="status" aria-live="polite">
-    {#if editions.hasNextPage}
-      {books.length} of {totalCount} {totalCount === 1 ? 'result' : 'results'}
-    {:else}
-      {totalCount} {totalCount === 1 ? 'result' : 'results'}
-    {/if}
-  </div>
-{/if}
   {/snippet}
+  <div class="shelf" bind:this={shelfElement}>
   <div
     class="book-list"
     class:selection-docked={selection.mode}
     style="--col-min: {COVER_MIN_WIDTH[coverSize]}"
   >
-    {#each books as book (book.id)}
+    {#each books as book, index (book.id)}
       <BookCard
         title={book.title}
         cover_url={coverUrlFor(coversById.get(book.edition_id))}
         selectable={selection.mode}
         selected={selection.selected.has(book.edition_id)}
         in_filesystem={book.has_file}
+        style="--i: {index}"
         onclick={() =>
           selection.mode ? selection.toggle(book.edition_id) : openDetail(book.edition_id)}
         ondblclick={() => void openBook(book.edition_id, book.has_file)}
@@ -377,6 +400,20 @@ function selectSuggestion(title: string) {
         <div class="empty">No books? No results.</div>
       {/if}
     {/each}
+  </div>
+  {#if !editions.isPending && !editions.isError && totalCount !== null && books.length > 0}
+    <p class="view-counter" role="status" aria-live="polite">
+      <span class="view-counter-count">{inViewCount} in view</span>
+      <span class="view-counter-sep" aria-hidden="true">·</span>
+      <span>
+        {#if editions.hasNextPage && books.length !== totalCount}
+          {books.length} of {totalCount} books
+        {:else}
+          {totalCount} {totalCount === 1 ? 'book' : 'books'}
+        {/if}
+      </span>
+    </p>
+  {/if}
   </div>
   {#if editions.hasNextPage}
     <div class="load-more" use:sentinel={{ root: scrollElement, onvisible: loadMore }}>
@@ -472,10 +509,37 @@ function selectSuggestion(title: string) {
     border: 1px solid var(--wa-color-border);
   }
 
-  .result-count {
-    padding: 0 var(--wa-space-m);
-    font-size: var(--wa-font-size-xs);
-    color: var(--wa-color-text-secondary);
+  /* Floats over the shelf instead of pushing it down: the count is a readout,
+     not a line of content. */
+  .view-counter {
+    position: fixed;
+    inset-block-end: var(--wa-space-l);
+    inset-inline-start: 50%;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0.3rem 0.7rem;
+    border: 1px solid var(--wa-color-surface-border);
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--wa-color-surface-raised) 86%, transparent);
+    box-shadow: 0 0.3rem 1rem oklch(0% 0 0 / 28%);
+    color: var(--wa-color-text-quiet);
+    font-size: var(--wa-font-size-xs, 0.8rem);
+    font-variant-numeric: tabular-nums;
+    backdrop-filter: blur(8px);
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+
+  .view-counter-count {
+    color: var(--wa-color-text-normal);
+    font-weight: 600;
+  }
+
+  .view-counter-sep {
+    opacity: 0.5;
   }
 
   .suggestions-dropdown {

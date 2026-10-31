@@ -5,9 +5,10 @@ import EditionDetailDrawer from '$lib/library/EditionDetailDrawer.svelte'
 interface Props {
   editionId?: string
   open?: boolean
+  onclose?: () => void
 }
 
-let { editionId = '01hzzzzzzzzzzzzzzzzzzzzzzz', open = true }: Props = $props()
+let { editionId = '01hzzzzzzzzzzzzzzzzzzzzzzz', open = true, onclose = () => {} }: Props = $props()
 
 // The drawer reads one edition-detail query; the spec mocks `invoke`.
 const client = new QueryClient({
@@ -19,5 +20,5 @@ const client = new QueryClient({
 </script>
 
 <QueryClientProvider {client}>
-  <EditionDetailDrawer {editionId} {open} onclose={() => {}} />
+  <EditionDetailDrawer {editionId} {open} {onclose} />
 </QueryClientProvider>

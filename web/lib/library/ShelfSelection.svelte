@@ -15,11 +15,16 @@ export interface Props {
 let { editionId, shelfKey: shelfKeyProp = 'to-read', bookTitle = '', onChange }: Props = $props()
 
 const shelfOptions = [
-  { key: 'to-read', label: 'To-Read', icon: 'bookmark' },
+  { key: 'to-read', label: 'Want To Read', icon: 'bookmark' },
+  { key: 'reading', label: 'Actively Reading', icon: 'book-open' },
+  { key: 'read', label: 'Have Read', icon: 'circle-check' },
   { key: 'dnf', label: 'Did Not Finish', icon: 'ban' },
-  { key: 'reading', label: 'Reading', icon: 'book-open' },
-  { key: 'read', label: 'Read', icon: 'circle-check' },
 ]
+
+/** The shelf the book is on, and the icon that names it in the trigger. */
+const currentShelf = $derived(
+  shelfOptions.find((option) => option.key === shelfKeyProp) ?? shelfOptions[0],
+)
 
 const saveShelf = createMutation(() => {
   return {
@@ -48,8 +53,18 @@ const saveShelf = createMutation(() => {
 })
 
 function selectShelf(key: string) {
-  if (saveShelf.isPending) return
+  // Re-picking the current shelf would write (and publish) the same placement.
+  if (saveShelf.isPending || key === shelfKeyProp) return
   saveShelf.mutate({ key, id: editionId ?? '' })
+}
+
+/**
+ * `wa-dropdown-item` exposes `value` as a property, so the selection is read
+ * from the event's item rather than an attribute (same as `LibraryToolbar`).
+ */
+function handleSelect(event: Event) {
+  const { value } = (event as CustomEvent<{ item: HTMLElement & { value?: string } }>).detail.item
+  if (value) selectShelf(value)
 }
 
 onMount(async () => {
@@ -60,29 +75,36 @@ onMount(async () => {
     // No stored placement: the shelf the caller passed stays selected.
   }
 })
-
-const currentShelfStatus = $derived.by(() => {
-  return shelfOptions.find((v) => v.key === shelfKeyProp)?.label
-})
 </script>
 
-<small>{currentShelfStatus}</small>
-<wa-button-group class="shelf">
-  {#each shelfOptions as s}
-    <wa-button
-      tabindex={0}
-      role="button"
-      variant={shelfKeyProp === s.key ? "success" : "neutral"}
-      onclick={() => selectShelf(s.key)}
-      type="button"
-      disabled={saveShelf.isPending}
-    >
-      <wa-icon name={s.icon}></wa-icon>
-    </wa-button>
+<wa-dropdown onwa-select={handleSelect}>
+  <wa-button
+    slot="trigger"
+    class="shelf-trigger"
+    appearance="filled"
+    with-caret
+    disabled={saveShelf.isPending}
+    aria-label="Shelf: {currentShelf.label}"
+  >
+    <wa-icon name={currentShelf.icon}></wa-icon>
+    {currentShelf.label}
+  </wa-button>
+  {#each shelfOptions as shelf (shelf.key)}
+    <wa-dropdown-item type="checkbox" checked={shelfKeyProp === shelf.key} value={shelf.key}>
+      <wa-icon slot="icon" name={shelf.icon}></wa-icon>
+      {shelf.label}
+    </wa-dropdown-item>
   {/each}
-</wa-button-group>
+</wa-dropdown>
 
 <style>
-.shelf { margin: 0 auto;}
-small { margin: 0 auto; margin-bottom: calc(-1 * var(--wa-space-m))}
+/* `wa-dropdown` is `display: contents`, so the trigger button lands directly in
+   the drawer's column flex and stretches to the full width. Let it size to its
+   label instead, so it reads as a chip rather than a bar. */
+/* `:global` because Svelte's own scope class is not applied to this custom
+   element, so a scoped selector would never match. */
+:global(.shelf-trigger) {
+align-self: flex-start;
+width: auto;
+}
 </style>
