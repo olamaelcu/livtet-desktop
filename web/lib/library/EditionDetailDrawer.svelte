@@ -25,7 +25,7 @@ import {
   reportEnrichmentError,
   summaryMessage,
 } from './enrich'
-import { describeCatalogError, formatFileSize, formatIdentifier } from './format'
+import { describeCatalogError, formatIdentifier } from './format'
 import IdentifierEditDialog from './IdentifierEditDialog.svelte'
 import { relinkEditionFile } from './import'
 import ReviewInsert from './ReviewInsert.svelte'
@@ -398,12 +398,16 @@ async function revealFile(path: string) {
       onclick={() => triggerEnrich()}
       disabled={enrichBlocked !== null || previewing}
     >
+      <wa-icon name={previewing ? 'loader-circle' : 'square-sparkles'}></wa-icon>
       {previewing ? 'Enriching…' : 'Enrich'}
     </ActionButton>
-    {#if file?.file_status === 'missing'}
-      <ActionButton onclick={relinkFile} disabled={relinking}>Re-link file…</ActionButton>
+    {#if file?.file_status !== 'ok'}
+      <ActionButton onclick={relinkFile} disabled={relinking}>
+        <wa-icon name="external-link"></wa-icon>
+        Relink
+      </ActionButton>
     {:else}
-      <ActionButton onclick={() => revealFile(path)} disabled={file?.file_status === 'missing'}>
+      <ActionButton onclick={() => path && revealFile(path)} disabled={!path}>
         <wa-icon name="folder-open"></wa-icon>
         Open
       </ActionButton>
