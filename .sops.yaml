@@ -1,4 +1,17 @@
 ---
 creation_rules:
   - path_regex: \.mise/secrets\.json(?:\.sops)?$
-    age: "age1uwsl330wypk62gllfdmtsxv0cdnaydvqa8wxz4vznrjfra7egajssuhq87"
+    # Comma-separated recipients; any one of their private keys can decrypt.
+    #
+    #   age1uwsl…  the operator machine that created the current bundle
+    #   age1seew…  jacky's workstation key (~/.config/sops/age/keys.txt)
+    #   age1wxzr…  CI only — value is the SOPS_AGE_KEY repository secret
+    #
+    # After editing this list, re-share the bundle with the new set (the tool
+    # discovers this file; `updatekeys` has no --config flag):
+    #
+    #   sops updatekeys --yes .mise/secrets.json.sops
+    #
+    # That re-wraps the data key for every recipient above and needs a private
+    # key of a *current* recipient, so run it on a machine that can decrypt.
+    age: "age1uwsl330wypk62gllfdmtsxv0cdnaydvqa8wxz4vznrjfra7egajssuhq87,age1seewdnusnhc7p69qrnftlqg7jn0akmkz4h04rh9uqqfgy6y0m9pq67u8gd,age1wxzrgafhvq54h5mnr6zx2a80mya2eu8yjhmdnu5w9ah8cqwphynqrjzaps"
