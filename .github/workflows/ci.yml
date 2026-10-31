@@ -161,7 +161,14 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: . -> target
+          # The second entry covers `build.rs`'s nested sidecar builds. The
+          # default `. -> target` mapping misses them entirely, so
+          # `livtet-plugin-host` and `livtet-sync-daemon` are rebuilt from
+          # scratch on every run (~4 GB of artifacts locally, and pure compile
+          # time on Windows).
+          workspaces: |
+            . -> target
+            crates/livtet-desktop -> target
 
       - name: Install Tauri Linux prerequisites
         if: runner.os == 'Linux'
@@ -397,7 +404,11 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: . -> target
+          # Same sidecar mapping as the test job: the coverage build runs
+          # `build.rs` too, and this job is the PR critical path.
+          workspaces: |
+            . -> target
+            crates/livtet-desktop -> target
           key: coverage
 
       - name: Install LLVM coverage tools
