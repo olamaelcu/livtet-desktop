@@ -113,12 +113,12 @@ function beginPairing() {
   pairing.mutate()
 }
 
-function approvePairing(token: string) {
-  action.mutate({ message: 'Device paired', run: () => syncPairingApprove(token) })
+function approvePairing(nodeId: string) {
+  action.mutate({ message: 'Device paired', run: () => syncPairingApprove(nodeId) })
 }
 
-function rejectPairing(token: string) {
-  action.mutate({ message: 'Pairing rejected', run: () => syncPairingReject(token) })
+function rejectPairing(nodeId: string) {
+  action.mutate({ message: 'Pairing rejected', run: () => syncPairingReject(nodeId) })
 }
 
 function revokeDevice(deviceId: string) {
@@ -243,20 +243,10 @@ onMount(() => {
 
     {#if ticket}
       <div class="code-region">
-      <wa-qr-code
-        class="pairing-qr"
-        value={ticket.uri}
-        label="Scan to pair a device"
-        size={160}
-      ></wa-qr-code>
 <div>
       <div class="copy-row">
-        <wa-input readonly={true} label="URI" value={ticket.uri}></wa-input>
-        <ActionButton onclick={() => copy('Pairing URI', ticket?.uri ?? '')}>Copy</ActionButton>
-      </div>
-      <div class="copy-row">
-        <wa-input readonly={true} label="Token" value={ticket.token}></wa-input>
-        <ActionButton onclick={() => copy('Pairing token', ticket?.token ?? '')}>Copy</ActionButton>
+        <wa-input readonly={true} label="Node ID" value={ticket.node_id}></wa-input>
+        <ActionButton onclick={() => copy('Node ID', ticket?.node_id ?? '')}>Copy</ActionButton>
       </div>
 </div>
 </div>
@@ -264,17 +254,17 @@ onMount(() => {
     {/if}
 
     <h4>Pending</h4>
-    {#each pending.data ?? [] as item (item.token)}
+    {#each pending.data ?? [] as item (item.node_id)}
       <div class="row">
         <span>
           <strong>{item.device_name ?? 'Unknown device'}</strong>
           <span class="muted">· {item.device_type_id ?? 'unknown'} · {item.listen_on ?? '—'}</span>
         </span>
         <wa-button-group>
-          <ActionButton variant="brand" onclick={() => approvePairing(item.token)} disabled={busy}>
+          <ActionButton variant="brand" onclick={() => approvePairing(item.node_id)} disabled={busy}>
             Approve
           </ActionButton>
-          <ActionButton onclick={() => rejectPairing(item.token)} disabled={busy}>Reject</ActionButton>
+          <ActionButton onclick={() => rejectPairing(item.node_id)} disabled={busy}>Reject</ActionButton>
         </wa-button-group>
       </div>
     {:else}
@@ -461,14 +451,6 @@ onMount(() => {
       gap: var(--wa-space-s);
       flex: 1 1;
     }
-  }
-
-  .pairing-qr {
-    align-self: flex-start;
-    padding: var(--wa-space-m);
-    border: 0.0625rem solid var(--wa-color-border-default);
-    border-radius: var(--wa-radius-m);
-    background: var(--wa-color-surface-default);
   }
 
   .copy-row {

@@ -104,18 +104,20 @@ async fn sync_pairing_list_inner(sync: &SyncHandle) -> Result<Vec<SyncPendingPai
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_pairing_approve(
-    token: String,
+    node_id: String,
     state: State<'_, AppState>,
 ) -> Result<SyncPairingApproved, SyncError> {
-    sync_pairing_approve_inner(&state.sync, &token).await
+    sync_pairing_approve_inner(&state.sync, &node_id).await
 }
 
 async fn sync_pairing_approve_inner(
     sync: &SyncHandle,
-    token: &str,
+    node_id: &str,
 ) -> Result<SyncPairingApproved, SyncError> {
+    // The daemon's `TokenParams` field is still named `token`; its value is now
+    // the peer's node identity (see `livtet_sync_server::daemon`).
     parse(
-        sync.call(method::PAIRING_APPROVE, json!({ "token": token }))
+        sync.call(method::PAIRING_APPROVE, json!({ "token": node_id }))
             .await?,
     )
 }
@@ -123,15 +125,17 @@ async fn sync_pairing_approve_inner(
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_pairing_reject(
-    token: String,
+    node_id: String,
     state: State<'_, AppState>,
 ) -> Result<bool, SyncError> {
-    sync_pairing_reject_inner(&state.sync, &token).await
+    sync_pairing_reject_inner(&state.sync, &node_id).await
 }
 
-async fn sync_pairing_reject_inner(sync: &SyncHandle, token: &str) -> Result<bool, SyncError> {
+async fn sync_pairing_reject_inner(sync: &SyncHandle, node_id: &str) -> Result<bool, SyncError> {
+    // As with approve, the daemon's parameter key is still `token`, now holding
+    // the peer's node identity.
     let value = sync
-        .call(method::PAIRING_REJECT, json!({ "token": token }))
+        .call(method::PAIRING_REJECT, json!({ "token": node_id }))
         .await?;
     Ok(ok(&value))
 }
@@ -261,18 +265,17 @@ pub struct SyncRequestRecord {
     pub device_id: Option<String>,
 }
 
-/// A freshly minted pairing ticket from `pairing.begin`.
+/// A freshly minted pairing identity from `pairing.begin` (identity primitive; replaces token/URI).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SyncPairingTicket {
-    pub token: String,
-    pub uri: String,
+    pub node_id: String,
     pub expires_at: String,
 }
 
-/// An outstanding pairing from `pairing.list`.
+/// An outstanding pairing from `pairing.list` (identity-based; node_id replaces token).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SyncPendingPairing {
-    pub token: String,
+    pub node_id: String,
     pub desktop_id: String,
     pub listen_on: Option<String>,
     pub status_id: Option<String>,
@@ -283,7 +286,7 @@ pub struct SyncPendingPairing {
     pub expires_at: String,
 }
 
-/// The device + session minted by `pairing.approve`.
+/// The device + session minted by `pairing.approve` (daemon still returns a session token).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SyncPairingApproved {
     pub device_id: String,
@@ -384,9 +387,9 @@ mod tests {
             }
             method::PAIRING_LIST => to_json(sync_pairing_list_inner(sync).await),
             method::PAIRING_APPROVE => {
-                to_json(sync_pairing_approve_inner(sync, "tok-approve").await)
+                to_json(sync_pairing_approve_inner(sync, "node-approve").await)
             }
-            method::PAIRING_REJECT => to_json(sync_pairing_reject_inner(sync, "tok-reject").await),
+            method::PAIRING_REJECT => to_json(sync_pairing_reject_inner(sync, "node-reject").await),
             method::DEVICES_LIST => to_json(sync_devices_list_inner(sync).await),
             method::DEVICES_REVOKE => to_json(sync_devices_revoke_inner(sync, "dev-9").await),
             method::CONFLICTS_LIST => to_json(sync_conflicts_list_inner(sync).await),
@@ -461,7 +464,7 @@ mod tests {
                 method::PAIRING_BEGIN,
                 json!({ "device_type": "phone", "ttl_secs": null }),
                 json!({
-                    "token": "tok-1", "uri": "livtet://pair?token=tok-1",
+                    "node_id": "node-1",
                     "expires_at": "2026-10-14T10:05:00Z",
                 }),
             ),
@@ -469,7 +472,7 @@ mod tests {
                 method::PAIRING_LIST,
                 Value::Null,
                 json!([{
-                    "token": "tok-1", "desktop_id": "desk-1", "listen_on": null,
+                    "node_id": "node-1", "desktop_id": "desk-1", "listen_on": null,
                     "status_id": "pending", "device_name": "Pixel", "device_type_id": "phone",
                     "device_id": null, "created_at": "2026-10-14T10:00:00Z",
                     "expires_at": "2026-10-14T10:05:00Z",
@@ -477,12 +480,12 @@ mod tests {
             ),
             decoded(
                 method::PAIRING_APPROVE,
-                json!({ "token": "tok-approve" }),
+                json!({ "token": "node-approve" }),
                 json!({ "device_id": "dev-2", "session_token": "sess-abc" }),
             ),
             acknowledged(
                 method::PAIRING_REJECT,
-                json!({ "token": "tok-reject" }),
+                json!({ "token": "node-reject" }),
                 json!({ "ok": true }),
                 true,
             ),

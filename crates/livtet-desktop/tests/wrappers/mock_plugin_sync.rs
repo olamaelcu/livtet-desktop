@@ -417,11 +417,11 @@ async fn sync_wrappers_map_a_dead_daemon_pipe_to_unavailable() {
     assert_unavailable("sync_pairing_list", sync::sync_pairing_list(state()).await);
     assert_unavailable(
         "sync_pairing_approve",
-        sync::sync_pairing_approve("tok-approve".to_string(), state()).await,
+        sync::sync_pairing_approve("node-approve".to_string(), state()).await,
     );
     assert_unavailable(
         "sync_pairing_reject",
-        sync::sync_pairing_reject("tok-reject".to_string(), state()).await,
+        sync::sync_pairing_reject("node-reject".to_string(), state()).await,
     );
     assert_unavailable("sync_devices_list", sync::sync_devices_list(state()).await);
     assert_unavailable(

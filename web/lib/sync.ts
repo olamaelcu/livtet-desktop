@@ -61,7 +61,7 @@ export function syncRequestsRecent(limit = 50): Promise<SyncRequestRecord[]> {
   return unwrap<SyncRequestRecord[]>(commands.syncRequestsRecent(limit))
 }
 
-/** Mint a pairing ticket a remote device can redeem. */
+/** Begin a pairing: mint this device's pairing node identity for remote peers. */
 export function syncPairingBegin(
   deviceType?: string,
   ttlSecs?: number,
@@ -74,14 +74,14 @@ export function syncPairingList(): Promise<SyncPendingPairing[]> {
   return unwrap<SyncPendingPairing[]>(commands.syncPairingList())
 }
 
-/** Approve an outstanding pairing, minting its device + session. */
-export function syncPairingApprove(token: string): Promise<SyncPairingApproved> {
-  return unwrap<SyncPairingApproved>(commands.syncPairingApprove(token))
+/** Approve an outstanding pairing by its node identity, binding the device. */
+export function syncPairingApprove(nodeId: string): Promise<SyncPairingApproved> {
+  return unwrap<SyncPairingApproved>(commands.syncPairingApprove(nodeId))
 }
 
-/** Reject an outstanding pairing. */
-export function syncPairingReject(token: string): Promise<boolean> {
-  return unwrap<boolean>(commands.syncPairingReject(token))
+/** Reject an outstanding pairing by its node identity. */
+export function syncPairingReject(nodeId: string): Promise<boolean> {
+  return unwrap<boolean>(commands.syncPairingReject(nodeId))
 }
 
 /** Devices currently paired with this desktop. */

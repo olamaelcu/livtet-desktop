@@ -65,7 +65,7 @@ beforeEach(() => {
       case 'sync_requests_recent':
         return []
       case 'sync_pairing_begin':
-        return { token: 'tok-1', uri: 'livtet://pair/tok-1', expires_at: 'soon' }
+        return { node_id: 'node-1', expires_at: 'soon' }
       case 'sync_pairing_approve':
         return { device_id: 'device-abc', session_token: 'sess-1' }
       case 'sync_pairing_reject':
@@ -139,8 +139,8 @@ test('pairing a device shows the ticket and toasts', async () => {
 
   panelButton(container, 'Pair a device').click()
   await expect.poll(() => toast.success).toHaveBeenCalledWith('Pairing ticket created')
-  // The URI lives in `wa-input`/`wa-qr-code` properties, not text; the expiry
-  // line proves the ticket block rendered.
+  // The node id lives in a `wa-input` property, not text; the expiry line
+  // proves the ticket block rendered.
   expect(container.textContent).toContain('Expires soon.')
   expect(invoke).toHaveBeenCalledWith('sync_pairing_begin', expect.anything())
 })
@@ -150,7 +150,7 @@ test('approving a pending pairing toasts and calls approve', async () => {
     if (command === 'sync_pairing_list') {
       return [
         {
-          token: 'tok-9',
+          node_id: 'node-9',
           desktop_id: 'd',
           listen_on: null,
           status_id: null,
