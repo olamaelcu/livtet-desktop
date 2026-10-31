@@ -138,9 +138,12 @@ jobs:
             Linux-ARM64) asset=sops-v3.13.2.linux.arm64 ;;
             *) echo "unsupported runner: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
           esac
-          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops.exe"
+          # Installed as `sops` and made executable: naming it `sops.exe` (as this
+          # did for every platform) leaves Unix runners with no `sops` command.
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops"
+          chmod +x "$RUNNER_TEMP/sops"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-          sops --version
+          "$RUNNER_TEMP/sops" --version
       - name: Decrypt build secrets
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
@@ -302,9 +305,10 @@ jobs:
             macOS-ARM64) asset=sops-v3.13.2.darwin.arm64 ;;
             *) echo "unsupported runner: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
           esac
-          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops.exe"
+          curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops"
+          chmod +x "$RUNNER_TEMP/sops"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-          sops --version
+          "$RUNNER_TEMP/sops" --version
       - name: Decrypt build secrets
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
@@ -440,13 +444,14 @@ jobs:
         run: |
           set -euo pipefail
           case "$RUNNER_OS-$RUNNER_ARCH" in
-            Windows-X64) asset=sops-v3.13.2.windows.amd64.exe ;;
-            Windows-ARM64) asset=sops-v3.13.2.windows.arm64.exe ;;
+            # The Windows assets carry no `windows` segment: `sops-v3.13.2.amd64.exe`.
+            Windows-X64) asset=sops-v3.13.2.amd64.exe ;;
+            Windows-ARM64) asset=sops-v3.13.2.arm64.exe ;;
             *) echo "unsupported runner: $RUNNER_OS-$RUNNER_ARCH"; exit 1 ;;
           esac
           curl -fsSL "https://github.com/getsops/sops/releases/download/v3.13.2/$asset" -o "$RUNNER_TEMP/sops.exe"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-          sops --version
+          "$RUNNER_TEMP/sops.exe" --version
       - name: Decrypt build secrets
         env:
           SOPS_AGE_KEY: ${{ secrets.SOPS_AGE_KEY }}
