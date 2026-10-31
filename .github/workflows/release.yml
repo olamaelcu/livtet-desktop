@@ -87,7 +87,10 @@ jobs:
           - arch: arm64
             runner: ubuntu-22.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: deb
+            # `rpm` is bundled by a pure-Rust writer, so it needs no rpmbuild on
+            # the runner; AppImage stays amd64-only because its bundler fetches
+            # external linuxdeploy tooling per architecture.
+            bundles: deb,rpm
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -660,7 +663,7 @@ jobs:
           fi
 
   publish-pages:
-    name: Publish APT and Flatpak repositories
+    name: Publish APT, RPM and Flatpak repositories
     needs: [validate, release, linux, flatpak]
     if: needs.validate.outputs.packages_key == 'true'
     timeout-minutes: 25
@@ -681,7 +684,7 @@ jobs:
       - name: Install packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev apt-utils gnupg flatpak
+          sudo apt-get install -y dpkg-dev apt-utils gnupg flatpak createrepo-c
       - name: Import package signing key
         env:
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
@@ -740,6 +743,47 @@ jobs:
             gpg --armor --export "$KEYID" > livtet.asc
             printf '%s\n' "deb [signed-by=/usr/share/keyrings/livtet.asc] ${PACKAGES_URL}/apt stable main" > livtet.list
           )
+      - name: Build RPM repository
+        run: |
+          set -euo pipefail
+          version="${{ needs.validate.outputs.version }}"
+          install -d pages/rpm
+          # tauri-bundler writes `<name>-<version>-<release>.<arch>.rpm`, so the
+          # arch is the last path component before the extension.
+          for arch in x86_64 aarch64; do
+            dir="pages/rpm/$arch"
+            install -d "$dir"
+            found=false
+            for rpm in artifacts/*."$arch".rpm; do
+              [ -e "$rpm" ] || continue
+              cp "$rpm" "$dir"/
+              found=true
+            done
+            if [ "$found" != true ]; then
+              echo "no RPMs for $arch; leaving that arch out of the repo"
+              rmdir "$dir" 2>/dev/null || true
+              continue
+            fi
+            # Keep the repository to the current release, like the APT pool.
+            find "$dir" -name '*.rpm' ! -name "livtet-desktop-${version}-*.rpm" -delete
+            createrepo_c --database --checksum sha256 --update "$dir"
+            gpg --batch --yes --default-key "$KEYID" \
+              --detach-sign --armor -o "$dir/repodata/repomd.xml.asc" "$dir/repodata/repomd.xml"
+          done
+          # The packages themselves are unsigned (tauri-bundler does not sign
+          # RPMs), so dnf verifies the signed repository index instead and
+          # package checking stays off. Signing the RPMs would need `rpmsign`
+          # plus the key imported into rpm's database; not worth it until the
+          # packages are reproducible.
+          {
+            printf '%s\n' '[livtet]' 'name=Livtet desktop'
+            # `$basearch` is dnf's own placeholder, so it is passed as a literal
+            # argument instead of sitting in the format string.
+            # shellcheck disable=SC2016
+            printf 'baseurl=%s/rpm/%s\n' "${PACKAGES_URL}" '$basearch'
+            printf '%s\n' 'enabled=1' 'repo_gpgcheck=1' 'gpgcheck=0' 'type=rpm-md'
+            printf 'gpgkey=%s/apt/livtet.asc\n' "${PACKAGES_URL}"
+          } > pages/rpm/livtet.repo
       - name: Build Flatpak repository
         run: |
           set -euo pipefail
