@@ -93,11 +93,6 @@ jobs:
         with:
           toolchain: '1.97.0'
 
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: . -> target
-
       - name: Install Tauri Linux prerequisites
         if: runner.os == 'Linux'
         run: |
