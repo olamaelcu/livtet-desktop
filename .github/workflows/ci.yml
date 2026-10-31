@@ -24,6 +24,12 @@ jobs:
       code: ${{ steps.filter.outputs.code }}
       rust: ${{ steps.filter.outputs.rust }}
       web: ${{ steps.filter.outputs.web }}
+      # Which job runs the Rust suite. On a ready same-repo pull request the
+      # coverage legs already build and execute it (instrumented), so the test
+      # job skips its own run; on pushes, drafts and fork PRs — where coverage is
+      # skipped — the test job keeps it. Empty on pushes (this job is skipped),
+      # which compares unequal to 'true' and therefore means "test runs it".
+      rust_in_coverage: ${{ steps.split.outputs.rust_in_coverage }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -66,6 +72,19 @@ jobs:
               - '.gitattributes'
               - '.mise/**'
               - '.github/workflows/**'
+
+      - name: Decide which job runs the Rust suite
+        id: split
+        shell: bash
+        run: |
+          # Must stay in step with the coverage job's `if`: whatever that job
+          # skips, this job has to cover.
+          if [ "${{ github.event.pull_request.draft }}" = 'false' ] &&
+             [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+            echo 'rust_in_coverage=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'rust_in_coverage=false' >> "$GITHUB_OUTPUT"
+          fi
 
   lint:
     name: Lint (${{ matrix.os }})
@@ -235,6 +254,10 @@ jobs:
       # the exported command surface.
       - name: Cache generated bindings + frontend prerequisites
         id: bindings-cache
+        # Web checks run on Linux for pull requests: the suites are
+        # platform-agnostic, and generating bindings on Windows costs a full
+        # crate compile for 20 seconds of tests. Pushes still cover every leg.
+        if: github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'
         uses: actions/cache@v4
         with:
           path: |
@@ -251,7 +274,9 @@ jobs:
             bindings-prereqs-${{ runner.os }}-
 
       - name: Generate TS bindings
-        if: steps.bindings-cache.outputs.cache-hit != 'true'
+        if: >
+          (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') &&
+          steps.bindings-cache.outputs.cache-hit != 'true'
         run: |
           cargo run --features bindings-export --bin generate-bindings
           pnpm exec svelte-kit sync
@@ -265,9 +290,10 @@ jobs:
         # everything but Linux: macOS has never produced a Rust failure the other
         # legs missed.
         if: >
-          github.event_name != 'pull_request' ||
-          (needs.changes.outputs.rust == 'true' && matrix.os != 'macos-latest' &&
-           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
+          needs.changes.outputs.rust_in_coverage != 'true' &&
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.rust == 'true' && matrix.os != 'macos-latest' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         uses: taiki-e/install-action@v2
         with:
           tool: nextest@0.9.150
@@ -278,18 +304,20 @@ jobs:
         # to discover the rest. nextest rejects it alongside `--max-fail`, so no
         # cap is set.
         if: >
-          github.event_name != 'pull_request' ||
-          (needs.changes.outputs.rust == 'true' && matrix.os != 'macos-latest' &&
-           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
+          needs.changes.outputs.rust_in_coverage != 'true' &&
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.rust == 'true' && matrix.os != 'macos-latest' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         run: |
           cargo test --doc --workspace --no-fail-fast
           cargo nextest run --workspace --all-targets --no-fail-fast
 
       - name: Cache Playwright browsers
         if: >
-          github.event_name != 'pull_request' ||
-          (needs.changes.outputs.web == 'true' &&
-           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
+          (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') &&
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.web == 'true' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         uses: actions/cache@v4
         with:
           # Playwright's default browser directory is per-OS, and only one of
@@ -306,6 +334,7 @@ jobs:
       # macOS and Windows images already ship what Chromium needs.
       - name: Install Playwright browsers
         if: >
+          (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') &&
           runner.os == 'Linux' &&
           (github.event_name != 'pull_request' ||
            (needs.changes.outputs.web == 'true' &&
@@ -314,6 +343,7 @@ jobs:
 
       - name: Install Playwright browsers
         if: >
+          (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') &&
           runner.os != 'Linux' &&
           (github.event_name != 'pull_request' ||
            (needs.changes.outputs.web == 'true' &&
@@ -322,9 +352,10 @@ jobs:
 
       - name: Run unit + browser tests
         if: >
-          github.event_name != 'pull_request' ||
-          (needs.changes.outputs.web == 'true' &&
-           (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest'))
+          (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') &&
+          (github.event_name != 'pull_request' ||
+           (needs.changes.outputs.web == 'true' &&
+            (github.event.pull_request.draft == false || matrix.os == 'ubuntu-latest')))
         run: pnpm test
 
       - name: Run E2E tests
