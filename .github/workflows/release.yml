@@ -383,6 +383,10 @@ jobs:
           lipo -info crates/livtet-desktop/binaries/*-universal-apple-darwin
 
       - name: Build DMG
+        # A universal release build plus codesign and hdiutil has taken ~35
+        # minutes; without a cap a genuine hang would burn the job's full
+        # 180-minute budget before failing.
+        timeout-minutes: 90
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
