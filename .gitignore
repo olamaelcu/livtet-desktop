@@ -55,3 +55,4 @@ static/pdfjs/
 vendor/*
 !vendor/atrium-oauth/
 !vendor/tauri-plugin-deep-link/
+!vendor/wmi/

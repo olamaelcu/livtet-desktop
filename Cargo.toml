@@ -79,3 +79,9 @@ tauri-plugin-deep-link = { path = "vendor/tauri-plugin-deep-link" }
 # `todo!()`. The local copy threads the authorized URI through and reports the
 # real error. Drop it once upstream does the same.
 atrium-oauth = { path = "vendor/atrium-oauth" }
+# 0.18.4 lets `windows` and `windows-core` resolve to different minor versions,
+# which breaks every Windows build (`IWbemObjectSink: windows_core::Interface is
+# not satisfied`) as soon as tauri's tao pins core 0.62 while
+# tauri-plugin-opener pins windows 0.61. The local copy holds both below 0.62 so
+# the pair always matches. Drop it once upstream constrains them together.
+wmi = { path = "vendor/wmi" }
