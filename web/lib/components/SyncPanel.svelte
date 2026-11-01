@@ -1167,7 +1167,7 @@ onMount(() => {
   .row-main {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     gap: var(--wa-space-2xs);
     min-width: 0;
   }
