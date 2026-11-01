@@ -50,6 +50,10 @@ crates/livtet-desktop/src/menu\.rs
 # CoreSpotlight needs a signed app and a live macOS session; no test can index.
 crates/livtet-desktop/src/spotlight\.rs
 crates/livtet-desktop/src/spotlight/macos\.rs
+# KOReader child-process hosting: spawns the built app binary, so it needs a
+# packaged executable rather than a unit-test process. The protocol/routes and
+# the in-process runner remain covered.
+crates/livtet-desktop/src/koreader_sync/process\.rs
 
 # Web exclusions (as glob patterns, to be interpreted by Vitest)
 web/lib/bindings\.ts

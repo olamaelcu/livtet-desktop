@@ -39,6 +39,7 @@ $effect(() => {
   port = String(current.settings.port)
   lan = current.settings.lan
   username = current.settings.username ?? ''
+  password = current.settings.password ?? ''
   seeded = true
 })
 
@@ -68,7 +69,7 @@ const save = createMutation(() => ({
     port = String(next.settings.port)
     lan = next.settings.lan
     username = next.settings.username ?? ''
-    password = ''
+    password = next.settings.password ?? ''
     passwordTouched = false
     seeded = true
     toast.success(next.running ? 'KOReader sync listening' : 'KOReader sync off')

@@ -62,6 +62,10 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Mutex;
 
+mod process;
+pub(crate) use process::ProcessRunner;
+pub use process::run_koreader_daemon;
+
 use crate::commands::reader::{self, ReaderBookmark, ReaderPosition};
 use crate::types::AppState;
 
@@ -72,6 +76,19 @@ pub(crate) const DEFAULT_PORT: u16 = 8081;
 
 /// Key the settings are stored under inside `koreader-sync.json`.
 pub(crate) const SETTINGS_KEY: &str = "koreader-sync";
+
+/// Service name under which the plaintext password is kept in the OS keyring.
+///
+/// Distinct from the OPDS catalog service: this entry exists only so Settings
+/// can prefill the field. Requests still authenticate against the hash in
+/// `koreader-sync.json`.
+pub(crate) const KEYRING_SERVICE: &str = "net.olamaelcu.livtet.koreader";
+
+/// Account name for the single KOReader password entry.
+const KEYRING_ACCOUNT: &str = "progress-sync";
+
+/// Argument that re-runs the desktop binary as the KOReader server child.
+pub const KOREADER_DAEMON_FLAG: &str = "--koreader-daemon";
 
 /// Header KOReader sends the account name in.
 const AUTH_HEADER_USER: &str = "x-auth-user";
@@ -154,6 +171,9 @@ impl StoredKoreaderSync {
             lan: self.lan,
             username: self.username.clone(),
             paired: self.credentials().is_some(),
+            // Filled from the keyring by `KoreaderSyncRuntime::status`; the
+            // stored JSON only carries the hash.
+            password: None,
         }
     }
 
@@ -204,6 +224,10 @@ pub struct KoreaderSyncView {
     pub username: Option<String>,
     /// Whether a password is stored, i.e. whether KOReader can authenticate.
     pub paired: bool,
+    /// The plaintext password read back from the OS keyring, so the Settings
+    /// field can be prefilled on the next launch. Absent when the keyring is
+    /// unavailable or the user never chose to remember it.
+    pub password: Option<String>,
 }
 
 /// What Settings shows: the stored configuration plus what is actually bound.
@@ -284,6 +308,104 @@ impl KoreaderSyncSettingsStore for tauri_plugin_store::Store<tauri::Wry> {
         let value = serde_json::to_value(settings).map_err(|error| error.to_string())?;
         self.set(SETTINGS_KEY, value);
         self.save().map_err(|error| error.to_string())
+    }
+}
+
+/// Plaintext password storage, used only to prefill the Settings field.
+///
+/// KOReader itself never needs it: requests carry the MD5 key persisted in
+/// `koreader-sync.json`. A trait so tests and the `AppState` fixture never touch
+/// the user's keychain.
+pub(crate) trait KoreaderPasswordStore: Send + Sync {
+    fn get(&self) -> Result<Option<String>, String>;
+    /// `None` (or an empty string) removes the entry.
+    fn set(&self, password: Option<&str>) -> Result<(), String>;
+}
+
+/// Real store backed by the platform keyring.
+pub(crate) struct KeyringPasswordStore;
+
+impl KoreaderPasswordStore for KeyringPasswordStore {
+    fn get(&self) -> Result<Option<String>, String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            .map_err(|error| error.to_string())?;
+        match entry.get_password() {
+            Ok(password) if password.is_empty() => Ok(None),
+            Ok(password) => Ok(Some(password)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    fn set(&self, password: Option<&str>) -> Result<(), String> {
+        let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+            .map_err(|error| error.to_string())?;
+        match password.filter(|value| !value.is_empty()) {
+            Some(value) => entry.set_password(value).map_err(|error| error.to_string()),
+            None => match entry.delete_credential() {
+                Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+                Err(error) => Err(error.to_string()),
+            },
+        }
+    }
+}
+
+/// Used when the runtime is built without a keyring (tests and the fixture).
+#[derive(Default)]
+struct NoopPasswordStore;
+
+impl KoreaderPasswordStore for NoopPasswordStore {
+    fn get(&self) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
+    fn set(&self, _password: Option<&str>) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// How long Settings waits for the keyring before giving up.
+///
+/// A locked or prompting keychain must not leave the panel on “Loading…”;
+/// the field simply stays empty and the user can still type a password.
+const KEYRING_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Read the remembered password off the blocking keyring thread.
+async fn read_password(store: Arc<dyn KoreaderPasswordStore>) -> Option<String> {
+    let task = tokio::task::spawn_blocking(move || store.get());
+    match tokio::time::timeout(KEYRING_TIMEOUT, task).await {
+        Ok(Ok(Ok(password))) => password,
+        Ok(Ok(Err(message))) => {
+            tracing::warn!(%message, "could not read the KOReader password from the keyring");
+            None
+        }
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "the KOReader password read did not finish");
+            None
+        }
+        Err(_) => {
+            tracing::warn!("timed out reading the KOReader password from the keyring");
+            None
+        }
+    }
+}
+
+/// Persist (or clear) the remembered password. Failure is logged, never fatal:
+/// the stored hash already authenticates KOReader.
+async fn write_password(store: Arc<dyn KoreaderPasswordStore>, password: String) {
+    let value = (!password.is_empty()).then_some(password);
+    let task = tokio::task::spawn_blocking(move || store.set(value.as_deref()));
+    match tokio::time::timeout(KEYRING_TIMEOUT, task).await {
+        Ok(Ok(Ok(()))) => {}
+        Ok(Ok(Err(message))) => {
+            tracing::warn!(%message, "could not save the KOReader password to the keyring");
+        }
+        Ok(Err(error)) => {
+            tracing::warn!(%error, "the KOReader password write did not finish");
+        }
+        Err(_) => {
+            tracing::warn!("timed out saving the KOReader password to the keyring");
+        }
     }
 }
 
@@ -1579,7 +1701,7 @@ fn unpaired_or_unauthorized(state: &SyncServerState) -> KoreaderSyncError {
 
 // ----------------------------------------------------------------- runtime --
 
-/// A bound listener.
+/// A bound listener kept inside this process (tests only).
 struct Running {
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
     task: tokio::task::JoinHandle<()>,
@@ -1588,127 +1710,71 @@ struct Running {
     port: u16,
 }
 
-/// The live listener plus the settings that drive it.
-///
-/// Held on [`AppState`] so Settings can start, stop, or move the listener
-/// without restarting the app.
-pub struct KoreaderSyncRuntime {
-    store: Arc<dyn KoreaderSyncSettingsStore>,
-    running: Mutex<Option<Running>>,
+impl Running {
+    fn listening(&self) -> Listening {
+        Listening {
+            url: self.url.clone(),
+        }
+    }
 }
 
-impl KoreaderSyncRuntime {
-    /// Build the runtime over a settings store; nothing is bound until
-    /// [`KoreaderSyncRuntime::apply`] runs.
-    pub(crate) fn new(store: Arc<dyn KoreaderSyncSettingsStore>) -> Self {
-        Self {
-            store,
-            running: Mutex::new(None),
-        }
-    }
+/// A listener's address and the URL a KOReader device should be given.
+#[derive(Clone, Debug)]
+pub(crate) struct Listening {
+    pub url: String,
+}
 
-    /// The persisted settings, or the off-by-default baseline.
-    pub(crate) fn settings(&self) -> StoredKoreaderSync {
-        self.store.read().unwrap_or_default()
-    }
-
-    /// The stored configuration plus what is actually bound.
-    pub(crate) async fn status(&self, deps: &KoreaderSyncDeps) -> KoreaderSyncStatus {
-        let running = self.running.lock().await;
-        let settings = self.settings();
-        KoreaderSyncStatus {
-            settings: settings.view(),
-            running: running.is_some(),
-            url: running.as_ref().map(|running| running.url.clone()),
-            books: count_mapped_books(&deps.db).await.unwrap_or(0.0),
-        }
-    }
-
-    /// Reconcile the listener with `settings`, then persist them.
-    ///
-    /// A port of 0 is refused: it would bind an ephemeral port no reading
-    /// device could be configured with. A refused save changes nothing —
-    /// neither the bound listener nor the stored settings.
-    pub(crate) async fn save(
-        &self,
-        settings: KoreaderSyncSettings,
-        deps: &KoreaderSyncDeps,
-    ) -> Result<KoreaderSyncStatus, KoreaderSyncError> {
-        if settings.port == 0 {
-            return Err(KoreaderSyncError::new(
-                "invalid-port",
-                "port must be between 1 and 65535",
-            ));
-        }
-        // Reach the requested configuration before remembering it: a port that
-        // cannot bind must not cost the listener that is serving right now, and
-        // must not be written to `koreader-sync.json`.
-        let stored = self.settings().merged(&settings);
-        self.apply(&stored, deps).await?;
-        self.store
-            .write(&stored)
-            .map_err(|message| KoreaderSyncError::new("storage", message))?;
-        Ok(self.status(deps).await)
-    }
-
-    /// Turn the server on at the stored port, and remember that choice.
-    pub(crate) async fn start(
-        &self,
-        deps: &KoreaderSyncDeps,
-    ) -> Result<KoreaderSyncStatus, KoreaderSyncError> {
-        let mut stored = self.settings();
-        stored.enabled = true;
-        self.apply(&stored, deps).await?;
-        self.store
-            .write(&stored)
-            .map_err(|message| KoreaderSyncError::new("storage", message))?;
-        Ok(self.status(deps).await)
-    }
-
-    /// Turn the server off, and remember that choice.
-    pub(crate) async fn stop(
-        &self,
-        deps: &KoreaderSyncDeps,
-    ) -> Result<KoreaderSyncStatus, KoreaderSyncError> {
-        let mut stored = self.settings();
-        stored.enabled = false;
-        self.apply(&stored, deps).await?;
-        self.store
-            .write(&stored)
-            .map_err(|message| KoreaderSyncError::new("storage", message))?;
-        Ok(self.status(deps).await)
-    }
-
-    /// Reconcile the listener with `settings`, leaving it alone when it already
-    /// serves the requested address.
-    async fn apply(
+/// How the server is hosted: in-process for tests, a child process in the app.
+#[async_trait::async_trait]
+pub(crate) trait KoreaderRunner: Send + Sync {
+    /// Reach `settings`: stop, start, or leave the listener alone. Returns the
+    /// bound address, or `None` when the server should be off.
+    async fn reconcile(
         &self,
         settings: &StoredKoreaderSync,
         deps: &KoreaderSyncDeps,
-    ) -> Result<(), KoreaderSyncError> {
+    ) -> Result<Option<Listening>, KoreaderSyncError>;
+
+    async fn stop(&self) -> Result<(), KoreaderSyncError>;
+
+    /// The current listener, if the child is still alive.
+    async fn listening(&self) -> Option<Listening>;
+}
+
+/// Runs the Poem server in this process. Used by the existing protocol tests
+/// and by nothing in production.
+#[derive(Default)]
+pub(crate) struct InProcessRunner {
+    running: Mutex<Option<Running>>,
+}
+
+#[async_trait::async_trait]
+impl KoreaderRunner for InProcessRunner {
+    async fn reconcile(
+        &self,
+        settings: &StoredKoreaderSync,
+        deps: &KoreaderSyncDeps,
+    ) -> Result<Option<Listening>, KoreaderSyncError> {
         let desired = desired_address(settings);
         let mut running = self.running.lock().await;
         if let (Some((host, port)), Some(current)) = (desired, running.as_ref())
             && current.port == port
             && current.host == host
         {
-            return Ok(());
+            return Ok(Some(current.listening()));
         }
         let Some((host, port)) = desired else {
             if let Some(current) = running.take() {
                 stop_running(current).await;
                 tracing::info!("KOReader sync server stopped");
             }
-            return Ok(());
+            return Ok(None);
         };
 
         // Bind the replacement first: a failed bind then leaves the listener
         // that is already serving untouched.
         ensure_tables(&deps.db).await?;
         let address = SocketAddr::new(host, port);
-        // Bind before spawning: `TcpListener::bind` only records the address, so
-        // the acceptor is where an already-taken port surfaces. Failing here
-        // leaves the listener that is serving right now untouched.
         let acceptor = poem::listener::TcpListener::bind(address)
             .into_acceptor()
             .await
@@ -1737,6 +1803,7 @@ impl KoreaderSyncRuntime {
         let url = base_url(settings, port);
         tracing::info!(%url, "KOReader sync server listening");
 
+        let listening = Listening { url: url.clone() };
         if let Some(previous) = running.replace(Running {
             shutdown: Some(shutdown),
             task,
@@ -1746,52 +1813,172 @@ impl KoreaderSyncRuntime {
         }) {
             stop_running(previous).await;
         }
+        Ok(Some(listening))
+    }
+
+    async fn stop(&self) -> Result<(), KoreaderSyncError> {
+        let current = {
+            let mut running = self.running.lock().await;
+            running.take()
+        };
+        if let Some(current) = current {
+            stop_running(current).await;
+        }
         Ok(())
+    }
+
+    async fn listening(&self) -> Option<Listening> {
+        let running = self.running.lock().await;
+        running.as_ref().map(Running::listening)
     }
 }
 
-/// Ask a listener to stop, and wait for its task to finish.
+/// Ask an in-process listener to stop, and wait for its task to finish.
 async fn stop_running(running: Running) {
     if let Some(shutdown) = running.shutdown {
         let _ = shutdown.send(());
     }
     if let Err(error) = running.task.await {
-        // The new listener is live and carries the requested configuration; a
-        // join failure only means the old task did not shut down cleanly.
         tracing::warn!(%error, "a previous KOReader sync listener did not shut down cleanly");
     }
 }
 
-/// Start the server from persisted settings and map the library in the
-/// background.
+/// The live listener plus the settings that drive it.
+pub struct KoreaderSyncRuntime {
+    store: Arc<dyn KoreaderSyncSettingsStore>,
+    passwords: Arc<dyn KoreaderPasswordStore>,
+    runner: Arc<dyn KoreaderRunner>,
+}
+
+impl KoreaderSyncRuntime {
+    /// Build the runtime without keyring access (tests and the fixture). Uses
+    /// the in-process runner.
+    pub(crate) fn new(store: Arc<dyn KoreaderSyncSettingsStore>) -> Self {
+        Self::with_passwords(store, Arc::new(NoopPasswordStore))
+    }
+
+    /// Build the runtime with a password store, still in-process (tests).
+    pub(crate) fn with_passwords(
+        store: Arc<dyn KoreaderSyncSettingsStore>,
+        passwords: Arc<dyn KoreaderPasswordStore>,
+    ) -> Self {
+        Self::with_runner(store, passwords, Arc::new(InProcessRunner::default()))
+    }
+
+    /// Build the runtime with an explicit hosting strategy. The app passes
+    /// [`ProcessRunner`]; tests keep the in-process one.
+    pub(crate) fn with_runner(
+        store: Arc<dyn KoreaderSyncSettingsStore>,
+        passwords: Arc<dyn KoreaderPasswordStore>,
+        runner: Arc<dyn KoreaderRunner>,
+    ) -> Self {
+        Self {
+            store,
+            passwords,
+            runner,
+        }
+    }
+
+    /// The persisted settings, or the off-by-default baseline.
+    pub(crate) fn settings(&self) -> StoredKoreaderSync {
+        self.store.read().unwrap_or_default()
+    }
+
+    /// The stored configuration plus what is actually bound.
+    pub(crate) async fn status(&self, deps: &KoreaderSyncDeps) -> KoreaderSyncStatus {
+        let listening = self.runner.listening().await;
+        let settings = self.settings();
+        let password = read_password(self.passwords.clone()).await;
+        KoreaderSyncStatus {
+            settings: KoreaderSyncView {
+                password,
+                ..settings.view()
+            },
+            running: listening.is_some(),
+            url: listening.map(|listening| listening.url),
+            books: count_mapped_books(&deps.db).await.unwrap_or(0.0),
+        }
+    }
+
+    /// Reconcile the server with `settings`, then persist them.
+    ///
+    /// A port of 0 is refused: it would bind an ephemeral port no reading
+    /// device could be configured with. A refused save changes nothing —
+    /// neither the running server nor the stored settings.
+    pub(crate) async fn save(
+        &self,
+        settings: KoreaderSyncSettings,
+        deps: &KoreaderSyncDeps,
+    ) -> Result<KoreaderSyncStatus, KoreaderSyncError> {
+        if settings.port == 0 {
+            return Err(KoreaderSyncError::new(
+                "invalid-port",
+                "port must be between 1 and 65535",
+            ));
+        }
+        let stored = self.settings().merged(&settings);
+        self.reconcile(&stored, deps).await?;
+        self.store
+            .write(&stored)
+            .map_err(|message| KoreaderSyncError::new("storage", message))?;
+        // The keyring copy exists only so the next launch can prefill the
+        // field; the request-side hash above is already persisted.
+        if let Some(password) = settings.password.as_deref() {
+            write_password(self.passwords.clone(), password.to_owned()).await;
+        }
+        Ok(self.status(deps).await)
+    }
+
+    /// Turn the server on at the stored port, and remember that choice.
+    pub(crate) async fn start(
+        &self,
+        deps: &KoreaderSyncDeps,
+    ) -> Result<KoreaderSyncStatus, KoreaderSyncError> {
+        let mut stored = self.settings();
+        stored.enabled = true;
+        self.reconcile(&stored, deps).await?;
+        self.store
+            .write(&stored)
+            .map_err(|message| KoreaderSyncError::new("storage", message))?;
+        Ok(self.status(deps).await)
+    }
+
+    /// Turn the server off, and remember that choice.
+    pub(crate) async fn stop(
+        &self,
+        deps: &KoreaderSyncDeps,
+    ) -> Result<KoreaderSyncStatus, KoreaderSyncError> {
+        let mut stored = self.settings();
+        stored.enabled = false;
+        self.runner.stop().await?;
+        self.store
+            .write(&stored)
+            .map_err(|message| KoreaderSyncError::new("storage", message))?;
+        Ok(self.status(deps).await)
+    }
+
+    async fn reconcile(
+        &self,
+        settings: &StoredKoreaderSync,
+        deps: &KoreaderSyncDeps,
+    ) -> Result<(), KoreaderSyncError> {
+        self.runner.reconcile(settings, deps).await.map(|_| ())
+    }
+}
+
+/// Start the server from persisted settings.
 ///
 /// Called once during app setup. A failure is logged, not fatal: the app runs
 /// without the server either way.
 pub(crate) async fn start_from_settings(runtime: &KoreaderSyncRuntime, deps: &KoreaderSyncDeps) {
     let settings = runtime.settings();
-    if let Err(error) = runtime.apply(&settings, deps).await {
+    if let Err(error) = runtime.reconcile(&settings, deps).await {
         tracing::warn!(
             code = %error.code,
             message = %error.message,
             "KOReader sync server did not start"
         );
     }
-    // Mapping reads every library file once. Doing it here keeps the first
-    // KOReader request from paying for a whole library.
-    let db = deps.db.clone();
-    let books_dir = deps.books_dir.clone();
-    tokio::spawn(async move {
-        loop {
-            match map_documents(&db, &books_dir, SWEEP_BATCH).await {
-                Ok(0) => break,
-                Ok(_) => tokio::task::yield_now().await,
-                Err(error) => {
-                    tracing::warn!(message = %error.message, "KOReader document mapping stopped");
-                    break;
-                }
-            }
-        }
-    });
 }
 
 /// The address to bind, or `None` when the server should be off.
@@ -1855,18 +2042,29 @@ fn parse_timestamp(raw: &str) -> i64 {
 #[derive(Clone)]
 pub struct KoreaderSyncDeps {
     db: DatabaseConnection,
+    db_path: String,
     books_dir: Utf8PathBuf,
 }
 
 impl KoreaderSyncDeps {
     /// Build the dependency set for a running app state.
     pub(crate) fn from_state(state: &AppState) -> Self {
-        Self::new(state.db.db_conn(), state.books_dir.clone())
+        Self {
+            db: state.db.db_conn(),
+            db_path: state.db.db_path.clone(),
+            books_dir: state.books_dir.clone(),
+        }
     }
 
-    /// Build the dependency set from the two handles it reads.
+    /// Build the dependency set from the handles it reads. Tests use the
+    /// in-process runner, which never needs the database path.
+    #[cfg(test)]
     pub(crate) fn new(db: DatabaseConnection, books_dir: Utf8PathBuf) -> Self {
-        Self { db, books_dir }
+        Self {
+            db,
+            db_path: String::new(),
+            books_dir,
+        }
     }
 }
 

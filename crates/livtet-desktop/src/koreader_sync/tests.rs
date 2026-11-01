@@ -15,10 +15,10 @@ use livtet_types::{DbId, KnownFormats, now_primitive};
 use poem::test::TestResponse;
 
 use super::{
-    Credentials, DEFAULT_PORT, DocumentTarget, Family, KoreaderSyncDeps, KoreaderSyncError,
-    KoreaderSyncRuntime, KoreaderSyncSettings, KoreaderSyncSettingsStore, ProgressUpdate,
-    StoredKoreaderSync, SyncServerState, apply_progress, ensure_tables, map_documents,
-    merge_annotations, partial_md5, read_sync_progress, resolve_document, route,
+    Credentials, DEFAULT_PORT, DocumentTarget, Family, KoreaderPasswordStore, KoreaderSyncDeps,
+    KoreaderSyncError, KoreaderSyncRuntime, KoreaderSyncSettings, KoreaderSyncSettingsStore,
+    ProgressUpdate, StoredKoreaderSync, SyncServerState, apply_progress, ensure_tables,
+    map_documents, merge_annotations, partial_md5, read_sync_progress, resolve_document, route,
 };
 
 const USER: &str = "livtet";
@@ -176,6 +176,23 @@ impl KoreaderSyncSettingsStore for MemoryStore {
 
     fn write(&self, settings: &StoredKoreaderSync) -> Result<(), String> {
         *self.value.lock().unwrap() = Some(settings.clone());
+        Ok(())
+    }
+}
+
+/// In-memory stand-in for the OS keyring's plaintext password entry.
+#[derive(Default)]
+struct MemoryPasswords {
+    value: std::sync::Mutex<Option<String>>,
+}
+
+impl KoreaderPasswordStore for MemoryPasswords {
+    fn get(&self) -> Result<Option<String>, String> {
+        Ok(self.value.lock().unwrap().clone())
+    }
+
+    fn set(&self, password: Option<&str>) -> Result<(), String> {
+        *self.value.lock().unwrap() = password.map(str::to_owned);
         Ok(())
     }
 }
@@ -745,6 +762,68 @@ async fn save_refuses_an_ephemeral_port() {
     assert_eq!(error.code, "invalid-port");
     assert_eq!(store.read().expect("settings").port, 8081);
     assert!(!runtime.status(&deps).await.running);
+}
+
+#[tokio::test]
+async fn the_password_is_remembered_for_the_next_launch() {
+    let fixture = fixture(KnownFormats::Pdf).await;
+    let store = Arc::new(MemoryStore::default());
+    let passwords = Arc::new(MemoryPasswords::default());
+    let runtime = KoreaderSyncRuntime::with_passwords(store, passwords.clone());
+    let deps = KoreaderSyncDeps::new(fixture.db.clone(), fixture.books_dir.clone());
+
+    let saved = runtime
+        .save(
+            KoreaderSyncSettings {
+                enabled: false,
+                port: free_port(),
+                lan: false,
+                username: Some(USER.to_string()),
+                password: Some(PASSWORD.to_string()),
+            },
+            &deps,
+        )
+        .await
+        .expect("save");
+    assert_eq!(saved.settings.password.as_deref(), Some(PASSWORD));
+    assert_eq!(passwords.get().unwrap().as_deref(), Some(PASSWORD));
+
+    // An untouched password keeps the remembered one.
+    runtime
+        .save(
+            KoreaderSyncSettings {
+                enabled: false,
+                port: free_port(),
+                lan: false,
+                username: Some(USER.to_string()),
+                password: None,
+            },
+            &deps,
+        )
+        .await
+        .expect("save");
+    assert_eq!(
+        runtime.status(&deps).await.settings.password.as_deref(),
+        Some(PASSWORD)
+    );
+
+    // An empty password clears both copies and unpaired the server.
+    let cleared = runtime
+        .save(
+            KoreaderSyncSettings {
+                enabled: false,
+                port: free_port(),
+                lan: false,
+                username: Some(USER.to_string()),
+                password: Some(String::new()),
+            },
+            &deps,
+        )
+        .await
+        .expect("save");
+    assert_eq!(cleared.settings.password, None);
+    assert_eq!(passwords.get().unwrap(), None);
+    assert!(!cleared.settings.paired);
 }
 
 #[tokio::test]

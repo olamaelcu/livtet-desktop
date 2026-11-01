@@ -39,10 +39,22 @@ Alternatives considered:
 
 ## Decision
 
-Run a KOReader sync server inside the desktop, in `koreader_sync.rs`, on the OPDS
-server's pattern: a settings store (`koreader-sync.json`), a runtime Settings can
-start, stop, and move (`koreader_sync_status | _settings_save | _start | _stop`),
-and a Poem route table over the live `AppState` pool.
+Run a KOReader sync server in `koreader_sync.rs`, on the OPDS server's pattern:
+a settings store (`koreader-sync.json`), a runtime Settings can start, stop, and
+move (`koreader_sync_status | _settings_save | _start | _stop`), and a Poem route
+table over the shared SQLite pool.
+
+The server runs in a **child process** of the desktop binary, like
+`livtet-sync-daemon`: `main` sees `--koreader-daemon` and enters a headless
+Tokio runtime instead of Tauri. The desktop's `ProcessRunner` re-executes
+`current_exe` with that flag, writes one `DaemonConfig` JSON line to its stdin
+(settings, database path, books directory), and waits for a one-line readiness
+report. The child binds the Poem listener, maps documents, and exits on stdin
+EOF; the parent holds that pipe for the child's lifetime and kills it on stop or
+replacement. A rebuild or crash is visible through `try_wait`, so `status`
+reports not-listening until a save or start respawns it. Tests keep the
+in-process runner, so the protocol and lifecycle tests do not need a second
+binary.
 
 **Protocol.** Serve the plugin's own paths, unabridged: `GET /healthcheck`,
 `GET /users/auth`, `POST /users/create`, `PUT /syncs/progress`,
@@ -57,6 +69,12 @@ route but `/healthcheck` requires the pair; an unpaired desktop refuses
 everything, so the default configuration opens no useful surface. The server
 binds every interface by default (`lan`), because the client is a tablet on the
 network — the credentials, not the bind address, are the boundary.
+
+The plaintext password is also written to a dedicated OS-keyring entry
+(`net.olamaelcu.livtet.koreader`) so Settings can prefill the field on the next
+launch. That copy is UX only: authentication still compares against the MD5 in
+`koreader-sync.json`, and a missing or locked keyring degrades to an empty field
+without blocking the save or the server.
 
 **Documents.** KOReader names a book by a digest of its file: `util.partialMD5`
 (1024-byte samples at `1024 << 2i` for `i` in `-1..=10`) or, with its "filename"

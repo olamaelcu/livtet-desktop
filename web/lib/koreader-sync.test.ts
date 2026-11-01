@@ -39,7 +39,14 @@ describe('koreaderSyncErrorMessage', () => {
 
 test('getKoreaderSyncStatus reads the current status', async () => {
   invoke.mockResolvedValue({
-    settings: { enabled: false, port: 8081, lan: true, username: null, paired: false },
+    settings: {
+      enabled: false,
+      port: 8081,
+      lan: true,
+      username: null,
+      paired: false,
+      password: null,
+    },
     running: false,
     url: null,
     books: 0,
@@ -53,7 +60,14 @@ test('getKoreaderSyncStatus reads the current status', async () => {
 
 test('saveKoreaderSyncSettings forwards the settings under the command name', async () => {
   const status = {
-    settings: { enabled: true, port: 8081, lan: true, username: 'livtet', paired: true },
+    settings: {
+      enabled: true,
+      port: 8081,
+      lan: true,
+      username: 'livtet',
+      paired: true,
+      password: null,
+    },
     running: true,
     url: 'http://192.168.1.10:8081',
     books: 4,

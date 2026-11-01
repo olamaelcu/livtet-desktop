@@ -25,6 +25,7 @@ type Status = {
     lan: boolean
     username: string | null
     paired: boolean
+    password: string | null
   }
   running: boolean
   url: string | null
@@ -32,14 +33,28 @@ type Status = {
 }
 
 const OFF: Status = {
-  settings: { enabled: false, port: 8081, lan: true, username: null, paired: false },
+  settings: {
+    enabled: false,
+    port: 8081,
+    lan: true,
+    username: null,
+    paired: false,
+    password: null,
+  },
   running: false,
   url: null,
   books: 3,
 }
 
 const ON: Status = {
-  settings: { enabled: true, port: 8081, lan: true, username: 'livtet', paired: true },
+  settings: {
+    enabled: true,
+    port: 8081,
+    lan: true,
+    username: 'livtet',
+    paired: true,
+    password: 'hunter2',
+  },
   running: true,
   url: 'http://192.168.1.10:8081',
   books: 3,
@@ -143,6 +158,14 @@ test('saving enabled credentials forwards the form and shows the URL', async () 
   expect(toast.success).toHaveBeenCalledWith('KOReader sync listening')
 })
 
+test('prefills the remembered password from the keyring', async () => {
+  status = ON
+  const { container } = await render(KoreaderSyncFixture)
+  await expect.poll(() => container.querySelector('.controls')).not.toBeNull()
+
+  expect(control<WaInput>(container, '#koreader-sync-password').value).toBe('hunter2')
+})
+
 test('an untouched password field keeps the stored one', async () => {
   status = ON
   const { container } = await render(KoreaderSyncFixture)
@@ -194,7 +217,14 @@ test('a refused save restores the switch and reports the backend error', async (
 
 test('a loopback-only server says an e-reader cannot reach it', async () => {
   status = {
-    settings: { enabled: true, port: 8081, lan: false, username: 'livtet', paired: true },
+    settings: {
+      enabled: true,
+      port: 8081,
+      lan: false,
+      username: 'livtet',
+      paired: true,
+      password: null,
+    },
     running: true,
     url: 'http://127.0.0.1:8081',
     books: 1,

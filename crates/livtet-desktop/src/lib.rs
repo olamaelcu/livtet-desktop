@@ -20,6 +20,7 @@ mod tray;
 pub mod types;
 
 pub use error::{PluginError, SearchIndexError};
+pub use koreader_sync::{KOREADER_DAEMON_FLAG, run_koreader_daemon};
 pub use paths::Paths;
 pub use types::{AppState, ArcMut};
 
@@ -481,7 +482,11 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         mcp: Arc::new(mcp::McpRuntime::new(mcp_store)),
         opds_server: Arc::new(opds_server::OpdsServerRuntime::new(opds_server_store)),
         spotlight: Arc::new(spotlight::SpotlightRuntime::new(spotlight_store)),
-        koreader_sync: Arc::new(koreader_sync::KoreaderSyncRuntime::new(koreader_sync_store)),
+        koreader_sync: Arc::new(koreader_sync::KoreaderSyncRuntime::with_runner(
+            koreader_sync_store,
+            Arc::new(koreader_sync::KeyringPasswordStore),
+            Arc::new(koreader_sync::ProcessRunner::default()),
+        )),
         enrichment_cache: ArcMut::new(RwLock::new(HashMap::new())),
     };
     {
