@@ -32,9 +32,13 @@ mod macos;
 pub use macos::install_activation;
 
 /// Domain that owns every Livtet item; deleting it removes stale editions.
+/// Read by `macos`, which is the only indexer there is: on other platforms the
+/// constant is declared and unused, which is not a defect.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) const DOMAIN: &str = "net.olamaelcu.livtet.library";
 
 /// Event that asks the web layer to open one edition's detail drawer.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) const OPEN_EDITION_EVENT: &str = "spotlight://open-edition";
 
 const SETTINGS_KEY: &str = "spotlight";
@@ -165,6 +169,10 @@ struct CoverRow {
 }
 
 /// One edition as Spotlight sees it.
+///
+/// Built by the shared query and read only by `macos`: elsewhere the fields are
+/// written and never observed, so the dead-code lint stays quiet off macOS.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub(crate) struct SpotlightRecord {
     pub edition_id: String,
     pub title: String,

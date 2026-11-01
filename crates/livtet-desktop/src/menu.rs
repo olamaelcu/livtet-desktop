@@ -13,7 +13,7 @@
 //! would make one keypress dispatch twice.
 
 use tauri::{
-    AppHandle, Wry,
+    AppHandle, Manager, Wry,
     menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu},
 };
 
