@@ -317,6 +317,26 @@ function revokeDevice(deviceId: string) {
 type PullReport = { name: string; offered: number; error?: string }
 
 /**
+ * The device being pulled from, and when that started.
+ *
+ * A pull waits on the peer — a transfer, a file write, then a merge — so it can
+ * run for minutes. Without this the button says "Checking…" for that whole
+ * time, which reads as a hang.
+ */
+let pullProgress = $state<{ device: string; startedAt: number } | null>(null)
+let clock = $state(Date.now())
+
+$effect(() => {
+  if (!pullProgress) return
+  const tick = setInterval(() => (clock = Date.now()), 1000)
+  return () => clearInterval(tick)
+})
+
+const pullElapsed = $derived(
+  pullProgress ? Math.max(0, Math.floor((clock - pullProgress.startedAt) / 1000)) : 0,
+)
+
+/**
  * Pull every device this desktop can read.
  *
  * A book offered to this desktop only exists in the sender's change log, so
@@ -328,15 +348,20 @@ type PullReport = { name: string; offered: number; error?: string }
 const pull = createMutation(() => ({
   mutationFn: async (): Promise<PullReport[]> => {
     const reports: PullReport[] = []
-    for (const device of devices.data ?? []) {
-      if (!device.outbound) continue
-      const name = device.name ?? device.device_id
-      try {
-        const outcome = await syncPull(device.device_id)
-        reports.push({ name, offered: outcome.offered })
-      } catch (error) {
-        reports.push({ name, offered: 0, error: syncErrorMessage(error) })
+    try {
+      for (const device of devices.data ?? []) {
+        if (!device.outbound) continue
+        const name = device.name ?? device.device_id
+        pullProgress = { device: name, startedAt: Date.now() }
+        try {
+          const outcome = await syncPull(device.device_id)
+          reports.push({ name, offered: outcome.offered })
+        } catch (error) {
+          reports.push({ name, offered: 0, error: syncErrorMessage(error) })
+        }
       }
+    } finally {
+      pullProgress = null
     }
     return reports
   },
@@ -442,6 +467,13 @@ onMount(() => {
     'sync://completed': () => invalidateQueries(syncKeys.status(), syncKeys.conflicts()),
     'sync://server-started': () => invalidateQueries(syncKeys.health(), syncKeys.status()),
     'sync://server-stopped': () => invalidateQueries(syncKeys.health(), syncKeys.status()),
+    'sync://offer-received': (payload) => {
+      // A pull records offers as it finds them, so this is live progress even
+      // while the pull's own reply is still pending.
+      invalidateQueries(syncKeys.offers())
+      const title = (payload as { title?: string } | null)?.title
+      toast.info(title ? `A book was offered: ${title}` : 'A book was offered')
+    },
     'sync://paired': (payload) => {
       invalidateQueries(syncKeys.devices(), syncKeys.nearby(), syncKeys.status())
       const name = (payload as { name?: string } | null)?.name
@@ -694,7 +726,11 @@ onMount(() => {
           onclick={() => pull.mutate()}
           disabled={pull.isPending || !devices.data?.length}
         >
-          {pull.isPending ? 'Checking…' : 'Check for books'}
+          {#if pull.isPending}
+            {pullProgress ? `Pulling from ${pullProgress.device}… ${pullElapsed}s` : 'Checking…'}
+          {:else}
+            Check for books
+          {/if}
         </ActionButton>
       </div>
     </div>

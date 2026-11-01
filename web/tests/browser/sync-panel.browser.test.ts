@@ -515,3 +515,42 @@ test('pulling a claimed device reports the offers it brought', async () => {
   expect(invoke).toHaveBeenCalledWith('sync_pull', { deviceId: 'device-claimed' })
   expect(toast.error).not.toHaveBeenCalled()
 })
+
+// A pull waits on the peer, so the button must say what it is waiting for
+// instead of sitting on "Checking…".
+test('a slow pull names the device it is waiting on', async () => {
+  let release = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_devices_list') {
+      return [
+        {
+          device_id: 'device-claimed',
+          name: 'Laptop',
+          listen_on: '192.168.1.137:7710',
+          device_type_id: null,
+          paired_at: 'today',
+          last_sync_at: null,
+          outbound: true,
+        },
+      ]
+    }
+    if (command === 'sync_pull') {
+      await gate
+      return { device_id: 'device-claimed', applied: 0, offered: 0, conflicts: 0 }
+    }
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('Laptop')
+
+  panelButton(container, 'Check for books').click()
+  await expect.poll(() => container.textContent).toContain('Pulling from Laptop')
+
+  release()
+  await expect.poll(() => toast.info).toHaveBeenCalledWith('Nothing new from your paired devices')
+})

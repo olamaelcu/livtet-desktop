@@ -31,8 +31,28 @@ use crate::error::SyncError;
 
 use crate::sync_settings::SyncSettingsStore;
 
-/// How long a single JSON-RPC call may wait for its response.
+/// How long a JSON-RPC call may wait for its response, by default.
+///
+/// Control calls are answered from memory or one SQLite query, so ten seconds
+/// is generous. The methods that talk to a peer are not in that class; they get
+/// their own budget from [`timeout_for`].
 const RPC_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// How long `method` may take before the caller gives up.
+///
+/// A pull waits on the peer: an HTTP request, the offered file and cover
+/// written to disk, then `apply_changes` over every row. An offer decision adds
+/// the download itself. Sharing the ten-second control budget with them made a
+/// working pull report "the sync daemon did not respond in time" while the
+/// daemon was still applying it.
+fn timeout_for(method: &str, default: Duration) -> Duration {
+    match method {
+        rpc::method::DEVICES_PULL => Duration::from_secs(300),
+        rpc::method::OFFERS_COVER => Duration::from_secs(120),
+        rpc::method::OFFERS_DECIDE => Duration::from_secs(600),
+        _ => default,
+    }
+}
 
 /// The daemon sidecar name, as declared in `bundle.externalBin`.
 const SIDECAR: &str = "livtet-sync-daemon";
@@ -272,7 +292,7 @@ impl SyncHandle {
             return Err(SyncError::unavailable(error));
         }
 
-        match tokio::time::timeout(self.timeout, rx).await {
+        match tokio::time::timeout(timeout_for(method, self.timeout), rx).await {
             Ok(Ok(Ok(value))) => Ok(value),
             Ok(Ok(Err(message))) => Err(SyncError::rpc(message)),
             Ok(Err(_)) => Err(SyncError::protocol("sync daemon closed before responding")),
@@ -683,6 +703,7 @@ mod tests {
     use std::time::Duration;
 
     use livtet_sync_server::rpc::method;
+    use super::timeout_for;
     use serde_json::{Value, json};
     use tauri_plugin_shell::process::CommandEvent;
     use tokio::sync::oneshot;
@@ -693,6 +714,23 @@ mod tests {
         port_is_free, sidecar_args,
     };
     use crate::error::SyncError;
+
+    /// A pull is bounded by the peer, not by the daemon's own speed: sharing
+    /// the ten-second control budget made a working pull look like a dead
+    /// daemon while it was still applying rows.
+    #[test]
+    fn peer_facing_methods_get_a_longer_budget_than_control_calls() {
+        let default = Duration::from_secs(10);
+
+        assert_eq!(timeout_for(method::HEALTH, default), default);
+        assert_eq!(timeout_for(method::DEVICES_LIST, default), default);
+        assert!(timeout_for(method::DEVICES_PULL, default) >= Duration::from_secs(300));
+        assert!(
+            timeout_for(method::OFFERS_DECIDE, default)
+                > timeout_for(method::DEVICES_PULL, default),
+            "a decision downloads the file, so it needs more room than a pull"
+        );
+    }
 
     /// Long enough that reaching it means a call was never resolved.
     const PATIENT: Duration = Duration::from_secs(60);
