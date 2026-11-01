@@ -285,12 +285,13 @@ function revokeDevice(deviceId: string) {
 type PullReport = { name: string; offered: number; error?: string }
 
 /**
- * Pull every device this desktop claimed.
+ * Pull every device this desktop can read.
  *
  * A book offered to this desktop only exists in the sender's change log, so
- * this is what makes it appear here. Only outbound rows qualify: the daemon
- * refuses the rest, because an approved device holds a token this desktop
- * issued and may only pull *from* here.
+ * this is what makes it appear here. Pairing is mutual, so a device this
+ * desktop paired with is pullable in both directions; only a pairing approved
+ * before that was true — or one whose claim carried no address — is still
+ * send-only, and the daemon refuses to pull it.
  */
 const pull = createMutation(() => ({
   mutationFn: async (): Promise<PullReport[]> => {
@@ -666,21 +667,22 @@ onMount(() => {
       </div>
     </div>
     <p class="description">
-      Pairing is directional. <strong>Receive from</strong> means this desktop claimed
-      the device, so it pulls that device's books about once a minute.
-      <strong>Send to</strong> means the device paired to this desktop and pulls your
-      books. Check for books pulls now.
+      Pairing is mutual: either device can read the other's library, and both
+      pull about once a minute. A device paired before that was true shows as
+      <strong>One-way</strong> — it reads here, this device cannot read it until
+      the two are paired again. Check for books pulls now.
     </p>
     {#each devices.data ?? [] as device (device.device_id)}
       <div class="row">
         <span class="row-main">
           <strong>{device.name ?? device.device_id}</strong>
           <wa-badge variant={device.outbound ? 'success' : 'neutral'}>
-            {device.outbound ? 'Receive from' : 'Send to'}
+            {device.outbound ? 'Two-way' : 'One-way'}
           </wa-badge>
           <span class="muted">
             · {device.device_type_id ?? 'unknown'} · paired {device.paired_at}
             {device.last_sync_at ? `· last sync ${device.last_sync_at}` : ''}
+            {device.outbound ? '' : '· pair again to read its books'}
           </span>
         </span>
         <ActionButton size="small" onclick={() => revokeDevice(device.device_id)} disabled={busy}>

@@ -1,13 +1,13 @@
 //! Why a peer cannot reach this device's sync server.
 //!
-//! Sync is asymmetric by construction: a pull is an outbound HTTP request this
-//! device makes to the peer's server, while anything the peer does with this
-//! library — its own pull, a push, a decision — is an inbound request this
-//! device has to be able to answer. "Pull works, the other direction does not"
-//! is therefore never one symptom: it is either a socket the peer cannot open
-//! (bind address, firewall), or a door that opens onto a refusal (a token this
-//! device no longer knows). Both look identical from the settings page, which
-//! is why this module probes and reports rather than guessing.
+//! Pairing is mutual, so both devices pull from each other — but a pull is
+//! still an *outbound* HTTP request, and the peer's pull towards this device is
+//! an inbound one this device has to be able to answer. "Their books arrive,
+//! mine do not" is therefore never one symptom: it is either a socket the peer
+//! cannot open (bind address, firewall), or a door that opens onto a refusal (a
+//! token this device no longer knows, or a pairing approved before it was
+//! mutual). Both look identical from the settings page, which is why this
+//! module probes and reports rather than guessing.
 //!
 //! Every probe dials the loopback or LAN address of *this* device's own server
 //! with a real HTTP client: reachability is what the socket says, not what the

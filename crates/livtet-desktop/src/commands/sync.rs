@@ -605,10 +605,12 @@ pub struct SyncDevice {
     pub device_type_id: Option<String>,
     pub paired_at: String,
     pub last_sync_at: Option<String>,
-    /// Whether this desktop claimed the peer, which is the only case the
-    /// daemon will pull from: an outbound row holds the token the peer issued.
-    /// An approved device holds a token this desktop issued, so it may pull
-    /// from here and nothing else.
+    /// Whether this desktop may pull from the device.
+    ///
+    /// Pairing is mutual, so a row this desktop claimed *and* one it approved
+    /// are both pullable; the daemon authenticates either direction with the
+    /// one token both sides hold. `false` only remains for a pairing approved
+    /// before that was true, or one whose claim carried no address to dial.
     pub outbound: bool,
 }
 

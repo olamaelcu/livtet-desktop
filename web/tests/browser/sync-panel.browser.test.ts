@@ -465,7 +465,7 @@ test('a device that paired to this one is never pulled from', async () => {
   })
   const { container } = await render(SyncPanelFixture)
   await expect.poll(() => container.textContent).toContain('Laptop')
-  expect(container.textContent).toContain('Send to')
+  expect(container.textContent).toContain('One-way')
 
   panelButton(container, 'Check for books').click()
 
@@ -505,7 +505,7 @@ test('pulling a claimed device reports the offers it brought', async () => {
   })
   const { container } = await render(SyncPanelFixture)
   await expect.poll(() => container.textContent).toContain('Laptop')
-  expect(container.textContent).toContain('Receive from')
+  expect(container.textContent).toContain('Two-way')
 
   panelButton(container, 'Check for books').click()
 
