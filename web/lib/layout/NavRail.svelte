@@ -79,7 +79,7 @@ function currentOnLink(current: boolean) {
       appearance={isActive(item.href) ? 'filled' : 'plain'}
       size="m"
     >
-      <wa-icon name={item.icon} slot={toggleIcons ? "start":""}></wa-icon>
+      <wa-icon name={item.icon} slot={!toggleIcons ? "start":""}></wa-icon>
       <span class="rail__label">{item.label}</span>
     </wa-button>
   {/each}
