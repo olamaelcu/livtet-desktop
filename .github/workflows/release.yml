@@ -817,13 +817,13 @@ jobs:
           for arch in x86_64 aarch64; do
             dir="pages/rpm/$arch"
             install -d "$dir"
-            found=false
-            for rpm in artifacts/*."$arch".rpm; do
-              [ -e "$rpm" ] || continue
-              cp "$rpm" "$dir"/
-              found=true
-            done
-            if [ "$found" != true ]; then
+            # `upload-artifact` keeps the layout of the uploaded paths: the
+            # amd64 leg lists `rpm/` *and* `appimage/`, so its rpm lands at
+            # `artifacts/rpm/…`, while the arm64 leg's single-path upload lands
+            # flat. Search recursively instead of assuming either shape — a flat
+            # glob silently reported "no RPMs" for x86_64 on the 0.2.1 run.
+            find artifacts -type f -name "*.$arch.rpm" -exec cp {} "$dir"/ \;
+            if ! compgen -G "$dir/*.rpm" >/dev/null; then
               echo "no RPMs for $arch; leaving that arch out of the repo"
               rmdir "$dir" 2>/dev/null || true
               continue
