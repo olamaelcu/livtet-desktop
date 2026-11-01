@@ -47,7 +47,7 @@ pub async fn import_calibre_library(
     mode: ImportMode,
     state: State<'_, AppState>,
 ) -> Result<CalibreImportSummary, ImportError> {
-    import_calibre_library_inner(
+    let summary = import_calibre_library_inner(
         state.plugin_host_path.clone(),
         Utf8PathBuf::from(&library_path),
         mode,
@@ -56,7 +56,9 @@ pub async fn import_calibre_library(
         &state.books_dir,
         &state.search_index,
     )
-    .await
+    .await?;
+    state.spotlight.schedule_reindex(state.db.clone());
+    Ok(summary)
 }
 
 /// State-free body of [`import_calibre_library`]: scan the library with the

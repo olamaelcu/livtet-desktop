@@ -62,6 +62,24 @@ impl crate::sync_settings::SyncSettingsStore for MemorySyncSettings {
     }
 }
 
+/// In-memory [`crate::spotlight::SpotlightSettingsStore`] double for the
+/// fixture.
+#[derive(Default)]
+pub(crate) struct MemorySpotlightSettings {
+    value: Mutex<Option<crate::spotlight::SpotlightSettings>>,
+}
+
+impl crate::spotlight::SpotlightSettingsStore for MemorySpotlightSettings {
+    fn read(&self) -> Option<crate::spotlight::SpotlightSettings> {
+        self.value.lock().unwrap().clone()
+    }
+
+    fn write(&self, settings: &crate::spotlight::SpotlightSettings) -> Result<(), String> {
+        *self.value.lock().unwrap() = Some(settings.clone());
+        Ok(())
+    }
+}
+
 /// In-memory [`crate::opds_server::OpdsServerSettingsStore`] double for the
 /// fixture.
 #[derive(Default)]
@@ -125,6 +143,9 @@ pub async fn mock_state_for_bulk(test_db: &TestDb) -> AppState {
         ))),
         opds_server: Arc::new(crate::opds_server::OpdsServerRuntime::new(Arc::new(
             MemoryOpdsServerSettings::default(),
+        ))),
+        spotlight: Arc::new(crate::spotlight::SpotlightRuntime::new(Arc::new(
+            MemorySpotlightSettings::default(),
         ))),
     }
 }

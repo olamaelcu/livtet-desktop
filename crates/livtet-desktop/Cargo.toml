@@ -35,7 +35,12 @@ fs-err = "3.3"
 
 [dependencies]
 # Tauri dependencies
-tauri = { version = "2", features = ["protocol-asset", "test"] }
+tauri = { version = "2", features = [
+  "protocol-asset",
+  "test",
+  "tray-icon",
+  "image-png",
+] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-store = "2"
@@ -109,6 +114,20 @@ tauri-plugin-single-instance = { workspace = true, features = ["deep-link"] }
 default = ["tauri/custom-protocol"]
 e2e-testing = []
 bindings-export = []
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# CoreSpotlight bindings and the AppKit runtime used to intercept its result
+# activation. Kept macOS-only so no other platform pays for them.
+objc2 = "0.6"
+objc2-app-kit = "0.3"
+objc2-core-spotlight = "0.3"
+objc2-foundation = "0.3"
+image = { version = "0.25", default-features = false, features = [
+  "png",
+  "jpeg",
+  "webp",
+  "gif",
+] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

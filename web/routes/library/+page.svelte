@@ -8,6 +8,8 @@ import {
 import { save as saveDialog } from '@tauri-apps/plugin-dialog'
 import { onDestroy, onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
+import { replaceState } from '$app/navigation'
+import { page } from '$app/state'
 import { atprotoStatus } from '../../lib/atproto'
 import { registerSearchTarget } from '../../lib/hotkeys/searchTarget.svelte'
 import AddBookDrawer from '../../lib/library/AddBookDrawer.svelte'
@@ -145,6 +147,20 @@ function openDetail(editionId: string) {
   selectedEditionId = editionId
   detailOpen = true
 }
+
+/**
+ * Spotlight (and any other native surface) opens an edition by navigating to
+ * `?edition=<id>`; consume the parameter so the drawer opens once and the URL
+ * returns to its normal shape.
+ */
+$effect(() => {
+  const requested = page.url.searchParams.get('edition')
+  if (!requested) return
+  openDetail(requested)
+  const next = new URL(page.url)
+  next.searchParams.delete('edition')
+  replaceState(next, page.state)
+})
 
 async function openBook(editionId: string, hasFile: boolean) {
   if (selection.mode || !hasFile) return

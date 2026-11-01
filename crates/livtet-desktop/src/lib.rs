@@ -3,14 +3,19 @@ pub mod commands;
 mod error;
 mod http;
 mod mcp;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod menu;
 mod opds_server;
 mod paths;
 mod plugin_host;
 pub mod roles;
 pub mod secrets;
 pub mod secrets_embed;
+pub mod spotlight;
 pub mod sync;
 pub mod sync_settings;
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+mod tray;
 pub mod types;
 
 pub use error::{PluginError, SearchIndexError};
@@ -318,6 +323,13 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let opds_server_store: Arc<dyn opds_server::OpdsServerSettingsStore> = opds_server_store;
 
+    // Spotlight's opt-in flag, beside the other desktop settings. The store is
+    // opened even on other platforms so the setting survives a platform switch.
+    let spotlight_store = tauri_plugin_store::StoreBuilder::new(&*app, "spotlight.json")
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let spotlight_store: Arc<dyn spotlight::SpotlightSettingsStore> = spotlight_store;
+
     // Loopback byte server for library files the webview must fetch:
     // `<audio>` playback (WebKitGTK routes media through GStreamer, which
     // cannot fetch the app's custom schemes) and ranged PDF reads.
@@ -346,6 +358,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         readers: Arc::new(Mutex::new(HashMap::new())),
         mcp: Arc::new(mcp::McpRuntime::new(mcp_store)),
         opds_server: Arc::new(opds_server::OpdsServerRuntime::new(opds_server_store)),
+        spotlight: Arc::new(spotlight::SpotlightRuntime::new(spotlight_store)),
         enrichment_cache: ArcMut::new(RwLock::new(HashMap::new())),
     };
     {
@@ -366,6 +379,18 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     // app setup: the app works with the server down (ADR-0045).
     let opds_server_deps = opds_server::OpdsServerDeps::from_state(&state);
     opds_server::start_from_settings(&state.opds_server, &opds_server_deps).await;
+
+    // A previous session opted in: refresh in the background so editions
+    // imported while the app was closed are searchable.
+    if state.spotlight.enabled() {
+        let spotlight = state.spotlight.clone();
+        let db = state.db.db_conn();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = spotlight.reindex(&db).await {
+                tracing::warn!(%error, "Spotlight index refresh failed");
+            }
+        });
+    }
 
     app.manage(state);
 
@@ -464,6 +489,9 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::opds_server::opds_server_settings_save,
         commands::opds_server::opds_server_start,
         commands::opds_server::opds_server_stop,
+        commands::spotlight::spotlight_status,
+        commands::spotlight::spotlight_set_enabled,
+        commands::spotlight::spotlight_reindex,
         commands::enrich::apply_enrichment,
         commands::enrich::enrich_library,
         commands::enrich::preview_enrichment,
@@ -484,8 +512,13 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
         if let Some(window) = app.get_webview_window("main") {
+            // A second launch must also reveal a window hidden in the tray.
+            let _ = window.show();
+            let _ = window.unminimize();
             let _ = window.set_focus();
         }
+        #[cfg(any(target_os = "macos", target_os = "linux"))]
+        crate::tray::sync_visibility(app);
     }));
 
     let builder = builder
@@ -537,6 +570,21 @@ pub fn run() {
             }
         })
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.label() == "main"
+            {
+                // Keep the app (and its sidecars) alive in the tray; quitting
+                // is the tray menu's job once the window is hidden.
+                #[cfg(any(target_os = "macos", target_os = "linux"))]
+                {
+                    api.prevent_close();
+                    let _ = window.hide();
+                    crate::tray::sync_visibility(window.app_handle());
+                }
+                #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+                let _ = api;
+                return;
+            }
             if !matches!(event, tauri::WindowEvent::Destroyed) {
                 return;
             }
@@ -574,7 +622,14 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
-    builder
+    // One handler for every native menu, tray or application menu: Tauri
+    // dispatches menu events globally, so a second listener would run twice.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    let builder = builder.on_menu_event(|app, event| {
+        crate::menu::handle_event(app, event.id().as_ref());
+    });
+
+    let app = builder
         .setup(move |app| {
             use tauri_plugin_decorum::WebviewWindowExt;
 
@@ -593,6 +648,16 @@ pub fn run() {
                     // JS-side detects macOS (RouteShell.svelte); no eval needed
                 }
             }
+
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            {
+                crate::tray::init(app.handle())?;
+                crate::menu::install(app.handle())?;
+            }
+
+            #[cfg(target_os = "macos")]
+            crate::spotlight::install_activation(app.handle());
+
             tauri::async_runtime::block_on(app_setup(app))?;
 
             #[cfg(desktop)]
@@ -618,8 +683,26 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .unwrap_or_else(|e| panic!("error while running tauri application: {e}"));
+
+    app.run(|app, event| {
+        #[cfg(target_os = "macos")]
+        match event {
+            // The AppKit delegate is guaranteed to exist once the loop runs;
+            // setup installs the hook when it is already too early to do so.
+            tauri::RunEvent::Ready => crate::spotlight::install_activation(app),
+            // Clicking the Dock icon with every window hidden must bring the
+            // main window back; macOS otherwise leaves the app windowless.
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => crate::tray::focus_main_window(app),
+            _ => {}
+        }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (app, event);
+    });
 }
 
 // Test fixture for bulk wrapper tests (adds mock_state_for_bulk)

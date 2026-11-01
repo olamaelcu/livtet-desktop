@@ -43,6 +43,13 @@ generate-bindings\.rs
 # store, metadata, callback and mapping helpers are unit-tested directly. The
 # remaining lines are deep-link/app plumbing that needs a live Tauri app.
 crates/livtet-desktop/src/commands/atproto\.rs
+# Native chrome — tray and application menu construction only run against a
+# live desktop session, which headless CI does not provide.
+crates/livtet-desktop/src/tray\.rs
+crates/livtet-desktop/src/menu\.rs
+# CoreSpotlight needs a signed app and a live macOS session; no test can index.
+crates/livtet-desktop/src/spotlight\.rs
+crates/livtet-desktop/src/spotlight/macos\.rs
 
 # Web exclusions (as glob patterns, to be interpreted by Vitest)
 web/lib/bindings\.ts

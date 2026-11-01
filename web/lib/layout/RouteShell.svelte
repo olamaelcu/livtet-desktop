@@ -1,9 +1,9 @@
 <script lang="ts">
 import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
 import { type Snippet } from 'svelte'
+import { isMacOs } from '../platform'
 
 let { nav, children }: { nav?: Snippet; children: Snippet } = $props()
-const isMacOs = /Mac/.test(navigator.platform)
 
 async function startDrag() {
   await getCurrentWebviewWindow().startDragging()

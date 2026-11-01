@@ -16,9 +16,10 @@ import { bindingFor, initBindings } from '../lib/hotkeys/bindings.svelte'
 import type { CommandId } from '../lib/hotkeys/commands'
 import { focusSearchTarget } from '../lib/hotkeys/searchTarget.svelte'
 import AppFrame from '../lib/layout/AppFrame.svelte'
-
+import { listenToAppNavigation } from '../lib/navigation'
 import { queryClient } from '../lib/query/client'
 import { atprotoKeys } from '../lib/query/keys'
+import { listenToSpotlightSelections } from '../lib/spotlight'
 
 let { children } = $props()
 
@@ -86,7 +87,29 @@ onMount(() => {
   // usually lands while the user is still in their browser, with no guarantee
   // that the settings tab is mounted.
   let unlisten: (() => void) | undefined
+  let unlistenNavigation: (() => void) | undefined
+  let unlistenSpotlight: (() => void) | undefined
   let cancelled = false
+  void listenToAppNavigation((route) => {
+    void goto(route)
+  })
+    .then((stop) => {
+      if (cancelled) stop()
+      else unlistenNavigation = stop
+    })
+    // Outside Tauri (SSR, component tests) there is no event bridge.
+    .catch(() => {})
+
+  void listenToSpotlightSelections((editionId) => {
+    const library = resolve('/library')
+    void goto(`${library}?edition=${encodeURIComponent(editionId)}`)
+  })
+    .then((stop) => {
+      if (cancelled) stop()
+      else unlistenSpotlight = stop
+    })
+    .catch(() => {})
+
   void listenToAtprotoEvents({
     onLogin: () => {
       toast.success('Signed in to ATProto')
@@ -105,6 +128,8 @@ onMount(() => {
   return () => {
     cancelled = true
     unlisten?.()
+    unlistenNavigation?.()
+    unlistenSpotlight?.()
   }
 })
 </script>

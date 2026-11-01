@@ -6,10 +6,16 @@ import NavRail from '../../lib/layout/NavRail.svelte'
 import { NAV_ITEMS } from '../../lib/layout/navItems'
 import Pane from '../../lib/layout/Pane.svelte'
 import RouteShell from '../../lib/layout/RouteShell.svelte'
-import { SETTINGS_TABS, settingsTabFrom, settingsTabUrl } from '../../lib/settings/tabs'
+import { isMacOs } from '../../lib/platform'
+import { availableSettingsTabs, settingsTabFrom, settingsTabUrl } from '../../lib/settings/tabs'
 
-/** `children` are the `<wa-tab-panel>`s for the OPDS, sync, account, hotkeys, and MCP tabs. */
+/**
+ * `children` are the `<wa-tab-panel>`s for the tabs `availableSettingsTabs`
+ * lists. A macOS-only tab's panel is likewise rendered only there.
+ */
 let { children }: { children: Snippet } = $props()
+
+const tabs = availableSettingsTabs(isMacOs)
 
 /**
  * The tab on screen: the one `?tab=` names, or the first when it names none.
@@ -17,7 +23,7 @@ let { children }: { children: Snippet } = $props()
  * The query string is the source of truth rather than local state, so a reload
  * or a link into the route opens the same tab the address bar asks for.
  */
-const active = $derived(settingsTabFrom(page.url.search) ?? SETTINGS_TABS[0]?.name ?? '')
+const active = $derived(settingsTabFrom(page.url.search, tabs) ?? tabs[0]?.name ?? '')
 
 /**
  * The tab name `wa-tab-show` carries, or `undefined` for an event of another
@@ -66,7 +72,7 @@ function tabShown(event: Event) {
       so this is the only one.
     -->
     <wa-tab-group class="settings__tabs" data-scroll-region {active} onwa-tab-show={tabShown}>
-      {#each SETTINGS_TABS as tab (tab.name)}
+      {#each tabs as tab (tab.name)}
         <wa-tab slot="nav" panel={tab.name}>
           <wa-icon name={tab.icon}></wa-icon>
           {tab.label}

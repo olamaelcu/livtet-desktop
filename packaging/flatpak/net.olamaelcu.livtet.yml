@@ -14,6 +14,10 @@ finish-args:
   - --filesystem=home
   - --talk-name=org.freedesktop.secrets
   - --talk-name=org.a11y.Bus
+  # System tray: the indicator is a host service and the icon file Tauri
+  # writes must be readable outside the sandbox.
+  - --talk-name=org.kde.StatusNotifierWatcher
+  - --filesystem=xdg-run/tray-icon:create
 
 modules:
   - name: livtet

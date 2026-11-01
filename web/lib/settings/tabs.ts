@@ -14,6 +14,8 @@ export interface SettingsTab {
   label: string
   /** Icon drawn before the label. */
   icon: string
+  /** Only offered on macOS (desktop integrations CoreSpotlight owns). */
+  macOnly?: boolean
 }
 
 /** The tabs, in the order the strip draws them. The first is the default. */
@@ -25,18 +27,27 @@ export const SETTINGS_TABS: readonly SettingsTab[] = [
   { name: 'sync', label: 'Sync', icon: 'arrows-rotate' },
   { name: 'account', label: 'Account', icon: 'user' },
   { name: 'hotkeys', label: 'Keyboard', icon: 'keyboard' },
+  { name: 'desktop', label: 'Desktop', icon: 'desktop', macOnly: true },
   { name: 'mcp', label: 'MCP', icon: 'plug' },
 ]
+
+/** The tabs this platform offers, in draw order. */
+export function availableSettingsTabs(isMacOs: boolean): readonly SettingsTab[] {
+  return SETTINGS_TABS.filter((tab) => !tab.macOnly || isMacOs)
+}
 
 /**
  * The tab a query string selects, or `undefined` when it names none of them.
  *
  * An unknown or absent value reports nothing rather than guessing, so the
- * caller can fall back to the default tab.
+ * caller can fall back to the default tab. Platform-hidden tabs are unknown.
  */
-export function settingsTabFrom(search: string): string | undefined {
+export function settingsTabFrom(
+  search: string,
+  tabs: readonly SettingsTab[] = SETTINGS_TABS,
+): string | undefined {
   const wanted = new URLSearchParams(search).get('tab')
-  return SETTINGS_TABS.find((tab) => tab.name === wanted)?.name
+  return tabs.find((tab) => tab.name === wanted)?.name
 }
 
 /**

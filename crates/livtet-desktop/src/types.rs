@@ -66,4 +66,7 @@ pub struct AppState {
     /// The LAN-facing OPDS 2.0 server: its persisted settings and the live
     /// listener, so Settings can start, stop, or move it (ADR-0045).
     pub opds_server: Arc<crate::opds_server::OpdsServerRuntime>,
+    /// macOS Spotlight indexing: its opt-in preference and index writer
+    /// (ADR-0051).
+    pub spotlight: Arc<crate::spotlight::SpotlightRuntime>,
 }

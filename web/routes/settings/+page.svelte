@@ -4,7 +4,9 @@ import CatalogSettings from '../../lib/components/CatalogSettings.svelte'
 import HotkeySettings from '../../lib/components/HotkeySettings.svelte'
 import McpSettings from '../../lib/components/McpSettings.svelte'
 import OpdsServerSettings from '../../lib/components/OpdsServerSettings.svelte'
+import SpotlightSettings from '../../lib/components/SpotlightSettings.svelte'
 import SyncPanel from '../../lib/components/SyncPanel.svelte'
+import { isMacOs } from '../../lib/platform'
 import SettingsLayout from './SettingsLayout.svelte'
 </script>
 
@@ -41,6 +43,11 @@ import SettingsLayout from './SettingsLayout.svelte'
   <wa-tab-panel name="hotkeys">
     <HotkeySettings />
   </wa-tab-panel>
+  {#if isMacOs}
+    <wa-tab-panel name="desktop">
+      <SpotlightSettings />
+    </wa-tab-panel>
+  {/if}
   <wa-tab-panel name="mcp">
     <McpSettings />
   </wa-tab-panel>

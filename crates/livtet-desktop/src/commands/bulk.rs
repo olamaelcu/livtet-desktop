@@ -134,8 +134,12 @@ pub async fn delete_editions(
     }
 
     let db = state.db.db_conn();
-    let guard = state.search_index.read().await;
-    delete_editions_inner(&db, guard.as_deref(), &edition_ids).await
+    let outcome = {
+        let guard = state.search_index.read().await;
+        delete_editions_inner(&db, guard.as_deref(), &edition_ids).await?
+    };
+    state.spotlight.schedule_reindex(state.db.clone());
+    Ok(outcome)
 }
 
 /// Delete editions and their files, without Tauri state so tests can drive
@@ -354,8 +358,12 @@ pub async fn add_edition_tags(
     state: State<'_, AppState>,
 ) -> Result<TagMutationOutcome, BulkError> {
     let db = state.db.db_conn();
-    let guard = state.search_index.read().await;
-    add_edition_tags_inner(&db, guard.as_deref(), &edition_ids, &tag).await
+    let outcome = {
+        let guard = state.search_index.read().await;
+        add_edition_tags_inner(&db, guard.as_deref(), &edition_ids, &tag).await?
+    };
+    state.spotlight.schedule_reindex(state.db.clone());
+    Ok(outcome)
 }
 
 /// Attach the (trimmed) tag `tag` to every edition, creating the tag on first
@@ -445,8 +453,12 @@ pub async fn remove_edition_tags(
     state: State<'_, AppState>,
 ) -> Result<TagMutationOutcome, BulkError> {
     let db = state.db.db_conn();
-    let guard = state.search_index.read().await;
-    remove_edition_tags_inner(&db, guard.as_deref(), edition_ids, tag_id).await
+    let outcome = {
+        let guard = state.search_index.read().await;
+        remove_edition_tags_inner(&db, guard.as_deref(), edition_ids, tag_id).await?
+    };
+    state.spotlight.schedule_reindex(state.db.clone());
+    Ok(outcome)
 }
 
 /// Detach tag `tag_id` from the given editions. Reindexes `index` when any

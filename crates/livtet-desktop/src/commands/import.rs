@@ -555,7 +555,9 @@ pub async fn import_file(
     mode: ImportMode,
     state: State<'_, AppState>,
 ) -> Result<ImportOutcome, ImportError> {
-    import_one(&path, mode, state.inner()).await
+    let outcome = import_one(&path, mode, state.inner()).await?;
+    state.spotlight.schedule_reindex(state.db.clone());
+    Ok(outcome)
 }
 
 /// The slice of [`AppState`] the import pipeline reads. Kept free of Tauri
@@ -1184,7 +1186,7 @@ pub async fn create_virtual_book(
     input: VirtualBookInput,
     state: State<'_, AppState>,
 ) -> Result<ImportOutcome, ImportError> {
-    create_virtual_book_and_index(
+    let outcome = create_virtual_book_and_index(
         &state.db,
         &state.covers_dir,
         &state.opds_http,
@@ -1192,7 +1194,9 @@ pub async fn create_virtual_book(
         input,
         AuthorRequirement::Required,
     )
-    .await
+    .await?;
+    state.spotlight.schedule_reindex(state.db.clone());
+    Ok(outcome)
 }
 
 /// Write a virtual book and add it to the search index, so it appears in the
@@ -1413,14 +1417,16 @@ pub async fn import_files(
     // Tauri rejects async commands that borrow state and return a non-`Result`,
     // so the state is fetched from the handle instead of taken as a parameter.
     let state = app.state::<AppState>();
-    import_batch(
+    let result = import_batch(
         paths,
         mode,
         &ImportContext::from(state.inner()),
         |payload| emit_batch(&app, payload),
         |payload| emit_file(&app, payload),
     )
-    .await
+    .await;
+    state.spotlight.schedule_reindex(state.db.clone());
+    result
 }
 
 /// Import `paths` sequentially, reporting batch and per-file progress through

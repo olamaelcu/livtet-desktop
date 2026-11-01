@@ -67,6 +67,11 @@ export const opdsServerKeys = {
   status: () => [...opdsServerKeys.all, 'status'] as const,
 }
 
+export const spotlightKeys = {
+  all: ['spotlight'] as const,
+  status: () => [...spotlightKeys.all, 'status'] as const,
+}
+
 export const readerKeys = {
   all: ['reader'] as const,
   publication: (editionId: string) => [...readerKeys.all, 'publication', { editionId }] as const,

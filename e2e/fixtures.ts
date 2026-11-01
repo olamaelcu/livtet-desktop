@@ -132,5 +132,11 @@ export const { test, expect } = createTauriTest({
       running: true,
       url: 'http://192.168.1.10:8080',
     }),
+    spotlight_status: () => ({
+      available: false,
+      enabled: false,
+      indexed_at: null,
+      item_count: 0,
+    }),
   },
 });

@@ -19,4 +19,5 @@ pub mod plugins;
 pub mod reader;
 pub mod reviews;
 pub mod search;
+pub mod spotlight;
 pub mod sync;

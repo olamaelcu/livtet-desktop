@@ -190,6 +190,7 @@ pub async fn apply_enrichment(
     } else {
         0
     };
+    state.spotlight.schedule_reindex(state.db.clone());
     Ok(EnrichmentSummary {
         edition_id,
         sources: cached.sources,

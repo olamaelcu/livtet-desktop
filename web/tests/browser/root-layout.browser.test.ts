@@ -7,6 +7,18 @@ const { convertFileSrc, invoke } = vi.hoisted(() => ({
 }))
 vi.mock('@tauri-apps/api/core', () => ({ convertFileSrc, invoke }))
 
+// The layout subscribes to native navigation (and ATProto events) on mount.
+// Keep the handlers so the test can fire a menu event.
+const { eventHandlers, listen } = vi.hoisted(() => {
+  const eventHandlers = new Map<string, (event: { payload: unknown }) => void>()
+  const listen = vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+    eventHandlers.set(event, handler)
+    return () => eventHandlers.delete(event)
+  })
+  return { eventHandlers, listen }
+})
+vi.mock('@tauri-apps/api/event', () => ({ listen }))
+
 // Navigation and search-focus are the two side effects runCommand triggers
 // that have no observable result in the DOM.
 const { goto } = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }))
@@ -15,13 +27,17 @@ vi.mock('$app/navigation', () => ({ goto }))
 const { focusSearchTarget } = vi.hoisted(() => ({ focusSearchTarget: vi.fn(async () => {}) }))
 vi.mock('$lib/hotkeys/searchTarget.svelte', () => ({ focusSearchTarget }))
 
+import { APP_NAVIGATE_EVENT } from '$lib/navigation'
 import { queryClient } from '$lib/query/client'
+import { SPOTLIGHT_OPEN_EDITION_EVENT } from '$lib/spotlight'
 import RootLayoutFixture from './fixtures/RootLayoutFixture.svelte'
 
 beforeEach(() => {
   goto.mockClear()
   focusSearchTarget.mockClear()
   invoke.mockClear()
+  listen.mockClear()
+  eventHandlers.clear()
 })
 
 afterEach(() => {
@@ -106,6 +122,24 @@ test('the focus-search command delegates to the search target', async () => {
 
   await expect.poll(() => focusSearchTarget).toHaveBeenCalled()
   expect(goto).not.toHaveBeenCalled()
+})
+
+test('a native menu navigation event routes to that page', async () => {
+  await render(RootLayoutFixture)
+
+  await expect.poll(() => eventHandlers.has(APP_NAVIGATE_EVENT)).toBe(true)
+  eventHandlers.get(APP_NAVIGATE_EVENT)?.({ payload: '/catalog' })
+
+  await expect.poll(() => goto).toHaveBeenCalledWith('/catalog')
+})
+
+test('a Spotlight selection routes to that edition', async () => {
+  await render(RootLayoutFixture)
+
+  await expect.poll(() => eventHandlers.has(SPOTLIGHT_OPEN_EDITION_EVENT)).toBe(true)
+  eventHandlers.get(SPOTLIGHT_OPEN_EDITION_EVENT)?.({ payload: 'edition-dune' })
+
+  await expect.poll(() => goto).toHaveBeenCalledWith('/library?edition=edition-dune')
 })
 
 test('the refresh command invalidates cached queries', async () => {

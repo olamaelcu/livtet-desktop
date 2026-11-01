@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest'
-import { SETTINGS_TABS, settingsTabFrom, settingsTabUrl } from './tabs'
+import { availableSettingsTabs, SETTINGS_TABS, settingsTabFrom, settingsTabUrl } from './tabs'
 
 describe('SETTINGS_TABS', () => {
   it('names every tab the route draws panels for, once each', () => {
     const names = SETTINGS_TABS.map((tab) => tab.name)
 
-    expect(names).toEqual(['opds', 'sync', 'account', 'hotkeys', 'mcp'])
+    expect(names).toEqual(['opds', 'sync', 'account', 'hotkeys', 'desktop', 'mcp'])
     expect(new Set(names).size).toBe(names.length)
+  })
+})
+
+describe('availableSettingsTabs', () => {
+  it('offers the Desktop tab only on macOS', () => {
+    expect(availableSettingsTabs(true).map((tab) => tab.name)).toContain('desktop')
+    expect(availableSettingsTabs(false).map((tab) => tab.name)).not.toContain('desktop')
   })
 })
 
@@ -27,6 +34,9 @@ describe('settingsTabFrom', () => {
     expect(settingsTabFrom('?tab=')).toBeUndefined()
     // Catalogs moved inside the OPDS tab, so links to it land on the default tab.
     expect(settingsTabFrom('?tab=catalogs')).toBeUndefined()
+    // A macOS-only tab is not a valid target when the platform hides it.
+    expect(settingsTabFrom('?tab=desktop', availableSettingsTabs(false))).toBeUndefined()
+    expect(settingsTabFrom('?tab=desktop', availableSettingsTabs(true))).toBe('desktop')
   })
 })
 
