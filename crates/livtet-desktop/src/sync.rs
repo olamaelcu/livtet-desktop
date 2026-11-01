@@ -317,7 +317,7 @@ fn handle_line(emit: &impl Fn(&'static str, Value), pending: &Pending, line: &st
 fn notification_event(method: &str) -> Option<&'static str> {
     match method {
         rpc::method::NOTIFY_PAIRING_REQUESTED => Some("sync://pairing-requested"),
-        "pairing.claimed" => Some("sync://paired"),
+        rpc::method::NOTIFY_PAIRING_CLAIMED => Some("sync://paired"),
         rpc::method::NOTIFY_REQUEST_RECEIVED => Some("sync://request"),
         rpc::method::NOTIFY_SYNC_COMPLETED => Some("sync://completed"),
         rpc::method::NOTIFY_SERVER_STARTED => Some("sync://server-started"),
@@ -654,7 +654,7 @@ mod tests {
         let (handle, mut daemon) = connect(PATIENT);
         let routes = [
             (method::NOTIFY_PAIRING_REQUESTED, "sync://pairing-requested"),
-            ("pairing.claimed", "sync://paired"),
+            (method::NOTIFY_PAIRING_CLAIMED, "sync://paired"),
             (method::NOTIFY_REQUEST_RECEIVED, "sync://request"),
             (method::NOTIFY_SYNC_COMPLETED, "sync://completed"),
             (method::NOTIFY_SERVER_STARTED, "sync://server-started"),

@@ -169,12 +169,11 @@ pub async fn sync_send_book(
     device_id: String,
     state: State<'_, AppState>,
 ) -> Result<SyncBookOffer, SyncError> {
-    // Literal until the daemon revision with `devices.offer_book` is pinned.
     parse(
         state
             .sync
             .call(
-                "devices.offer_book",
+                method::DEVICES_OFFER_BOOK,
                 json!({ "edition_id": edition_id, "device_id": device_id }),
             )
             .await?,
@@ -216,11 +215,10 @@ pub async fn sync_pair_claim(
     device_name: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), SyncError> {
-    // Literal until the daemon revision with `pairing.claim` is pinned.
     state
         .sync
         .call(
-            "pairing.claim",
+            method::PAIRING_CLAIM,
             json!({ "listen_on": listen_on, "node_id": node_id, "device_name": device_name }),
         )
         .await?;
