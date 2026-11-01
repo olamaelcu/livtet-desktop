@@ -232,6 +232,16 @@ jobs:
             target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
           if-no-files-found: error
 
+      # The arm64 leg bundles an rpm as well, but AppImage stays amd64-only, so it
+      # needs its own upload rather than falling through the gate above.
+      - name: Upload arm64 rpm
+        if: matrix.arch == 'arm64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-extra
+          path: target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+
   macos:
     name: macOS ${{ matrix.arch }}
     needs: validate
@@ -736,7 +746,9 @@ jobs:
       - name: Install packaging tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev apt-utils gnupg flatpak createrepo-c
+          # `flatpak` pulls only `libostree-1-1`; the `ostree` CLI is needed to
+          # create the package repository the first time it is published.
+          sudo apt-get install -y dpkg-dev apt-utils gnupg flatpak createrepo-c ostree
       - name: Import package signing key
         env:
           PACKAGES_GPG_KEY: ${{ secrets.PACKAGES_GPG_KEY }}
@@ -842,6 +854,12 @@ jobs:
           bundle="$(find artifacts-flatpak -name '*.flatpak' -print -quit)"
           test -n "$bundle"
           install -d pages/flatpak
+          # `flatpak build-import-bundle` refuses to create the repository, and
+          # the first publication has no gh-pages repo to inherit — initialise an
+          # empty archive-mode OSTree repository, which is what flatpak expects.
+          if [ ! -f pages/flatpak/repo/config ]; then
+            ostree init --repo=pages/flatpak/repo --mode=archive
+          fi
           flatpak build-import-bundle --gpg-sign="$KEYID" --gpg-homedir="$GNUPGHOME" pages/flatpak/repo "$bundle"
           flatpak build-update-repo --gpg-sign="$KEYID" --gpg-homedir="$GNUPGHOME" \
             --generate-static-deltas --prune --prune-depth=1 --title=Livtet \
