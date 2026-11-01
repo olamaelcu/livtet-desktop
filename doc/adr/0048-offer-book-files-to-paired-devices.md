@@ -4,7 +4,9 @@ Date: 2026-10-31
 
 ## Status
 
-Accepted
+Accepted. Amended by [ADR 0053](0053-ask-before-a-sync-offer-lands.md): a pull
+records the offer and waits for the receiver's decision instead of downloading
+it on sight.
 
 ## Context
 

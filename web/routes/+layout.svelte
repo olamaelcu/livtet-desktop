@@ -11,6 +11,7 @@ import { goto } from '$app/navigation'
 import { resolve } from '$app/paths'
 import { listenToAtprotoEvents } from '../lib/atproto'
 import CommandPalette from '../lib/components/CommandPalette.svelte'
+import IncomingOfferDialog from '../lib/components/IncomingOfferDialog.svelte'
 import TopLayerToaster from '../lib/components/TopLayerToaster.svelte'
 import { bindingFor, initBindings } from '../lib/hotkeys/bindings.svelte'
 import type { CommandId } from '../lib/hotkeys/commands'
@@ -140,6 +141,10 @@ onMount(() => {
   </AppFrame>
 
   <TopLayerToaster />
+
+  <!-- A paired device's offer is a decision the reader must see wherever
+       they are, so the prompt lives beside the shell rather than in Settings. -->
+  <IncomingOfferDialog />
 
   {#if paletteOpen}
     <CommandPalette onrun={runCommand} onclose={() => (paletteOpen = false)} />

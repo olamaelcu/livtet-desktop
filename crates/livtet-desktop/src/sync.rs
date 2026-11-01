@@ -364,6 +364,8 @@ fn notification_event(method: &str) -> Option<&'static str> {
         rpc::method::NOTIFY_PAIRING_CLAIMED => Some("sync://paired"),
         rpc::method::NOTIFY_REQUEST_RECEIVED => Some("sync://request"),
         rpc::method::NOTIFY_SYNC_COMPLETED => Some("sync://completed"),
+        rpc::method::NOTIFY_OFFER_RECEIVED => Some("sync://offer-received"),
+        rpc::method::NOTIFY_OFFER_DECIDED => Some("sync://offer-decided"),
         rpc::method::NOTIFY_SERVER_STARTED => Some("sync://server-started"),
         rpc::method::NOTIFY_SERVER_STOPPED => Some("sync://server-stopped"),
         _ => None,
@@ -729,6 +731,8 @@ mod tests {
             (method::NOTIFY_PAIRING_CLAIMED, "sync://paired"),
             (method::NOTIFY_REQUEST_RECEIVED, "sync://request"),
             (method::NOTIFY_SYNC_COMPLETED, "sync://completed"),
+            (method::NOTIFY_OFFER_RECEIVED, "sync://offer-received"),
+            (method::NOTIFY_OFFER_DECIDED, "sync://offer-decided"),
             (method::NOTIFY_SERVER_STARTED, "sync://server-started"),
             (method::NOTIFY_SERVER_STOPPED, "sync://server-stopped"),
         ];

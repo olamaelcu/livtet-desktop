@@ -13,6 +13,8 @@ export const syncKeys = {
   deviceName: () => [...syncKeys.all, 'device-name'] as const,
   lan: () => [...syncKeys.all, 'lan'] as const,
   devices: () => [...syncKeys.all, 'devices'] as const,
+  offers: () => [...syncKeys.all, 'offers'] as const,
+  offerCover: (offerId: string) => [...syncKeys.all, 'offer-cover', offerId] as const,
   conflicts: () => [...syncKeys.all, 'conflicts'] as const,
   requests: (limit: number) => [...syncKeys.all, 'requests', { limit }] as const,
 }

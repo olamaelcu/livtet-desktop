@@ -6,7 +6,10 @@ import {
   type SyncDevice,
   type SyncError,
   type SyncHealth,
+  type SyncIncomingOffer,
   type SyncNearbyPeer,
+  type SyncOfferCover,
+  type SyncOfferDecision,
   type SyncPairingApproved,
   type SyncPairingTicket,
   type SyncPendingPairing,
@@ -131,8 +134,34 @@ export function syncDevicesList(): Promise<SyncDevice[]> {
 }
 
 /**
- * Offer an edition's file to one paired device. The device pulls the file,
- * cover, and catalog record when it next syncs; nothing is transferred here.
+ * Books paired devices have offered, waiting on the reader's decision.
+ *
+ * A pull records an offer instead of taking it, so nothing here is on disk
+ * yet: accepting is what downloads the file and writes the catalog rows.
+ */
+export function syncOffersList(): Promise<SyncIncomingOffer[]> {
+  return unwrap<SyncIncomingOffer[]>(commands.syncOffersList())
+}
+
+/**
+ * Answer an offer. `delivered` says whether the offering device was reachable
+ * to hear the answer; the decision stands either way.
+ */
+export function syncOffersDecide(offerId: string, accepted: boolean): Promise<SyncOfferDecision> {
+  return unwrap<SyncOfferDecision>(commands.syncOffersDecide(offerId, accepted))
+}
+
+/** An offer's cover as a data URL, or `null` when the sender has none. */
+export function syncOfferCover(offerId: string): Promise<SyncOfferCover | null> {
+  return unwrap<SyncOfferCover | null>(commands.syncOfferCover(offerId))
+}
+
+/**
+ * Offer an edition's file to one paired device.
+ *
+ * The other device asks its reader first: accepting is what pulls the file,
+ * cover, and catalog record; declining ends it there. Nothing is transferred
+ * by this call, and `sync://offer-decided` reports the answer.
  */
 export function syncSendBook(editionId: string, deviceId: string): Promise<SyncBookOffer> {
   return unwrap<SyncBookOffer>(commands.syncSendBook(editionId, deviceId))
@@ -187,6 +216,8 @@ export type SyncEventName =
   | 'sync://server-started'
   | 'sync://server-stopped'
   | 'sync://paired'
+  | 'sync://offer-received'
+  | 'sync://offer-decided'
 
 type SyncEventHandler = (payload: unknown) => void
 
