@@ -404,16 +404,21 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          # Extracted from the imported certificate by the "Import Apple
-          # signing certificate" step above and written to $GITHUB_ENV.
-          # Without it `tauri build` ships an unsigned binary and Gatekeeper
-          # reports the DMG as broken.
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
+          # `APPLE_SIGNING_IDENTITY` is deliberately NOT set here: the import
+          # step above writes it to $GITHUB_ENV when a certificate exists, and
+          # re-declaring it in `env:` would export an empty string when that
+          # step was skipped. tauri-bundler then treats "sign with this
+          # identity" as configured and fails with
+          #   error: The specified item could not be found in the keychain.
+          #   failed to bundle project: failed codesign application
+          # which is what broke the 0.2.1 macOS leg after a 28-minute build.
         run: |
           set -euo pipefail
           source scripts/ci/trace.sh
           trap trace_heartbeat_stop EXIT
-          for var in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+          # Same guard for every Apple variable: an empty string means
+          # "configured but unusable", so drop them entirely.
+          for var in APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_SIGNING_IDENTITY; do
             if [ -z "${!var:-}" ]; then unset "$var"; fi
           done
           # `build/` was produced and cached by the frontend step, so suppress
