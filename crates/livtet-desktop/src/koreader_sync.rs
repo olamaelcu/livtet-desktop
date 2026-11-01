@@ -38,6 +38,7 @@
 //! registration stub. Without a stored credential it refuses everything, so an
 //! unpaired desktop serves nothing even on a shared network.
 
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -455,19 +456,31 @@ pub(crate) async fn map_documents(
     limit: usize,
 ) -> Result<usize, KoreaderSyncError> {
     ensure_tables(db).await?;
-    let rows = {
-        let statement = Statement::from_sql_and_values(
+    // Which inventory rows are already mapped is decided here, not in a join.
+    // The catalog's id columns are 16-byte ULID blobs and this table stores the
+    // same id as text; SQLite never compares those two as equal, so a join on
+    // them matches nothing and every sweep re-hashed and re-inserted the whole
+    // library — forever, because the sweep's loop only ends on an empty pass.
+    let mapped: HashSet<String> = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT digital_inventory_id FROM koreader_sync_ids".to_string(),
+        ))
+        .await?
+        .iter()
+        .filter_map(|row| row.try_get::<String>("", "digital_inventory_id").ok())
+        .collect();
+
+    let rows = db
+        .query_all_raw(Statement::from_string(
             DbBackend::Sqlite,
             "SELECT i.id, i.edition_id, i.file_path
                 FROM digital_inventory i
-                LEFT JOIN koreader_sync_ids k ON k.digital_inventory_id = i.id
-                WHERE i.file_path IS NOT NULL AND k.id IS NULL
-                ORDER BY i.added_at ASC
-                LIMIT ?",
-            [Value::from(limit as i64)],
-        );
-        db.query_all_raw(statement).await?
-    };
+                WHERE i.file_path IS NOT NULL
+                ORDER BY i.added_at ASC"
+                .to_string(),
+        ))
+        .await?;
 
     let mut candidates = Vec::new();
     for row in rows {
@@ -484,7 +497,13 @@ pub(crate) async fn map_documents(
         if !reader::reader_path_in_library(books_dir, &path) {
             continue;
         }
+        if mapped.contains(&inventory_id.to_string()) {
+            continue;
+        }
         candidates.push((inventory_id, edition_id, path));
+        if candidates.len() >= limit {
+            break;
+        }
     }
 
     // Hashing is blocking file IO: keep it off the async workers.
@@ -508,22 +527,29 @@ pub(crate) async fn map_documents(
     .map_err(|error| KoreaderSyncError::new("database", error.to_string()))?;
 
     let now = timestamp_text();
+    let mut inserted = 0;
     for (document, inventory_id, edition_id) in &digests {
-        db.execute_raw(Statement::from_sql_and_values(
-            DbBackend::Sqlite,
-            "INSERT OR IGNORE INTO koreader_sync_ids
+        let written = db
+            .execute_raw(Statement::from_sql_and_values(
+                DbBackend::Sqlite,
+                "INSERT OR IGNORE INTO koreader_sync_ids
                 (id, digital_inventory_id, edition_id, created_at)
                 VALUES (?, ?, ?, ?)",
-            [
-                Value::from(document.clone()),
-                Value::from(inventory_id.to_string()),
-                Value::from(edition_id.to_string()),
-                Value::from(now.clone()),
-            ],
-        ))
-        .await?;
+                [
+                    Value::from(document.clone()),
+                    Value::from(inventory_id.to_string()),
+                    Value::from(edition_id.to_string()),
+                    Value::from(now.clone()),
+                ],
+            ))
+            .await?;
+        inserted += written.rows_affected();
     }
-    Ok(digests.len())
+    // Rows actually written, not rows visited: the caller loops until a sweep
+    // maps nothing, and a visited-but-ignored row is no progress. That includes
+    // a file whose digest another file already claimed, and a file that could
+    // not be hashed — both stop the sweep instead of spinning on them.
+    Ok(usize::try_from(inserted).unwrap_or(usize::MAX))
 }
 
 /// Resolve a document digest, mapping the library first when it is unknown.

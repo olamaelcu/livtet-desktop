@@ -270,7 +270,7 @@ where
                     let line = String::from_utf8_lossy(&bytes);
                     let line = line.trim();
                     if !line.is_empty() {
-                        tracing::warn!(target: "livtet_sync_daemon", "{line}");
+                        forward_daemon_line(line);
                     }
                 }
                 CommandEvent::Error(error) => {
@@ -290,6 +290,32 @@ where
         }
         fail_pending(&pending, "sync daemon terminated");
     }));
+}
+
+/// Re-emit one line of the daemon's stderr at the level it was written at.
+///
+/// The daemon writes `RUST_LOG` output itself, so each line already carries its
+/// level: `2026-11-01T13:08:46.463650Z  INFO livtet_sync_daemon: …`. Forwarding
+/// everything at WARN — which is what this did — made a startup notice and a
+/// sqlx DEBUG trace indistinguishable from a real warning, and put them in the
+/// log at a level nothing filters them out at.
+fn forward_daemon_line(line: &str) {
+    match daemon_level(line) {
+        Some("ERROR") => tracing::error!(target: "livtet_sync_daemon", "{line}"),
+        Some("WARN") => tracing::warn!(target: "livtet_sync_daemon", "{line}"),
+        Some("INFO") => tracing::info!(target: "livtet_sync_daemon", "{line}"),
+        Some("DEBUG") => tracing::debug!(target: "livtet_sync_daemon", "{line}"),
+        Some("TRACE") => tracing::trace!(target: "livtet_sync_daemon", "{line}"),
+        // No level at all is the daemon failing before its subscriber exists:
+        // an `eprintln!` from argument parsing, or a panic message.
+        _ => tracing::warn!(target: "livtet_sync_daemon", "{line}"),
+    }
+}
+
+/// The level token a formatted daemon line carries, or `None` when it has none.
+fn daemon_level(line: &str) -> Option<&str> {
+    let level = line.split_whitespace().nth(1)?;
+    matches!(level, "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR").then_some(level)
 }
 
 /// Decode one NDJSON line, routing responses to their waiter and notifications
@@ -499,11 +525,39 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::testing::connect;
-    use super::{Pending, SyncHandle, fail_pending, sidecar_args};
+    use super::{Pending, SyncHandle, daemon_level, fail_pending, sidecar_args};
     use crate::error::SyncError;
 
     /// Long enough that reaching it means a call was never resolved.
     const PATIENT: Duration = Duration::from_secs(60);
+
+    /// The daemon formats its own lines, so the level is the token after the
+    /// timestamp. Bare text is what the daemon prints before its subscriber
+    /// exists — a bad argument, a panic — and must stay a warning.
+    #[test]
+    fn daemon_lines_keep_the_level_they_were_written_at() {
+        assert_eq!(
+            daemon_level("2026-11-01T13:08:46.463650Z  INFO livtet_sync_daemon: starting"),
+            Some("INFO"),
+            "the default format pads the level, it does not change it"
+        );
+        assert_eq!(
+            daemon_level("2026-11-01T13:08:46.463650Z DEBUG sqlx::query: summary=\"PRAGMA\""),
+            Some("DEBUG")
+        );
+        assert_eq!(
+            daemon_level("2026-11-01T13:08:46.463650Z  WARN livtet_sync_daemon: retrying"),
+            Some("WARN")
+        );
+        assert_eq!(
+            daemon_level("livtet-sync-daemon: --port needs a number"),
+            None
+        );
+        assert_eq!(
+            daemon_level("thread 'main' panicked at src/main.rs:1:1"),
+            None
+        );
+    }
 
     fn pending_count(handle: &SyncHandle) -> usize {
         handle.pending.lock().unwrap().len()

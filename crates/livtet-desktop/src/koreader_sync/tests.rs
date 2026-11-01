@@ -251,6 +251,29 @@ async fn mapping_records_both_checksum_methods_for_a_library_file() {
     }
 }
 
+/// The sweep is a loop whose only stop condition is an empty pass, so "mapped"
+/// has to mean the rows left the work set. A join on the id columns never did:
+/// the catalog stores a ULID as a 16-byte blob and this table stores the same id
+/// as text, which SQLite never compares equal — so every pass re-hashed and
+/// re-inserted the whole library, for as long as the app ran.
+#[tokio::test]
+async fn a_sweep_stops_once_the_library_is_mapped() {
+    let fixture = fixture(KnownFormats::Epub).await;
+
+    let first = map_documents(&fixture.db, &fixture.books_dir, 10)
+        .await
+        .expect("first sweep");
+    assert_eq!(first, 2, "the partial and the file-name digest are written");
+
+    let second = map_documents(&fixture.db, &fixture.books_dir, 10)
+        .await
+        .expect("second sweep");
+    assert_eq!(
+        second, 0,
+        "a mapped library has no work left, which is the sweep's stop condition"
+    );
+}
+
 #[tokio::test]
 async fn an_unknown_document_resolves_to_nothing() {
     let fixture = fixture(KnownFormats::Epub).await;
