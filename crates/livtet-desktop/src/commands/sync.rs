@@ -373,6 +373,33 @@ async fn sync_devices_list_inner(sync: &SyncHandle) -> Result<Vec<SyncDevice>, S
     parse(sync.call(method::DEVICES_LIST, Value::Null).await?)
 }
 
+/// Diagnose why a paired device cannot reach this one.
+///
+/// Pull works from this side because it is an outbound request; the reverse
+/// direction is an inbound request this device has to answer, and every way it
+/// can fail — a stopped server, a loopback-only bind, a firewall that drops
+/// packets, a token this device no longer knows — looks the same from the
+/// settings page. The probes and the verdict live in [`crate::sync_diagnostics`].
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_diagnostics(
+    state: State<'_, AppState>,
+) -> Result<crate::sync_diagnostics::SyncDiagnostics, SyncError> {
+    sync_diagnostics_inner(&state.sync).await
+}
+
+async fn sync_diagnostics_inner(
+    sync: &SyncHandle,
+) -> Result<crate::sync_diagnostics::SyncDiagnostics, SyncError> {
+    let status: SyncStatusInfo = parse(sync.call(method::STATUS, Value::Null).await?)?;
+    let peers: Vec<SyncDevice> = parse(sync.call(method::DEVICES_LIST, Value::Null).await?)?;
+    let inbound: Vec<SyncRequestRecord> = parse(
+        sync.call(method::REQUESTS_RECENT, json!({ "limit": 50 }))
+            .await?,
+    )?;
+    Ok(crate::sync_diagnostics::collect(&status, peers, inbound).await)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_devices_revoke(

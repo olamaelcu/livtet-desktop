@@ -4,6 +4,7 @@ import {
   type SyncBookOffer,
   type SyncConflict,
   type SyncDevice,
+  type SyncDiagnostics,
   type SyncError,
   type SyncHealth,
   type SyncIncomingOffer,
@@ -207,6 +208,18 @@ export function syncServerStart(): Promise<boolean> {
 /** Stop the embedded sync server. */
 export function syncServerStop(): Promise<boolean> {
   return unwrap<boolean>(commands.syncServerStop())
+}
+
+/**
+ * Why a paired device cannot reach this one.
+ *
+ * Pull is outbound — this device dials the peer — while anything the peer does
+ * with this library is inbound, and the two fail for completely different
+ * reasons. The daemon's answer carries the probes it ran and the verdicts it
+ * drew from them, so the panel does not have to guess.
+ */
+export function syncDiagnostics(): Promise<SyncDiagnostics> {
+  return unwrap<SyncDiagnostics>(commands.syncDiagnostics())
 }
 
 /**

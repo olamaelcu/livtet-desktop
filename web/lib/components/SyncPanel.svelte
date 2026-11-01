@@ -14,6 +14,7 @@ import {
   syncDeviceNameSave,
   syncDevicesList,
   syncDevicesRevoke,
+  syncDiagnostics,
   syncErrorMessage,
   syncHealth,
   syncLanGet,
@@ -113,6 +114,27 @@ const devices = createQuery(() => ({
   queryFn: syncDevicesList,
   refetchInterval: SYNC_POLL_MS,
 }))
+
+/**
+ * Probe this device's own server from the loopback and LAN addresses.
+ *
+ * A mutation rather than a query: every run dials real sockets, and the answer
+ * is about this moment, not a cacheable fact.
+ */
+const diagnose = createMutation(() => ({
+  mutationFn: syncDiagnostics,
+  onError: (error) => toast.error(syncErrorMessage(error)),
+}))
+
+/** What a probe found, in one line. */
+function probeLabel(probe: {
+  target: string
+  status: number | null
+  error: string | null
+}): string {
+  if (probe.status !== null) return `${probe.target} answered ${probe.status}`
+  return `${probe.target}: ${probe.error ?? 'no answer'}`
+}
 
 const conflicts = createQuery(() => ({
   queryKey: syncKeys.conflicts(),
@@ -651,6 +673,46 @@ onMount(() => {
     {/each}
   </section>
 
+  <section class="section" aria-labelledby="sync-reach-heading">
+    <div class="section-head">
+      <h3 id="sync-reach-heading">Reaching this device</h3>
+      <div class="section-actions">
+        <ActionButton
+          size="small"
+          onclick={() => diagnose.mutate()}
+          disabled={diagnose.isPending}
+        >
+          {diagnose.isPending ? 'Probing…' : 'Diagnose'}
+        </ActionButton>
+      </div>
+    </div>
+    <p class="description">
+      Pulling works from this side because it is an outbound request. A peer
+      reading this library is an inbound one, and a firewall, a loopback-only
+      bind, or a pairing this device no longer knows each stop it in a different
+      place. Diagnose dials this device's own server from loopback and from its
+      network address, then reports what arrived on it.
+    </p>
+    {#if diagnose.data}
+      <ul class="findings">
+        {#each diagnose.data.findings as finding, index (index)}
+          <li>{finding}</li>
+        {/each}
+      </ul>
+      <div class="probes">
+        <p class="muted">{probeLabel(diagnose.data.loopback)}</p>
+        {#if diagnose.data.lan}
+          <p class="muted">{probeLabel(diagnose.data.lan)}</p>
+        {/if}
+        <p class="muted">
+          {diagnose.data.inbound.length} inbound
+          {diagnose.data.inbound.length === 1 ? 'request' : 'requests'} served since the daemon
+          started
+        </p>
+      </div>
+    {/if}
+  </section>
+
   <section class="section" aria-labelledby="sync-conflicts-heading">
     <div class="section-head">
       <h3 id="sync-conflicts-heading">Conflicts</h3>
@@ -779,6 +841,24 @@ onMount(() => {
   }
 
   .intro h2 {
+    margin: 0;
+  }
+
+  .findings {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-2xs);
+    margin: 0;
+    padding-inline-start: var(--wa-space-l);
+  }
+
+  .probes {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-3xs);
+  }
+
+  .probes p {
     margin: 0;
   }
 

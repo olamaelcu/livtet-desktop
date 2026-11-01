@@ -73,6 +73,23 @@ beforeEach(() => {
         return { node_id: 'node-1', expires_at: 'soon' }
       case 'sync_pairing_approve':
         return { device_id: 'device-abc', session_token: 'sess-1' }
+      case 'sync_diagnostics':
+        return {
+          server_running: true,
+          host: '0.0.0.0',
+          port: 7777,
+          loopback: { target: '127.0.0.1:7777', status: 401, error: null },
+          lan: {
+            target: '192.168.1.137:7777',
+            status: null,
+            error: 'error sending request for url (http://192.168.1.137:7777/sync/status)',
+          },
+          peers: [],
+          inbound: [],
+          findings: [
+            '192.168.1.137:7777 never answered. A firewall, VLAN isolation, or client isolation on the access point drops these packets; outbound pulls are unaffected by all three.',
+          ],
+        }
       case 'sync_pairing_reject':
       case 'sync_devices_revoke':
       case 'sync_conflicts_resolve':
@@ -394,4 +411,30 @@ test('shows the server as stopped while the daemon is still reachable', async ()
 
   await expect.poll(() => facts(container)).not.toBeNull()
   expect(serverCalloutText(container)).toContain('Server stopped')
+})
+
+test('diagnosing reachability reports what each probe answered', async () => {
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => facts(container)).not.toBeNull()
+
+  const diagnose = [...container.querySelectorAll<HTMLElement>('wa-button, button')].find(
+    (button) => button.textContent?.trim() === 'Diagnose',
+  )
+  expect(diagnose).not.toBeUndefined()
+  diagnose?.click()
+
+  const reach = 'section[aria-labelledby="sync-reach-heading"]'
+  await expect.poll(() => container.querySelector(`${reach} .findings`)).not.toBeNull()
+
+  const findings = container.querySelector(`${reach} .findings`)?.textContent ?? ''
+  expect(findings).toContain('firewall')
+  expect(findings).not.toContain('pair again')
+
+  // The probes are shown as they answered: a 401 is reachability, an error is not.
+  await expect
+    .poll(() => container.querySelector(`${reach} .probes`)?.textContent ?? '')
+    .toContain('127.0.0.1:7777 answered 401')
+  expect(container.querySelector(`${reach} .probes`)?.textContent).toContain(
+    '192.168.1.137:7777: error sending request',
+  )
 })

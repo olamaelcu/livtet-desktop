@@ -14,6 +14,7 @@ pub mod secrets;
 pub mod secrets_embed;
 pub mod spotlight;
 pub mod sync;
+pub mod sync_diagnostics;
 pub mod sync_settings;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod tray;
@@ -608,6 +609,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::sync::sync_pairing_reject,
         commands::sync::sync_devices_list,
         commands::sync::sync_devices_revoke,
+        commands::sync::sync_diagnostics,
         commands::sync::sync_conflicts_list,
         commands::sync::sync_conflicts_resolve,
         commands::sync::sync_server_start,
