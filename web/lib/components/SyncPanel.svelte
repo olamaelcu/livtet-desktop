@@ -3,6 +3,7 @@ import { createMutation, createQuery, useQueryClient } from '@tanstack/svelte-qu
 import { onMount } from 'svelte'
 import { toast } from 'svelte-sonner'
 import type { SyncConflict, SyncNearbyPeer, SyncPairingTicket } from '../bindings'
+import ConfirmDialog from '../library/ConfirmDialog.svelte'
 import { syncKeys } from '../query/keys'
 import {
   listenToSyncEvents,
@@ -117,6 +118,11 @@ const conflicts = createQuery(() => ({
   refetchInterval: SYNC_POLL_MS,
 }))
 
+/** Only unresolved rows can be acted on; resolved ones stay visible as history. */
+const unresolvedConflicts = $derived(
+  (conflicts.data ?? []).filter((conflict) => !conflict.resolved),
+)
+
 const requests = createQuery(() => ({
   queryKey: syncKeys.requests(REQUEST_LIMIT),
   queryFn: () => syncRequestsRecent(REQUEST_LIMIT),
@@ -140,6 +146,8 @@ const action = createMutation(() => ({
 let ticket = $state<SyncPairingTicket | null>(null)
 let resolutions = $state<Record<number, string | undefined>>({})
 let mergedPayloads = $state<Record<number, string | undefined>>({})
+let bulkResolution = $state<'local' | 'remote'>('local')
+let bulkConfirmOpen = $state(false)
 
 const pairing = createMutation(() => ({
   mutationFn: () => syncPairingBegin(),
@@ -151,7 +159,29 @@ const pairing = createMutation(() => ({
   onError: (error) => toast.error(syncErrorMessage(error)),
 }))
 
-const busy = $derived(action.isPending || pairing.isPending)
+const bulkResolve = createMutation(() => ({
+  mutationFn: async (resolution: 'local' | 'remote') => {
+    const targets = unresolvedConflicts.map((conflict) => conflict.id)
+    let resolved = 0
+    for (const id of targets) {
+      if (await syncConflictsResolve(id, resolution)) resolved += 1
+    }
+    return { resolved, total: targets.length, resolution }
+  },
+  onSuccess: ({ resolved, total, resolution }) => {
+    const choice = resolution === 'local' ? 'local' : 'remote'
+    toast.success(`Resolved ${resolved} of ${total} conflicts as ${choice}`)
+    invalidateQueries(syncKeys.all)
+  },
+  onError: (error) => {
+    toast.error(syncErrorMessage(error))
+    // A failed row may still have resolved earlier rows; refresh rather than
+    // leaving the reader with a stale list.
+    invalidateQueries(syncKeys.conflicts(), syncKeys.status())
+  },
+}))
+
+const busy = $derived(action.isPending || pairing.isPending || bulkResolve.isPending)
 
 const saveName = createMutation(() => ({
   mutationFn: (name: string | null) => syncDeviceNameSave(name),
@@ -232,6 +262,17 @@ function resolveConflict(conflict: SyncConflict) {
     message: 'Conflict resolved',
     run: () => syncConflictsResolve(conflict.id, resolution, merged),
   })
+}
+
+/** Resolve every unresolved conflict with one choice; merged needs per-row input. */
+function resolveAllConflicts() {
+  if (!unresolvedConflicts.length || bulkResolve.isPending) return
+  bulkConfirmOpen = true
+}
+
+function confirmResolveAll() {
+  bulkConfirmOpen = false
+  bulkResolve.mutate(bulkResolution)
 }
 
 /** Device whose claim is in flight, so its row can say so and block repeats. */
@@ -530,10 +571,34 @@ onMount(() => {
   <section class="section" aria-labelledby="sync-conflicts-heading">
     <div class="section-head">
       <h3 id="sync-conflicts-heading">Conflicts</h3>
-      {#if conflicts.data?.length}
-        <wa-badge variant="warning">{conflicts.data.length}</wa-badge>
+      {#if unresolvedConflicts.length}
+        <wa-badge variant="warning">{unresolvedConflicts.length}</wa-badge>
       {/if}
     </div>
+    {#if unresolvedConflicts.length}
+      <div class="resolve bulk-resolve">
+        <label class="control">
+          <span>Resolve all as</span>
+          <select
+            value={bulkResolution}
+            onchange={(event) => {
+              bulkResolution = event.currentTarget.value as 'local' | 'remote'
+            }}
+          >
+            <option value="local">Keep local</option>
+            <option value="remote">Use remote</option>
+          </select>
+        </label>
+        <ActionButton
+          variant="brand"
+          onclick={resolveAllConflicts}
+          disabled={busy}
+          size="small"
+        >
+          Resolve all ({unresolvedConflicts.length})
+        </ActionButton>
+      </div>
+    {/if}
     {#each conflicts.data ?? [] as conflict (conflict.id)}
       <div class="conflict">
         <span class="conflict-head">
@@ -588,6 +653,16 @@ onMount(() => {
     {:else}
       <p class="muted">No conflicts.</p>
     {/each}
+    <ConfirmDialog
+      open={bulkConfirmOpen}
+      title="Resolve conflicts"
+      message={`Resolve ${unresolvedConflicts.length} conflicts as “${bulkResolution === 'local' ? 'Keep local' : 'Use remote'}”? This cannot be undone.`}
+      confirmLabel="Resolve all"
+      onconfirm={confirmResolveAll}
+      oncancel={() => {
+        bulkConfirmOpen = false
+      }}
+    />
   </section>
 
   <section class="section" aria-labelledby="sync-requests-heading">
@@ -854,6 +929,10 @@ onMount(() => {
     flex-wrap: wrap;
     align-items: flex-end;
     gap: var(--wa-space-s);
+  }
+
+  .bulk-resolve {
+    padding-block: var(--wa-space-s);
   }
 
   .control {

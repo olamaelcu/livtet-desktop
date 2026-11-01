@@ -246,8 +246,79 @@ test('resolving a conflict toasts', async () => {
   const { container } = await render(SyncPanelFixture)
   await expect.poll(() => container.textContent).toContain('book ed-1')
 
-  panelButton(container, 'Resolve').click()
+  container.querySelector<HTMLElement>('.conflict wa-button')?.click()
   await expect.poll(() => toast.success).toHaveBeenCalledWith('Conflict resolved')
+})
+
+test('bulk resolves every unresolved conflict with one choice', async () => {
+  const resolvedIds: number[] = []
+  const resolutions: string[] = []
+  invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+    if (command === 'sync_conflicts_list') {
+      return [
+        {
+          id: 7,
+          entity_type: 'book',
+          entity_id: 'ed-1',
+          local_payload: 'a',
+          remote_payload: 'b',
+          resolved: false,
+          resolution: null,
+          merged_payload: null,
+          detected_at: 'today',
+        },
+        {
+          id: 8,
+          entity_type: 'book',
+          entity_id: 'ed-2',
+          local_payload: 'c',
+          remote_payload: 'd',
+          resolved: false,
+          resolution: null,
+          merged_payload: null,
+          detected_at: 'today',
+        },
+        {
+          id: 9,
+          entity_type: 'book',
+          entity_id: 'ed-3',
+          local_payload: 'e',
+          remote_payload: 'f',
+          resolved: true,
+          resolution: 'local',
+          merged_payload: null,
+          detected_at: 'yesterday',
+        },
+      ]
+    }
+    if (command === 'sync_conflicts_resolve') {
+      resolvedIds.push(args?.id as number)
+      resolutions.push(args?.resolution as string)
+      return true
+    }
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('book ed-1')
+
+  const section = container.querySelector<HTMLElement>(
+    'section[aria-labelledby="sync-conflicts-heading"]',
+  )
+  const select = section?.querySelector<HTMLSelectElement>('select')
+  expect(select).toBeInstanceOf(HTMLSelectElement)
+  if (!select) throw new Error('expected a bulk resolution select')
+  select.value = 'remote'
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+
+  panelButton(container, 'Resolve all (2)').click()
+  await expect.poll(() => container.querySelector('button.danger')).not.toBeNull()
+  container.querySelector<HTMLButtonElement>('button.danger')?.click()
+
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Resolved 2 of 2 conflicts as remote')
+  expect(resolvedIds).toEqual([7, 8])
+  expect(resolutions).toEqual(['remote', 'remote'])
 })
 
 test('lists a discovered peer with a pictogram and its friendly name', async () => {
