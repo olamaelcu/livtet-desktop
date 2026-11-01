@@ -1,0 +1,6 @@
+name = "duckduckgo"
+version = "0.1.0"
+entry = "plugin.lua"
+
+[capabilities.http]
+domains = ["duckduckgo.com", "external-content.duckduckgo.com"]

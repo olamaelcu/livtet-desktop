@@ -21,7 +21,7 @@ use stanchion::remote::{RemoteOptions, RemoteRegistry};
 use tauri::State;
 
 use super::enrich_merge::{
-    EnrichMode, EnrichmentPreview, EnrichmentSummary, MergeContext, combine, merge,
+    CoverChoice, EnrichMode, EnrichmentPreview, EnrichmentSummary, MergeContext, combine, merge,
 };
 use super::enrich_store::{read_snapshot, write_enrichment};
 use super::plugin_host_callbacks::answer_http;
@@ -29,6 +29,10 @@ use crate::error::PluginError;
 use crate::types::AppState;
 use livtet_importer::{BookIdentity, Enrichment};
 use livtet_types::DbId;
+
+/// Longest edge of the thumbnail the review renders, in pixels. Small enough
+/// that a handful of offers stay a few tens of kilobytes over IPC.
+const THUMBNAIL_EDGE: u32 = 240;
 
 /// How long a preview stays applicable. A reader who leaves the review screen
 /// open longer than this is asked to run Enrich again rather than applying a
@@ -46,6 +50,9 @@ const PREVIEW_CAPACITY: usize = 32;
 pub struct CachedEnrichment {
     pub enrichment: Enrichment,
     pub sources: Vec<String>,
+    /// Each source's cover with its bytes, so apply can write the pick. The
+    /// thumbnails are already rendered: apply shows nobody a preview.
+    pub choices: Vec<CoverChoice>,
     fetched_at: Instant,
 }
 
@@ -78,6 +85,68 @@ fn take_cached(
 ) -> Option<CachedEnrichment> {
     let entry = cache.remove(edition_id)?;
     (entry.fetched_at.elapsed() < ttl).then_some(entry)
+}
+
+/// Render one cover as a small JPEG `data:` URL for the review.
+///
+/// `None` when the bytes are not an image the `image` crate decodes, or the
+/// base64 is malformed: the offer stays selectable, it just cannot be seen. A
+/// thumbnail is a convenience, never a reason to fail an enrichment.
+fn thumbnail(cover: &livtet_importer::ImporterCover) -> Option<String> {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+
+    let bytes = STANDARD.decode(&cover.data_base64).ok()?;
+    let image = image::load_from_memory(&bytes).ok()?;
+    // Bounded on the longer edge, aspect preserved: a wide cover and a tall one
+    // render at the same visual weight in the row.
+    let thumbnail = image.thumbnail(THUMBNAIL_EDGE, THUMBNAIL_EDGE);
+    let mut jpeg = Vec::new();
+    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80);
+    thumbnail.write_with_encoder(encoder).ok()?;
+    Some(format!("data:image/jpeg;base64,{}", STANDARD.encode(jpeg)))
+}
+
+/// Every source's cover as a choice the review can offer, thumbnails rendered.
+///
+/// The decode is CPU work over bytes that can reach the 8 MB `http` cap, so it
+/// runs on a blocking worker rather than the async runtime.
+async fn cover_choices(
+    covers: Vec<(String, livtet_importer::ImporterCover)>,
+    storable: bool,
+) -> Vec<CoverChoice> {
+    tokio::task::spawn_blocking(move || {
+        covers
+            .into_iter()
+            .map(|(source, cover)| CoverChoice {
+                thumbnail: thumbnail(&cover),
+                source,
+                cover,
+                storable,
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+/// The choice to write: the named source's cover, or the first offer when the
+/// reader named none.
+///
+/// A name that is not on offer is refused rather than quietly replaced: the
+/// catalog must not gain a cover the reader did not see.
+fn chosen_cover<'a>(
+    choices: &'a [CoverChoice],
+    source: Option<&str>,
+) -> Result<Option<&'a CoverChoice>, PluginError> {
+    match source {
+        None => Ok(choices.first()),
+        Some(name) => choices
+            .iter()
+            .find(|choice| choice.source == name)
+            .map(Some)
+            .ok_or_else(|| PluginError::invalid(format!("no cover from `{name}` in this preview"))),
+    }
 }
 
 fn parse_edition_id(raw: &str) -> Result<DbId, PluginError> {
@@ -119,14 +188,23 @@ pub async fn preview_enrichment(
         ));
     }
 
-    let (sources, combined) = combine(answers);
+    let combined = combine(answers);
+    let choices = cover_choices(combined.covers, snapshot.cover_storable).await;
     let context = MergeContext {
-        sources: sources.clone(),
-        cover_storable: snapshot.cover_storable,
+        sources: combined.sources.clone(),
+        choices: choices.clone(),
     };
     // Any mode classifies identically; `Fill` is the resolution apply would take
     // unless the reader picks another, and the preview never reads `applied`.
-    let classified = merge(&snapshot.fields, &combined, EnrichMode::Fill, &context);
+    // The first offer is the default pick, which is what the preview describes.
+    let cover = chosen_cover(&choices, None)?;
+    let classified = merge(
+        &snapshot.fields,
+        &combined.enrichment,
+        EnrichMode::Fill,
+        &context,
+        cover,
+    );
 
     {
         let mut cache = state.enrichment_cache.write().await;
@@ -134,8 +212,9 @@ pub async fn preview_enrichment(
             &mut cache,
             edition_id,
             CachedEnrichment {
-                enrichment: combined,
-                sources,
+                enrichment: combined.enrichment,
+                sources: combined.sources,
+                choices,
                 fetched_at: Instant::now(),
             },
         );
@@ -151,6 +230,7 @@ pub async fn apply_enrichment(
     state: State<'_, AppState>,
     edition_id: String,
     mode: EnrichMode,
+    cover_source: Option<String>,
 ) -> Result<EnrichmentSummary, PluginError> {
     let id = parse_edition_id(&edition_id)?;
 
@@ -169,9 +249,10 @@ pub async fn apply_enrichment(
 
     let context = MergeContext {
         sources: cached.sources.clone(),
-        cover_storable: snapshot.cover_storable,
+        choices: cached.choices.clone(),
     };
-    let resolved = merge(&snapshot.fields, &cached.enrichment, mode, &context);
+    let cover = chosen_cover(&cached.choices, cover_source.as_deref())?;
+    let resolved = merge(&snapshot.fields, &cached.enrichment, mode, &context, cover);
 
     let outcome = write_enrichment(&state.db, &state.covers_dir, id, &resolved.applied)
         .await
@@ -345,8 +426,56 @@ mod tests {
                 found: Vec::new(),
             },
             sources: vec![String::from("openlibrary")],
+            choices: Vec::new(),
             fetched_at: Instant::now() - age,
         }
+    }
+
+    fn cover_choice(source: &str) -> CoverChoice {
+        CoverChoice {
+            source: source.to_string(),
+            cover: livtet_importer::ImporterCover {
+                mime: String::from("image/jpeg"),
+                data_base64: format!("{source}-bytes"),
+            },
+            thumbnail: None,
+            storable: true,
+        }
+    }
+
+    /// Apply writes the source the reader named, defaults to the first offer,
+    /// and refuses a name that is not on offer rather than picking something
+    /// else (ADR-0050).
+    #[test]
+    fn the_chosen_cover_is_the_one_named_or_the_first_offer() {
+        let choices = [cover_choice("amazon"), cover_choice("goodreads")];
+
+        let named = chosen_cover(&choices, Some("goodreads"))
+            .expect("a listed source resolves")
+            .expect("there is a cover");
+        assert_eq!(named.cover.data_base64, "goodreads-bytes");
+
+        let default = chosen_cover(&choices, None)
+            .expect("no name needs no lookup")
+            .expect("there is a cover");
+        assert_eq!(
+            default.cover.data_base64, "amazon-bytes",
+            "omitting the choice keeps the merge order as the default"
+        );
+
+        let refused =
+            chosen_cover(&choices, Some("openlibrary")).expect_err("an absent source is refused");
+        assert!(
+            format!("{refused:?}").contains("openlibrary"),
+            "the error names the source it could not find: {refused:?}"
+        );
+
+        assert!(
+            chosen_cover(&[], None)
+                .expect("no offers is not an error")
+                .is_none(),
+            "an edition with no offers simply writes no cover"
+        );
     }
 
     #[test]

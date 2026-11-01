@@ -26,7 +26,7 @@ function preview(overrides: Partial<EnrichmentPreview> = {}): EnrichmentPreview 
     unioned: [],
     conflicts: [],
     found: [],
-    cover: null,
+    covers: [],
     ...overrides,
   }
 }
@@ -55,7 +55,19 @@ describe('previewIsEmpty', () => {
     ['a unionable list', { unioned: [{ field: 'subjects', values: ['SF'] }] }],
     ['a conflict', { conflicts: [{ field: 'title', current: 'A', incoming: 'B' }] }],
     ['a found identifier', { found: [{ kind: 'isbn', value: '9780441013593' }] }],
-    ['a cover offer', { cover: { mime: 'image/jpeg', storable: true } }],
+    [
+      'a cover offer',
+      {
+        covers: [
+          {
+            source: 'openlibrary',
+            mime: 'image/jpeg',
+            storable: true,
+            thumbnail: null,
+          },
+        ],
+      },
+    ],
   ])('is not empty with %s', (_label, overrides) => {
     expect(previewIsEmpty(preview(overrides as Partial<EnrichmentPreview>))).toBe(false)
   })

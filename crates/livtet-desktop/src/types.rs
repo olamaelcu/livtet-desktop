@@ -69,4 +69,7 @@ pub struct AppState {
     /// macOS Spotlight indexing: its opt-in preference and index writer
     /// (ADR-0051).
     pub spotlight: Arc<crate::spotlight::SpotlightRuntime>,
+    /// The KOReader progress sync server: its persisted settings and the live
+    /// listener, so Settings can start, stop, or move it.
+    pub koreader_sync: Arc<crate::koreader_sync::KoreaderSyncRuntime>,
 }

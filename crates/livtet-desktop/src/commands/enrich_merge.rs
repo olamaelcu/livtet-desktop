@@ -65,15 +65,43 @@ pub struct FieldConflict {
     pub incoming: String,
 }
 
-/// What the source offers for an edition that has no cover.
+/// One source's cover, as the review offers it (ADR-0050).
 ///
 /// `storable` is false when the edition has no `digital_inventory` row, which is
 /// the only place a cover path can live; the preview says so instead of quietly
-/// dropping it (ADR-0046).
+/// dropping it (ADR-0046). `thumbnail` is a `data:` URL of a small rendering, so
+/// the reader can compare covers; it is `None` when the bytes did not decode,
+/// which leaves the offer selectable but unseen.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, specta::Type)]
 pub struct CoverOffer {
+    /// Plugin that offered it, as the preview's `sources` spell it.
+    pub source: String,
     pub mime: String,
     pub storable: bool,
+    pub thumbnail: Option<String>,
+}
+
+/// A source's cover with the bytes behind the offer.
+///
+/// The full image never crosses to the webview: `thumbnail` is what the review
+/// renders, and `cover` is what apply writes once the reader picks this source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CoverChoice {
+    pub source: String,
+    pub cover: ImporterCover,
+    pub thumbnail: Option<String>,
+    pub storable: bool,
+}
+
+impl From<&CoverChoice> for CoverOffer {
+    fn from(choice: &CoverChoice) -> Self {
+        Self {
+            source: choice.source.clone(),
+            mime: choice.cover.mime.clone(),
+            storable: choice.storable,
+            thumbnail: choice.thumbnail.clone(),
+        }
+    }
 }
 
 /// One identifier the source resolved, in the shape the drawer already renders
@@ -105,7 +133,9 @@ pub struct EnrichmentPreview {
     pub conflicts: Vec<FieldConflict>,
     /// Identifiers the source resolved; persisted on apply regardless of mode.
     pub found: Vec<FoundIdentifier>,
-    pub cover: Option<CoverOffer>,
+    /// Every cover on offer, in merge order. Empty when the edition already has
+    /// one; apply writes the one the reader picked (ADR-0050).
+    pub covers: Vec<CoverOffer>,
 }
 
 /// What applying a preview did.
@@ -146,8 +176,8 @@ pub struct AppliedFields {
 pub struct MergeContext {
     /// Plugins that contributed, in merge order.
     pub sources: Vec<String>,
-    /// Whether the edition has a `digital_inventory` row to hang a cover on.
-    pub cover_storable: bool,
+    /// Each source's cover, in merge order, with the bytes apply would write.
+    pub choices: Vec<CoverChoice>,
 }
 
 /// One merge's classification and the field set it resolves to.
@@ -157,13 +187,25 @@ pub struct Merge {
     pub applied: AppliedFields,
 }
 
+/// What several enrichers' answers fold into.
+pub struct Combined {
+    /// Contributing plugins, in merge order.
+    pub sources: Vec<String>,
+    /// The merged fields. Covers are not merged here: each source's stays in
+    /// `covers`, so the review can offer them all (ADR-0050).
+    pub enrichment: Enrichment,
+    /// Every source's cover, in merge order. The first is the default pick.
+    pub covers: Vec<(String, ImporterCover)>,
+}
+
 /// Fold several plugins' answers into one, in plugin order.
 ///
 /// The first non-`None` scalar wins; lists concatenate then dedupe preserving
-/// order; `found` dedupes by `(kind, value)`. Returns the contributing plugin
-/// names alongside, so the preview can say who answered.
-pub fn combine(answers: Vec<(String, Enrichment)>) -> (Vec<String>, Enrichment) {
+/// order; `found` dedupes by `(kind, value)`. Covers are collected rather than
+/// collapsed, so apply can write whichever source the reader picked.
+pub fn combine(answers: Vec<(String, Enrichment)>) -> Combined {
     let mut sources = Vec::with_capacity(answers.len());
+    let mut covers: Vec<(String, ImporterCover)> = Vec::new();
     let mut combined = Enrichment {
         title: None,
         title_sort: None,
@@ -185,7 +227,10 @@ pub fn combine(answers: Vec<(String, Enrichment)>) -> (Vec<String>, Enrichment) 
         combined.language = combined.language.or(enrichment.language);
         combined.published = combined.published.or(enrichment.published);
         combined.description = combined.description.or(enrichment.description);
-        combined.cover = combined.cover.or(enrichment.cover);
+        if let Some(cover) = enrichment.cover {
+            // `sources` was just pushed, so the last element is this plugin.
+            covers.push((sources.last().cloned().unwrap_or_default(), cover));
+        }
         combined.contributors.extend(enrichment.contributors);
         combined.subjects.extend(enrichment.subjects);
         combined.found.extend(enrichment.found);
@@ -207,7 +252,11 @@ pub fn combine(answers: Vec<(String, Enrichment)>) -> (Vec<String>, Enrichment) 
         .subjects
         .retain(|subject| seen_subjects.insert(subject.clone()));
 
-    (sources, combined)
+    Combined {
+        sources,
+        enrichment: combined,
+        covers,
+    }
 }
 
 /// Classify `incoming` against `current` and resolve what `apply` writes.
@@ -216,6 +265,7 @@ pub fn merge(
     incoming: &Enrichment,
     mode: EnrichMode,
     context: &MergeContext,
+    cover: Option<&CoverChoice>,
 ) -> Merge {
     let mut added: Vec<FieldChange> = Vec::new();
     let mut unioned: Vec<FieldAddition> = Vec::new();
@@ -339,17 +389,18 @@ pub fn merge(
 
     // A cover is only ever added to an edition that has none, and only stored
     // when there is an inventory row to hang the path on.
-    let cover = match (&incoming.cover, current.has_cover) {
-        (Some(offer), false) => Some(CoverOffer {
-            mime: offer.mime.clone(),
-            storable: context.cover_storable,
-        }),
-        _ => None,
+    // Which offer is written is the reader's pick, resolved before the merge
+    // (ADR-0050); the merge only decides whether a cover is eligible at all.
+    let covers: Vec<CoverOffer> = if current.has_cover {
+        Vec::new()
+    } else {
+        context.choices.iter().map(CoverOffer::from).collect()
     };
-    if let Some(offer) = &cover
-        && offer.storable
+    if let Some(choice) = cover
+        && !current.has_cover
+        && choice.storable
     {
-        applied.cover = incoming.cover.clone();
+        applied.cover = Some(choice.cover.clone());
     }
 
     let identifiers = incoming.found.clone();
@@ -377,7 +428,7 @@ pub fn merge(
             unioned,
             conflicts,
             found: incoming.found.iter().map(FoundIdentifier::from).collect(),
-            cover,
+            covers,
         },
         applied,
     }
@@ -457,7 +508,16 @@ mod tests {
     }
 
     fn merged(current: &EditionFields, incoming: &Enrichment, mode: EnrichMode) -> Merge {
-        merge(current, incoming, mode, &MergeContext::default())
+        merge(current, incoming, mode, &MergeContext::default(), None)
+    }
+
+    fn choice(source: &str, data: &str, storable: bool) -> CoverChoice {
+        CoverChoice {
+            source: source.to_string(),
+            cover: cover(data),
+            thumbnail: None,
+            storable,
+        }
     }
 
     fn fields(preview: &EnrichmentPreview) -> Vec<String> {
@@ -726,6 +786,7 @@ mod tests {
             cover: Some(cover("new")),
             ..empty()
         };
+        let choices = vec![choice("openlibrary", "new", true)];
 
         let missing = merge(
             &EditionFields::default(),
@@ -733,15 +794,18 @@ mod tests {
             EnrichMode::Fill,
             &MergeContext {
                 sources: vec![String::from("openlibrary")],
-                cover_storable: true,
+                choices: choices.clone(),
             },
+            choices.first(),
         );
         assert_eq!(
-            missing.preview.cover,
-            Some(CoverOffer {
+            missing.preview.covers,
+            vec![CoverOffer {
+                source: String::from("openlibrary"),
                 mime: String::from("image/jpeg"),
                 storable: true,
-            })
+                thumbnail: None,
+            }]
         );
         assert!(missing.applied.cover.is_some());
 
@@ -754,7 +818,8 @@ mod tests {
             EnrichMode::Overwrite,
         );
         assert_eq!(
-            present.preview.cover, None,
+            present.preview.covers,
+            Vec::new(),
             "an existing cover is never replaced"
         );
         assert!(present.applied.cover.is_none());
@@ -768,21 +833,70 @@ mod tests {
             cover: Some(cover("new")),
             ..empty()
         };
+        let choices = vec![choice("openlibrary", "new", false)];
 
         let merge = merge(
             &EditionFields::default(),
             &incoming,
             EnrichMode::Union,
-            &MergeContext::default(),
+            &MergeContext {
+                sources: vec![String::from("openlibrary")],
+                choices: choices.clone(),
+            },
+            choices.first(),
         );
         assert_eq!(
-            merge.preview.cover,
-            Some(CoverOffer {
+            merge.preview.covers,
+            vec![CoverOffer {
+                source: String::from("openlibrary"),
                 mime: String::from("image/jpeg"),
                 storable: false,
-            })
+                thumbnail: None,
+            }]
         );
         assert!(merge.applied.cover.is_none());
+    }
+
+    /// Every source's cover reaches the review, and the pick — not the plugin
+    /// order — decides what apply writes (ADR-0050).
+    #[test]
+    fn every_source_offers_its_cover_and_the_pick_is_written() {
+        let incoming = Enrichment {
+            cover: Some(cover("amazon-bytes")),
+            ..empty()
+        };
+        let choices = vec![
+            choice("amazon", "amazon-bytes", true),
+            choice("goodreads", "goodreads-bytes", true),
+        ];
+        let context = MergeContext {
+            sources: vec![String::from("amazon"), String::from("goodreads")],
+            choices: choices.clone(),
+        };
+
+        let picked = merge(
+            &EditionFields::default(),
+            &incoming,
+            EnrichMode::Fill,
+            &context,
+            choices.get(1),
+        );
+        let sources: Vec<&str> = picked
+            .preview
+            .covers
+            .iter()
+            .map(|offer| offer.source.as_str())
+            .collect();
+        assert_eq!(
+            sources,
+            vec!["amazon", "goodreads"],
+            "both offers are listed, in merge order"
+        );
+        assert_eq!(
+            picked.applied.cover.map(|cover| cover.data_base64),
+            Some(String::from("goodreads-bytes")),
+            "the picked source's bytes are what apply writes"
+        );
     }
 
     #[test]
@@ -799,7 +913,7 @@ mod tests {
         assert!(merge.preview.unioned.is_empty());
         assert!(merge.preview.conflicts.is_empty());
         assert!(merge.preview.found.is_empty());
-        assert_eq!(merge.preview.cover, None);
+        assert!(merge.preview.covers.is_empty());
     }
 
     #[test]
@@ -833,19 +947,23 @@ mod tests {
             ..empty()
         };
 
-        let (sources, combined) = combine(vec![
+        let combined = combine(vec![
             (String::from("first"), first),
             (String::from("second"), second),
         ]);
 
-        assert_eq!(sources, vec![String::from("first"), String::from("second")]);
-        assert_eq!(combined.title.as_deref(), Some("First"));
-        assert_eq!(combined.publisher.as_deref(), Some("Pluto"));
         assert_eq!(
-            combined.subjects,
+            combined.sources,
+            vec![String::from("first"), String::from("second")]
+        );
+        let merged = &combined.enrichment;
+        assert_eq!(merged.title.as_deref(), Some("First"));
+        assert_eq!(merged.publisher.as_deref(), Some("Pluto"));
+        assert_eq!(
+            merged.subjects,
             vec![String::from("A"), String::from("B"), String::from("C")]
         );
-        let names: Vec<&str> = combined
+        let names: Vec<&str> = merged
             .contributors
             .iter()
             .map(|contributor| contributor.name.as_str())
@@ -855,14 +973,42 @@ mod tests {
             vec!["Ann", "Bob"],
             "same name and role collapses once"
         );
-        assert_eq!(combined.found.len(), 2, "found dedupes by kind and value");
+        assert_eq!(merged.found.len(), 2, "found dedupes by kind and value");
+    }
+
+    /// Covers are collected with the plugin that offered each, in merge order,
+    /// instead of collapsing to the first one (ADR-0050).
+    #[test]
+    fn combine_keeps_every_source_cover_in_plugin_order() {
+        let with_cover = |data: &str| Enrichment {
+            cover: Some(cover(data)),
+            ..empty()
+        };
+
+        let combined = combine(vec![
+            (String::from("amazon"), with_cover("amazon-bytes")),
+            (String::from("openlibrary"), empty()),
+            (String::from("goodreads"), with_cover("goodreads-bytes")),
+        ]);
+
+        let offered: Vec<(&str, &str)> = combined
+            .covers
+            .iter()
+            .map(|(source, cover)| (source.as_str(), cover.data_base64.as_str()))
+            .collect();
+        assert_eq!(
+            offered,
+            vec![("amazon", "amazon-bytes"), ("goodreads", "goodreads-bytes"),],
+            "a source without a cover contributes none, order preserved"
+        );
     }
 
     #[test]
     fn combine_of_nothing_is_an_empty_enrichment() {
-        let (sources, combined) = combine(Vec::new());
-        assert!(sources.is_empty());
-        assert_eq!(combined, empty());
+        let combined = combine(Vec::new());
+        assert!(combined.sources.is_empty());
+        assert!(combined.covers.is_empty());
+        assert_eq!(combined.enrichment, empty());
     }
 
     #[test]

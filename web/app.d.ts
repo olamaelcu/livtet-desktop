@@ -135,6 +135,10 @@ declare global {
     checked: boolean
   }
 
+  interface WaRadioGroupElement extends HTMLElement {
+    value: string
+  }
+
   interface WaOptionElement extends HTMLElement {
     value: string
     label: string

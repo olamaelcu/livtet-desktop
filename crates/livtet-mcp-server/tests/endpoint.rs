@@ -22,13 +22,15 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Every tool the endpoint is expected to publish.
-const EXPECTED_TOOLS: [&str; 17] = [
+const EXPECTED_TOOLS: [&str; 21] = [
+    "add_plugin_from_path",
     "add_reader_bookmark",
     "create_virtual_book",
     "filter_options",
     "get_reader_position",
     "import_file",
     "import_files",
+    "list_plugins",
     "list_reader_bookmarks",
     "opds_server_settings_save",
     "opds_server_start",
@@ -36,10 +38,12 @@ const EXPECTED_TOOLS: [&str; 17] = [
     "opds_server_stop",
     "reader_publication",
     "reader_resource",
+    "remove_plugin",
     "remove_reader_bookmark",
     "save_reader_position",
     "search_editions",
     "search_typeahead",
+    "set_plugin_enabled",
 ];
 
 /// A bridge that records every call and echoes its arguments back, so a test
@@ -203,6 +207,36 @@ impl DesktopBridge for StubBridge {
     async fn opds_server_stop(&self) -> Result<Value, BridgeError> {
         self.called("opds_server_stop");
         Ok(json!({ "running": false }))
+    }
+
+    async fn list_plugins(&self) -> Result<Value, BridgeError> {
+        self.called("list_plugins");
+        Ok(
+            json!([{ "name": "openlibrary", "version": "0.1.0", "granted": ["http"], "signer": "unsigned", "enabled": true }]),
+        )
+    }
+
+    async fn add_plugin_from_path(&self, source: String) -> Result<Value, BridgeError> {
+        self.called("add_plugin_from_path");
+        // One failing branch so a refused install travels the whole wire with its
+        // code, the way the command reports a plugin the host could not load.
+        if source.ends_with("broken") {
+            return Err(BridgeError::new(
+                "plugin",
+                "plugin \"broken\" was installed but the host could not load it",
+            ));
+        }
+        Ok(json!({ "name": "new-plugin", "source": source, "enabled": true }))
+    }
+
+    async fn set_plugin_enabled(&self, name: String, enabled: bool) -> Result<Value, BridgeError> {
+        self.called("set_plugin_enabled");
+        Ok(json!({ "name": name, "enabled": enabled }))
+    }
+
+    async fn remove_plugin(&self, name: String) -> Result<Value, BridgeError> {
+        self.called("remove_plugin");
+        Ok(json!({ "name": name, "removed": true }))
     }
 }
 
@@ -497,6 +531,45 @@ async fn every_tool_routes_its_arguments_to_the_bridge() {
         "import_files must default mode to link"
     );
 
+    // Plugin management: the listed set, an install, a state flip, a removal.
+    let plugins = call(&client, "list_plugins", json!({})).await;
+    assert_eq!(plugins.is_error, Some(false), "list_plugins");
+    assert_eq!(
+        plugins.structured_content,
+        Some(
+            json!([{ "name": "openlibrary", "version": "0.1.0", "granted": ["http"], "signer": "unsigned", "enabled": true }])
+        )
+    );
+
+    let installed = call(
+        &client,
+        "add_plugin_from_path",
+        json!({ "source": "/plugins/goodreads" }),
+    )
+    .await;
+    assert_eq!(installed.is_error, Some(false), "add_plugin_from_path");
+    assert_eq!(
+        installed.structured_content,
+        Some(json!({ "name": "new-plugin", "source": "/plugins/goodreads", "enabled": true }))
+    );
+
+    let enabled = call(
+        &client,
+        "set_plugin_enabled",
+        json!({ "name": "goodreads", "enabled": false }),
+    )
+    .await;
+    assert_eq!(
+        enabled.structured_content,
+        Some(json!({ "name": "goodreads", "enabled": false }))
+    );
+
+    let removed = call(&client, "remove_plugin", json!({ "name": "goodreads" })).await;
+    assert_eq!(
+        removed.structured_content,
+        Some(json!({ "name": "goodreads", "removed": true }))
+    );
+
     assert_eq!(
         bridge.calls(),
         vec![
@@ -519,6 +592,10 @@ async fn every_tool_routes_its_arguments_to_the_bridge() {
             "opds_server_stop",
             "import_file",
             "import_files",
+            "list_plugins",
+            "add_plugin_from_path",
+            "set_plugin_enabled",
+            "remove_plugin",
         ]
         .into_iter()
         .map(String::from)

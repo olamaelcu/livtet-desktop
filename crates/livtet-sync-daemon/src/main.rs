@@ -66,6 +66,9 @@ fn init_tracing() {
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)
+        // stderr is a pipe to the desktop, not a terminal: escape codes would be
+        // captured verbatim into the app's log file.
+        .with_ansi(false)
         .with_writer(std::io::stderr)
         .init();
 }

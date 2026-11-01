@@ -273,6 +273,15 @@ pub trait Enricher {
     /// Identifier kinds this enricher can key on, for skip decisions and UI.
     fn sources(&self) -> Result<Vec<String>>;
 
+    /// What this enricher claims to supply, so the app can list it without
+    /// knowing its name: `["metadata"]`, `["cover"]`, or both.
+    ///
+    /// A declaration, not a promise the app can check cheaply — a plugin that
+    /// lists `cover` and returns none is simply a source with nothing to offer.
+    /// A plugin that does not implement this method answers with an error, which
+    /// the caller reads as "declares nothing" rather than as a failed load.
+    fn provides(&self) -> Result<Vec<String>>;
+
     /// Look the book up and return whatever fields the source provides.
     fn enrich(&self, identity: BookIdentity) -> Result<Enrichment>;
 }

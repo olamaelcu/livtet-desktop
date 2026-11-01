@@ -5395,6 +5395,7 @@ dependencies = [
  "livtet-search",
  "livtet-sync-server",
  "livtet-types",
+ "md-5",
  "miette",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",

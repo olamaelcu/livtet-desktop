@@ -11,6 +11,12 @@ function Enricher.new(config, deps)
     return setmetatable({}, {__index = Enricher})
 end
 
+-- Roles this enricher plays. The app lists a plugin by what it declares
+-- here rather than by its name, so a new source needs no app change.
+function Enricher:provides()
+    return {"metadata", "cover"}
+end
+
 function Enricher:sources()
     return {"isbn", "olid"}
 end

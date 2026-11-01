@@ -72,6 +72,10 @@ export const spotlightKeys = {
   status: () => [...spotlightKeys.all, 'status'] as const,
 }
 
+export const koreaderSyncKeys = {
+  all: ['koreader-sync'] as const,
+  status: () => [...koreaderSyncKeys.all, 'status'] as const,
+}
 export const readerKeys = {
   all: ['reader'] as const,
   publication: (editionId: string) => [...readerKeys.all, 'publication', { editionId }] as const,

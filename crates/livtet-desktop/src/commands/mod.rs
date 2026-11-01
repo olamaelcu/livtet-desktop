@@ -11,6 +11,7 @@ pub mod enrich_store;
 pub mod identifier_edit;
 pub mod import;
 pub mod importers;
+pub mod koreader_sync;
 pub mod mcp;
 pub mod opds;
 pub mod opds_server;

@@ -80,8 +80,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 miette = "7.6"
 thiserror = "2.0"
 base64 = "0.22"
+# Only for the cover thumbnail in the enrichment review (ADR-0050): decode the
+# plugin's image, shrink it, re-encode a small JPEG. Already in the graph through
+# the PDF renderer, so no new download.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 sha2 = "0.10"
 hex = "0.4"
+# Declared under the name its library exports, so dependency-usage checks see
+# the `md5` the code imports rather than the hyphenated package name.
+md5 = { package = "md-5", version = "0.11" }
 keyring = "4"
 fs-err = { version = "3.3", features = ["debug", "tokio"] }
 tokio = { version = "1", features = [

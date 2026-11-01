@@ -42,5 +42,8 @@ describe('settings page', () => {
     expect(body).toContain('name="server"')
     expect(body).toContain('name="hotkeys"')
     expect(body).toContain('name="sync"')
+    // Livtet's own sync and the KOReader progress server are panes of that tab.
+    expect(body).toContain('name="devices"')
+    expect(body).toContain('name="koreader"')
   })
 })

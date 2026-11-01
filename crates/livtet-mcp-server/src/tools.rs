@@ -155,6 +155,30 @@ pub struct OpdsServerSettingsArgs {
     pub port: u16,
 }
 
+/// Arguments for [`LivtetMcpServer::add_plugin_from_path`].
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct AddPluginArgs {
+    /// Absolute path to a plugin directory — one holding `plugin.toml` — on this
+    /// machine. The plugin's manifest names it, and the copy lands under that name.
+    pub source: String,
+}
+
+/// Arguments for [`LivtetMcpServer::set_plugin_enabled`].
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct SetPluginEnabledArgs {
+    /// Plugin name, exactly as returned by `list_plugins`.
+    pub name: String,
+    /// `true` loads the plugin for work, `false` parks it; idempotent either way.
+    pub enabled: bool,
+}
+
+/// Arguments for [`LivtetMcpServer::remove_plugin`].
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct RemovePluginArgs {
+    /// Plugin name, exactly as returned by `list_plugins`.
+    pub name: String,
+}
+
 /// Arguments for [`LivtetMcpServer::remove_reader_bookmark`].
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub struct RemoveReaderBookmarkArgs {
@@ -394,11 +418,57 @@ impl<B: DesktopBridge> LivtetMcpServer<B> {
     async fn opds_server_stop(&self) -> ToolResult {
         finish(self.bridge.opds_server_stop().await)
     }
+
+    /// Every installed plugin (`listPlugins`).
+    #[tool(
+        name = "list_plugins",
+        description = "List every installed plugin: its name, version, granted capabilities, signer, and whether it is enabled. Disabled plugins are still installed and reported."
+    )]
+    async fn list_plugins(&self) -> ToolResult {
+        finish(self.bridge.list_plugins().await)
+    }
+
+    /// Install a plugin from a local directory (`addPluginFromPath`).
+    #[tool(
+        name = "add_plugin_from_path",
+        description = "Install a plugin from a local directory holding plugin.toml, by copying it into the plugins root and confirming the plugin host loads it. Refuses a name that is already installed, and rolls the copy back if the host cannot load the plugin."
+    )]
+    async fn add_plugin_from_path(
+        &self,
+        Parameters(args): Parameters<AddPluginArgs>,
+    ) -> ToolResult {
+        finish(self.bridge.add_plugin_from_path(args.source).await)
+    }
+
+    /// Enable or disable an installed plugin (`setPluginEnabled`).
+    #[tool(
+        name = "set_plugin_enabled",
+        description = "Enable or disable an installed plugin by moving it between the root the host loads from and the parked root. Idempotent: setting the state a plugin already has succeeds."
+    )]
+    async fn set_plugin_enabled(
+        &self,
+        Parameters(args): Parameters<SetPluginEnabledArgs>,
+    ) -> ToolResult {
+        finish(
+            self.bridge
+                .set_plugin_enabled(args.name, args.enabled)
+                .await,
+        )
+    }
+
+    /// Uninstall a plugin by name (`removePlugin`).
+    #[tool(
+        name = "remove_plugin",
+        description = "Uninstall a plugin by removing its directory, whether it is enabled or parked. This is how a plugin's access is durably revoked."
+    )]
+    async fn remove_plugin(&self, Parameters(args): Parameters<RemovePluginArgs>) -> ToolResult {
+        finish(self.bridge.remove_plugin(args.name).await)
+    }
 }
 
 #[tool_handler(
     router = self.tool_router,
     name = "livtet-desktop",
-    instructions = "Tools for the Livtet desktop library: search the catalog, import books, read or bookmark them, and report or move the OPDS catalog server that publishes the library to e-readers. Everything runs against the local library on this machine."
+    instructions = "Tools for the Livtet desktop library: search the catalog, import books, read or bookmark them, report or move the OPDS catalog server that publishes the library to e-readers, and install, enable, or remove the plugins that import and enrich the catalog. Everything runs against the local library on this machine."
 )]
 impl<B: DesktopBridge> ServerHandler for LivtetMcpServer<B> {}

@@ -21,13 +21,16 @@ use livtet_core::search::SearchIndex;
 use livtet_mcp_server::{BridgeError, DesktopBridge, McpEndpoint};
 use livtet_types::DbId;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use specta::Type;
 use tokio::sync::Mutex;
 
 use crate::commands::import::{
     AuthorRequirement, ImportContext, ImportMode, VirtualBookInput, create_virtual_book_and_index,
     import_batch, import_one_inner,
+};
+use crate::commands::plugins::{
+    enable_plugin, install_from_path, installed_plugins, uninstall_plugin,
 };
 use crate::commands::reader::{
     ReaderCache, delete_reader_bookmark, fetch_reader_bookmarks, fetch_reader_position,
@@ -289,6 +292,7 @@ pub(crate) struct CommandBridge {
     plugin_host_path: Utf8PathBuf,
     plugin_host_config: Utf8PathBuf,
     plugins_dir: Utf8PathBuf,
+    disabled_plugins_dir: Utf8PathBuf,
     readers: Arc<ReaderCache>,
     loopback: crate::commands::byte_server::LoopbackServer,
     /// The OPDS catalog server, so a tool call can report or move it. Distinct
@@ -309,6 +313,7 @@ impl CommandBridge {
             plugin_host_path: state.plugin_host_path.clone(),
             plugin_host_config: state.plugin_host_config.clone(),
             plugins_dir: state.plugins_dir.clone(),
+            disabled_plugins_dir: state.disabled_plugins_dir.clone(),
             readers: state.readers.clone(),
             loopback: state.loopback.clone(),
             opds_server: state.opds_server.clone(),
@@ -538,6 +543,55 @@ impl DesktopBridge for CommandBridge {
             .await
             .map_err(opds_server_error)?;
         serialized(status)
+    }
+
+    async fn list_plugins(&self) -> Result<Value, BridgeError> {
+        let plugins = installed_plugins(
+            self.plugin_host_path.clone(),
+            self.plugin_host_config.clone(),
+            self.plugins_dir.clone(),
+            self.disabled_plugins_dir.clone(),
+        )
+        .await
+        .map_err(|error| bridge_error("plugin", &error))?;
+        serialized(plugins)
+    }
+
+    async fn add_plugin_from_path(&self, source: String) -> Result<Value, BridgeError> {
+        let summary = install_from_path(
+            self.plugin_host_path.clone(),
+            self.plugin_host_config.clone(),
+            self.plugins_dir.clone(),
+            Utf8PathBuf::from(source),
+        )
+        .await
+        .map_err(|error| bridge_error("plugin", &error))?;
+        serialized(summary)
+    }
+
+    async fn set_plugin_enabled(&self, name: String, enabled: bool) -> Result<Value, BridgeError> {
+        enable_plugin(
+            self.plugins_dir.clone(),
+            self.disabled_plugins_dir.clone(),
+            name.clone(),
+            enabled,
+        )
+        .await
+        .map_err(|error| bridge_error("plugin", &error))?;
+        // The tool reports the new state rather than `null`: an MCP caller has no
+        // panel to re-read, and "enabled" is what it asked about.
+        Ok(json!({ "name": name, "enabled": enabled }))
+    }
+
+    async fn remove_plugin(&self, name: String) -> Result<Value, BridgeError> {
+        uninstall_plugin(
+            self.plugins_dir.clone(),
+            self.disabled_plugins_dir.clone(),
+            name.clone(),
+        )
+        .await
+        .map_err(|error| bridge_error("plugin", &error))?;
+        Ok(json!({ "name": name, "removed": true }))
     }
 }
 

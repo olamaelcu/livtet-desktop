@@ -162,4 +162,27 @@ pub trait DesktopBridge: Clone + Send + Sync + 'static {
 
     /// `opds_server_stop`: unbind the listener.
     fn opds_server_stop(&self) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `list_plugins`: every installed plugin, enabled and disabled.
+    fn list_plugins(&self) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `add_plugin_from_path`: copy a plugin directory in and confirm the host
+    /// loads it.
+    fn add_plugin_from_path(
+        &self,
+        source: String,
+    ) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `set_plugin_enabled`: move a plugin between the loaded and parked roots.
+    fn set_plugin_enabled(
+        &self,
+        name: String,
+        enabled: bool,
+    ) -> impl Future<Output = Result<Value, BridgeError>> + Send;
+
+    /// `remove_plugin`: uninstall a plugin by name.
+    fn remove_plugin(
+        &self,
+        name: String,
+    ) -> impl Future<Output = Result<Value, BridgeError>> + Send;
 }

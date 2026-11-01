@@ -17,6 +17,11 @@ pub struct PluginSummary {
     /// Whether the plugin's directory lives in the root the host scans for work.
     /// See ADR-0034.
     pub enabled: bool,
+    /// What the plugin declares it supplies (`provides`), so the UI lists a
+    /// source by its declaration instead of by a name baked into the app. Empty
+    /// when the plugin does not answer — an importer, or an enricher written
+    /// before the method existed.
+    pub roles: Vec<String>,
 }
 
 impl From<stanchion::remote::PluginInfo> for PluginSummary {
@@ -31,6 +36,7 @@ impl From<stanchion::remote::PluginInfo> for PluginSummary {
             granted: plugin.granted,
             signer: plugin.signer,
             enabled: true,
+            roles: Vec::new(),
         }
     }
 }
@@ -63,7 +69,35 @@ fn list_via_host(
     let mut registry =
         stanchion::remote::RemoteRegistry::launch(options).map_err(PluginError::host)?;
     let plugins = registry.list().map_err(PluginError::host)?;
-    Ok(plugins.into_iter().map(PluginSummary::from).collect())
+    let roles = declared_roles(&mut registry);
+    Ok(plugins
+        .into_iter()
+        .map(|plugin| PluginSummary {
+            roles: roles.get(&plugin.name).cloned().unwrap_or_default(),
+            ..PluginSummary::from(plugin)
+        })
+        .collect())
+}
+
+/// Each loaded plugin's declared roles, by plugin name.
+///
+/// One dispatch over the whole registry, the same shape the enrichment path uses
+/// for `sources`: a plugin that does not implement `provides` fails that call
+/// alone and reports no roles, which is the correct reading of silence.
+fn declared_roles(
+    registry: &mut stanchion::remote::RemoteRegistry,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let Ok(outcomes) = registry.dispatch("provides", []) else {
+        return std::collections::HashMap::new();
+    };
+    outcomes
+        .into_iter()
+        .filter_map(|outcome| {
+            let value = outcome.value?;
+            let roles = serde_json::from_value::<Vec<String>>(value).ok()?;
+            Some((outcome.plugin, roles))
+        })
+        .collect()
 }
 
 /// Whether a root holds at least one plugin directory.
@@ -265,19 +299,73 @@ fn move_plugin_between_roots(
     Ok(())
 }
 
+/// Lists the plugins in both plugin roots, enabled first.
+///
+/// The `#[tauri::command]`s below are thin passes over the app state around these
+/// functions, so the webview and the MCP endpoint run one implementation and
+/// cannot drift.
+pub(crate) async fn installed_plugins(
+    host: Utf8PathBuf,
+    config: Utf8PathBuf,
+    plugins_dir: Utf8PathBuf,
+    disabled_dir: Utf8PathBuf,
+) -> Result<Vec<PluginSummary>, PluginError> {
+    tokio::task::spawn_blocking(move || list_all_via_host(host, config, plugins_dir, disabled_dir))
+        .await
+        .map_err(PluginError::host)?
+}
+
+/// Enables or disables a plugin by moving it between the two roots (ADR-0034).
+pub(crate) async fn enable_plugin(
+    plugins_dir: Utf8PathBuf,
+    disabled_dir: Utf8PathBuf,
+    name: String,
+    enabled: bool,
+) -> Result<(), PluginError> {
+    tokio::task::spawn_blocking(move || {
+        move_plugin_between_roots(&plugins_dir, &disabled_dir, &name, enabled)
+    })
+    .await
+    .map_err(PluginError::host)?
+}
+
+/// Installs a plugin from a local directory and confirms the host loads it.
+pub(crate) async fn install_from_path(
+    host: Utf8PathBuf,
+    config: Utf8PathBuf,
+    plugins_dir: Utf8PathBuf,
+    source: Utf8PathBuf,
+) -> Result<PluginSummary, PluginError> {
+    tokio::task::spawn_blocking(move || install_and_verify(host, config, plugins_dir, &source))
+        .await
+        .map_err(PluginError::host)?
+}
+
+/// Removes an installed plugin from whichever root holds it.
+pub(crate) async fn uninstall_plugin(
+    plugins_dir: Utf8PathBuf,
+    disabled_dir: Utf8PathBuf,
+    name: String,
+) -> Result<(), PluginError> {
+    tokio::task::spawn_blocking(move || {
+        remove_plugin_from_roots(&plugins_dir, &disabled_dir, &name)
+    })
+    .await
+    .map_err(PluginError::host)?
+}
+
 /// Lists the plugins in both plugin roots: those the host loads for work, and
 /// those parked in the disabled root, reported with `enabled: false`.
 #[tauri::command]
 #[specta::specta]
 pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<PluginSummary>, PluginError> {
-    let host = state.plugin_host_path.clone();
-    let config = state.plugin_host_config.clone();
-    let plugins_dir = state.plugins_dir.clone();
-    let disabled_dir = state.disabled_plugins_dir.clone();
-
-    tokio::task::spawn_blocking(move || list_all_via_host(host, config, plugins_dir, disabled_dir))
-        .await
-        .map_err(PluginError::host)?
+    installed_plugins(
+        state.plugin_host_path.clone(),
+        state.plugin_host_config.clone(),
+        state.plugins_dir.clone(),
+        state.disabled_plugins_dir.clone(),
+    )
+    .await
 }
 
 /// Enables or disables a plugin by moving its directory between the scanned and
@@ -293,14 +381,13 @@ pub async fn set_plugin_enabled(
     name: String,
     enabled: bool,
 ) -> Result<(), PluginError> {
-    let plugins_dir = state.plugins_dir.clone();
-    let disabled_dir = state.disabled_plugins_dir.clone();
-
-    tokio::task::spawn_blocking(move || {
-        move_plugin_between_roots(&plugins_dir, &disabled_dir, &name, enabled)
-    })
+    enable_plugin(
+        state.plugins_dir.clone(),
+        state.disabled_plugins_dir.clone(),
+        name,
+        enabled,
+    )
     .await
-    .map_err(PluginError::host)?
 }
 
 /// Copies a plugin into the plugins root and confirms the host loads it,
@@ -344,14 +431,13 @@ pub async fn add_plugin_from_path(
     state: State<'_, AppState>,
     source: String,
 ) -> Result<PluginSummary, PluginError> {
-    let host = state.plugin_host_path.clone();
-    let config = state.plugin_host_config.clone();
-    let plugins_dir = state.plugins_dir.clone();
-    let source = Utf8PathBuf::from(source);
-
-    tokio::task::spawn_blocking(move || install_and_verify(host, config, plugins_dir, &source))
-        .await
-        .map_err(PluginError::host)?
+    install_from_path(
+        state.plugin_host_path.clone(),
+        state.plugin_host_config.clone(),
+        state.plugins_dir.clone(),
+        Utf8PathBuf::from(source),
+    )
+    .await
 }
 
 /// Uninstalls a plugin by name, removing its directory from whichever root holds
@@ -359,13 +445,12 @@ pub async fn add_plugin_from_path(
 #[tauri::command]
 #[specta::specta]
 pub async fn remove_plugin(state: State<'_, AppState>, name: String) -> Result<(), PluginError> {
-    let plugins_dir = state.plugins_dir.clone();
-    let disabled_dir = state.disabled_plugins_dir.clone();
-    tokio::task::spawn_blocking(move || {
-        remove_plugin_from_roots(&plugins_dir, &disabled_dir, &name)
-    })
+    uninstall_plugin(
+        state.plugins_dir.clone(),
+        state.disabled_plugins_dir.clone(),
+        name,
+    )
     .await
-    .map_err(PluginError::host)?
 }
 
 /// Browses a remote plugin registry for installable plugins.

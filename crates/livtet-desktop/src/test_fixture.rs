@@ -98,6 +98,24 @@ impl crate::opds_server::OpdsServerSettingsStore for MemoryOpdsServerSettings {
     }
 }
 
+/// In-memory [`crate::koreader_sync::KoreaderSyncSettingsStore`] double for the
+/// fixture.
+#[derive(Default)]
+pub(crate) struct MemoryKoreaderSyncSettings {
+    value: Mutex<Option<crate::koreader_sync::StoredKoreaderSync>>,
+}
+
+impl crate::koreader_sync::KoreaderSyncSettingsStore for MemoryKoreaderSyncSettings {
+    fn read(&self) -> Option<crate::koreader_sync::StoredKoreaderSync> {
+        self.value.lock().unwrap().clone()
+    }
+
+    fn write(&self, settings: &crate::koreader_sync::StoredKoreaderSync) -> Result<(), String> {
+        *self.value.lock().unwrap() = Some(settings.clone());
+        Ok(())
+    }
+}
+
 impl crate::commands::opds::CatalogStore for MemoryCatalogs {
     fn read(&self) -> Option<serde_json::Value> {
         self.value.lock().unwrap().clone()
@@ -146,6 +164,9 @@ pub async fn mock_state_for_bulk(test_db: &TestDb) -> AppState {
         ))),
         spotlight: Arc::new(crate::spotlight::SpotlightRuntime::new(Arc::new(
             MemorySpotlightSettings::default(),
+        ))),
+        koreader_sync: Arc::new(crate::koreader_sync::KoreaderSyncRuntime::new(Arc::new(
+            MemoryKoreaderSyncSettings::default(),
         ))),
     }
 }

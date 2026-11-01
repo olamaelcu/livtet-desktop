@@ -287,7 +287,10 @@ fn base_url(port: u16) -> String {
 /// A UDP `connect` sends no packet: it asks the kernel which local address the
 /// route to `192.0.2.1` (TEST-NET-1, never routed) would use, which is the
 /// address an e-reader on the same network would reach this machine at.
-fn lan_ipv4() -> Option<Ipv4Addr> {
+///
+/// Shared with the KOReader sync server, which publishes its base URL the same
+/// way: the address a device on the same network would dial.
+pub(crate) fn lan_ipv4() -> Option<Ipv4Addr> {
     let socket = std::net::UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).ok()?;
     socket.connect((Ipv4Addr::new(192, 0, 2, 1), 9)).ok()?;
     match socket.local_addr().ok()?.ip() {

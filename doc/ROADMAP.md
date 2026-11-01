@@ -41,8 +41,10 @@ The goals of this project are as follows:
 > `tauri/src/commands/remote_search/` (added 2026-07-30 on `feat/remote-search`)
 > and were removed in `a89ef71` ("gutting experience", 2026-09-14) during the
 > `tauri/` → `crates/` reorg, with no replacement yet. The stanchion plugin
-> path now serves **importers** (see Import), not search providers. `build.rs`
-> still embeds a `GOOGLE_BOOKS_API_KEY` that nothing reads at runtime.
+> path now serves **importers** (see Import) and cover-source **enrichers**, not
+> search providers. The `GOOGLE_BOOKS_API_KEY` `build.rs` embeds is read at
+> runtime by the `http` capability's app-side callback, which attaches it to the
+> `googlebooks` plugin's Books API requests so the key never enters the plugin.
 
 ### Library & catalog
 

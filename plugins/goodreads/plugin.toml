@@ -1,0 +1,6 @@
+name = "goodreads"
+version = "0.1.0"
+entry = "plugin.lua"
+
+[capabilities.http]
+domains = ["www.goodreads.com", "i.gr-assets.com"]

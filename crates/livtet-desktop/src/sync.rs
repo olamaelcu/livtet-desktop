@@ -35,6 +35,23 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(10);
 /// The daemon sidecar name, as declared in `bundle.externalBin`.
 const SIDECAR: &str = "livtet-sync-daemon";
 
+/// The `RUST_LOG` the sidecar is spawned with.
+///
+/// A child inherits this process's environment, so without this the daemon would
+/// inherit a dev `RUST_LOG` whose trailing bare `trace` turns iroh's per-packet
+/// logging into a firehose — and every line of it comes back here over stderr,
+/// where [`start_reader`] re-emits it. Appending the same transport mutes the
+/// desktop applies ([`crate::QUIET_TRANSPORTS`]) is what makes the sidecar quiet
+/// at the source; it cannot be filtered on this side, since it arrives as text.
+fn sidecar_log_filter() -> String {
+    let mut filter = std::env::var("RUST_LOG").unwrap_or_else(|_| String::from("info"));
+    for directive in crate::QUIET_TRANSPORTS {
+        filter.push(',');
+        filter.push_str(directive);
+    }
+    filter
+}
+
 /// The registry of in-flight requests, shared between the handle and the
 /// reader task that resolves them.
 type Pending = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
@@ -75,7 +92,8 @@ impl SyncHandle {
             .shell()
             .sidecar(SIDECAR)
             .map_err(SyncError::unavailable)?
-            .args(args);
+            .args(args)
+            .env("RUST_LOG", sidecar_log_filter());
 
         let (rx, child) = command.spawn().map_err(SyncError::unavailable)?;
 

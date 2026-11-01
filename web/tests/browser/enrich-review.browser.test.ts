@@ -60,7 +60,12 @@ const PREVIEW: EnrichmentPreview = {
     },
   ],
   found: [{ kind: 'isbn', value: 'urn:isbn:9780802124675' }],
-  cover: { mime: 'image/jpeg', storable: true },
+  // Two offers, so the review has something to choose between. The first is the
+  // default, exactly as merge order delivers it (ADR-0050).
+  covers: [
+    { source: 'openlibrary', mime: 'image/jpeg', storable: true, thumbnail: null },
+    { source: 'amazon', mime: 'image/jpeg', storable: true, thumbnail: null },
+  ],
 }
 
 const SUMMARY: EnrichmentSummary = {
@@ -202,6 +207,11 @@ test('previewing renders sources, added, unioned, conflicts, identifiers, and co
 
   expect(section(container, 'Cover').textContent).toContain('image/jpeg')
   expect(section(container, 'Cover').textContent).toContain('will be saved')
+  // One offer per source, each labelled with the source that made it.
+  expect(section(container, 'Cover').textContent).toContain('openlibrary')
+  expect(section(container, 'Cover').textContent).toContain('amazon')
+  const offers = section(container, 'Cover').querySelectorAll('wa-radio')
+  expect(offers.length).toBe(2)
 })
 
 test('the mode control marks the winning side, and apply sends that mode', async () => {
@@ -225,7 +235,25 @@ test('the mode control marks the winning side, and apply sends that mode', async
 
   await expect
     .poll(() => commandArgs('apply_enrichment'))
-    .toEqual([{ editionId: EDITION_ID, mode: 'overwrite' }])
+    .toEqual([{ editionId: EDITION_ID, mode: 'overwrite', coverSource: 'openlibrary' }])
+})
+
+test('picking another source sends that source on apply', async () => {
+  const container = await openDrawer()
+  await previewDrawer(container)
+
+  // The default is the first offer, so apply would otherwise write openlibrary.
+  const group = section(container, 'Cover').querySelector('wa-radio-group') as HTMLElement & {
+    value: string
+  }
+  group.value = 'amazon'
+  group.dispatchEvent(new Event('change', { bubbles: true }))
+
+  button(container, 'Apply').click()
+
+  await expect
+    .poll(() => commandArgs('apply_enrichment'))
+    .toEqual([{ editionId: EDITION_ID, mode: 'union', coverSource: 'amazon' }])
 })
 
 test('Cancel discards the preview and writes nothing', async () => {
@@ -305,7 +333,7 @@ test('a preview with nothing to offer keeps the record and says so', async () =>
       unioned: [],
       conflicts: [],
       found: [],
-      cover: null,
+      covers: [],
     }),
   })
   const container = await openDrawer()

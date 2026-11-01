@@ -742,6 +742,7 @@ async fn a_preview_then_apply_writes_the_edition() {
         app.state::<AppState>(),
         edition_id.to_string(),
         EnrichMode::Fill,
+        None,
     )
     .await
     .expect("apply");
@@ -784,6 +785,7 @@ async fn apply_without_a_preview_is_refused() {
         app.state::<AppState>(),
         edition_id.to_string(),
         EnrichMode::Overwrite,
+        None,
     )
     .await
     .expect_err("nothing was previewed");

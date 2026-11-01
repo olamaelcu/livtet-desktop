@@ -2,6 +2,7 @@
 import AccountSettings from '../../lib/components/AccountSettings.svelte'
 import CatalogSettings from '../../lib/components/CatalogSettings.svelte'
 import HotkeySettings from '../../lib/components/HotkeySettings.svelte'
+import KoreaderSyncSettings from '../../lib/components/KoreaderSyncSettings.svelte'
 import McpSettings from '../../lib/components/McpSettings.svelte'
 import OpdsServerSettings from '../../lib/components/OpdsServerSettings.svelte'
 import SpotlightSettings from '../../lib/components/SpotlightSettings.svelte'
@@ -17,7 +18,7 @@ import SettingsLayout from './SettingsLayout.svelte'
     splitting them across top-level tabs made the strip longer than the work.
   -->
   <wa-tab-panel name="opds">
-    <wa-tab-group class="opds-tabs">
+    <wa-tab-group class="nested-tabs">
       <wa-tab slot="nav" panel="catalogs">
         <wa-icon name="list"></wa-icon>
         Catalogs
@@ -35,7 +36,28 @@ import SettingsLayout from './SettingsLayout.svelte'
     </wa-tab-group>
   </wa-tab-panel>
   <wa-tab-panel name="sync">
-    <SyncPanel />
+    <!--
+      One Sync tab, two nested panes: Livtet-to-Livet sync between this desktop
+      and the peers it pairs with, and the KOReader progress server. They are
+      separate protocols with separate settings, so they get separate panes
+      rather than one long column.
+    -->
+    <wa-tab-group class="nested-tabs">
+      <wa-tab slot="nav" panel="devices">
+        <wa-icon name="sync"></wa-icon>
+        Livtet sync
+      </wa-tab>
+      <wa-tab slot="nav" panel="koreader">
+        <wa-icon name="book-open"></wa-icon>
+        KOReader
+      </wa-tab>
+      <wa-tab-panel name="devices">
+        <SyncPanel />
+      </wa-tab-panel>
+      <wa-tab-panel name="koreader">
+        <KoreaderSyncSettings />
+      </wa-tab-panel>
+    </wa-tab-group>
   </wa-tab-panel>
   <wa-tab-panel name="account">
     <AccountSettings />
@@ -56,26 +78,26 @@ import SettingsLayout from './SettingsLayout.svelte'
 <style>
   /* The nested group sits inside the outer body, which already scrolls and
      pads: it lays out as a block and adds no padding of its own. */
-  .opds-tabs {
+  .nested-tabs {
     display: block;
     min-height: 0;
   }
 
-  .opds-tabs::part(base) {
+  .nested-tabs::part(base) {
     display: block;
     min-height: 0;
   }
 
-  .opds-tabs::part(body) {
+  .nested-tabs::part(body) {
     padding: 0;
   }
 
-  .opds-tabs::part(nav) {
+  .nested-tabs::part(nav) {
     justify-content: flex-start;
     padding-inline: 0;
   }
 
-  .opds-tabs wa-tab wa-icon {
+  .nested-tabs wa-tab wa-icon {
     margin-inline-end: var(--wa-space-2xs);
   }
 </style>

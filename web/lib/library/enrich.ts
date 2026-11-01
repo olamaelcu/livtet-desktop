@@ -52,8 +52,10 @@ export async function previewEnrichment(editionId: string): Promise<EnrichmentPr
 export async function applyEnrichment(
   editionId: string,
   mode: EnrichMode,
+  /** Which source's cover to write; `null` takes the first offer. */
+  coverSource: string | null,
 ): Promise<EnrichmentSummary> {
-  const result = await commands.applyEnrichment(editionId, mode)
+  const result = await commands.applyEnrichment(editionId, mode, coverSource)
   if (result.status === 'error') throw result.error
   return result.data
 }
@@ -68,7 +70,7 @@ export function previewIsEmpty(preview: EnrichmentPreview): boolean {
     preview.unioned.length === 0 &&
     preview.conflicts.length === 0 &&
     preview.found.length === 0 &&
-    preview.cover === null
+    preview.covers.length === 0
   )
 }
 

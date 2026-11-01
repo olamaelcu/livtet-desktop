@@ -1,0 +1,6 @@
+name = "amazon"
+version = "0.1.0"
+entry = "plugin.lua"
+
+[capabilities.http]
+domains = ["m.media-amazon.com"]

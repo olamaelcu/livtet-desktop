@@ -91,6 +91,11 @@ async function toggle(plugin: PluginSummary, control: WaSwitchElement) {
             <div class="title">
               <span class="name">{plugin.name}</span>
               {#if plugin.version}<wa-badge variant="neutral">{plugin.version}</wa-badge>{/if}
+              {#each plugin.roles as role (role)}
+                <wa-badge variant="brand" title={`This plugin declares it supplies ${role}`}
+                  >{role}</wa-badge
+                >
+              {/each}
               <wa-badge class="status" variant={enabled ? 'success' : 'neutral'}
                 >{enabled ? 'enabled' : 'disabled'}</wa-badge
               >

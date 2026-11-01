@@ -118,6 +118,12 @@ const ENRICH_MODES: { mode: EnrichMode; label: string; hint: string }[] = [
 let enrichPreview = $state<EnrichmentPreview | null>(null)
 /** How apply will write the preview; `union` keeps the most and loses nothing. */
 let enrichMode = $state<EnrichMode>('union')
+/**
+ * Which source's cover apply writes, or `null` while no preview is open. Seeded
+ * from the preview's first offer — merge order is the default — and changed by
+ * the reader picking another.
+ */
+let coverSource = $state<string | null>(null)
 let previewing = $state(false)
 let applying = $state(false)
 
@@ -152,6 +158,7 @@ async function triggerEnrich() {
       return
     }
     enrichPreview = next
+    coverSource = next.covers[0]?.source ?? null
   } catch (error) {
     reportEnrichmentError(error)
   } finally {
@@ -163,6 +170,7 @@ async function triggerEnrich() {
 function cancelEnrich() {
   enrichPreview = null
   enrichMode = 'union'
+  coverSource = null
 }
 
 /**
@@ -174,9 +182,10 @@ async function applyEnrich() {
   if (!editionId || applying || !enrichPreview) return
   try {
     applying = true
-    const summary = await applyEnrichment(editionId, enrichMode)
+    const summary = await applyEnrichment(editionId, enrichMode, coverSource)
     enrichPreview = null
     enrichMode = 'union'
+    coverSource = null
     void queryClient.invalidateQueries({ queryKey: catalogKeys.editionDetail(editionId) })
     // A stored cover rewrites `digital_inventory`, which the cover cache and
     // the catalog list both read.
@@ -594,13 +603,39 @@ async function revealFile(path: string) {
 
         <section class="section">
           <h3 class="section-title">Cover</h3>
-          {#if enrichPreview.cover}
-            <p>
-              {enrichPreview.cover.mime}
-              {enrichPreview.cover.storable ? '— will be saved' : '— cannot be stored'}
-            </p>
-          {:else}
+          {#if enrichPreview.covers.length === 0}
             <p class="empty">No cover offered.</p>
+          {:else}
+            <p class="muted">
+              Every installed source that has a cover for this book. The one you pick
+              is what gets saved.
+            </p>
+            <wa-radio-group
+              class="cover-choices"
+              value={coverSource ?? ''}
+              onchange={(event) => {
+                coverSource = (event.target as WaRadioGroupElement).value
+              }}
+            >
+              {#each enrichPreview.covers as offer (offer.source)}
+                <wa-radio value={offer.source} class="cover-choice">
+                  <span class="cover-choice-inner">
+                    {#if offer.thumbnail}
+                      <img class="cover-thumb" src={offer.thumbnail} alt="Cover from {offer.source}" />
+                    {:else}
+                      <span class="cover-thumb cover-thumb-missing">No preview</span>
+                    {/if}
+                    <span class="cover-meta">
+                      <span class="cover-source">{offer.source}</span>
+                      <span class="muted">
+                        {offer.mime}
+                        {offer.storable ? '— will be saved' : '— cannot be stored'}
+                      </span>
+                    </span>
+                  </span>
+                </wa-radio>
+              {/each}
+            </wa-radio-group>
           {/if}
         </section>
 
@@ -957,6 +992,51 @@ grid-template-columns: minmax(0, 1fr);
 display: flex;
 flex-direction: column;
 gap: var(--wa-space-s);
+}
+
+/* One card per source's cover: the image is the thing being chosen, so it leads. */
+.cover-choices {
+display: flex;
+flex-direction: column;
+gap: var(--wa-space-s);
+}
+
+.cover-choice {
+display: block;
+}
+
+.cover-choice-inner {
+display: flex;
+align-items: center;
+gap: var(--wa-space-m);
+}
+
+.cover-thumb {
+width: 4rem;
+height: auto;
+max-height: 6rem;
+object-fit: contain;
+border-radius: var(--wa-border-radius-s);
+background: var(--wa-color-surface-lowered);
+}
+
+.cover-thumb-missing {
+display: flex;
+align-items: center;
+justify-content: center;
+height: 4rem;
+font-size: var(--wa-font-size-2xs);
+color: var(--wa-color-text-quiet);
+}
+
+.cover-meta {
+display: flex;
+flex-direction: column;
+gap: var(--wa-space-3xs);
+}
+
+.cover-source {
+font-weight: var(--wa-font-weight-semibold);
 }
 
 .section-title {

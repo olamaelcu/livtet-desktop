@@ -3,8 +3,9 @@
 //! Some capabilities are forwarded from the out-of-process host back to the
 //! application (a `CallbackCall`) so the app keeps policy and secrets on its
 //! side of the boundary. `fs_read` is answered in [`super::importers`]; `http`
-//! is answered here so the app can enforce a domain allowlist and (later) attach
-//! credentials — the plugin never touches the socket.
+//! is answered here so the app can enforce a domain allowlist and attach the
+//! credentials it holds — the plugin never touches the socket, and never sees a
+//! key.
 //!
 //! The allowlist is the plugin's own grant, not a caller-supplied list: the host
 //! forwards the approved parameters of `[capabilities.http]` with every call, so
@@ -33,6 +34,18 @@ const MAX_HTTP_BODY_BYTES: u64 = 8 * 1024 * 1024;
 /// Per-request timeout for the `http` capability.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 
+/// The compiled-in credential a plugin may ask the app to attach, and where it is
+/// valid: the Google Books volume API, which meters an unkeyed caller by source
+/// address and answers 429 once that is spent.
+///
+/// A plugin names the secret it wants in its manifest (`app_credentials` under
+/// `[capabilities.http]`); this module, not the plugin, decides which host and
+/// path that secret may travel to. So the app never names a plugin, and a plugin
+/// cannot redirect a key somewhere its owner did not intend.
+const GOOGLE_BOOKS_SECRET: &str = "google_books";
+const GOOGLE_BOOKS_API_HOST: &str = "www.googleapis.com";
+const GOOGLE_BOOKS_API_PATH: &str = "/books/v1/";
+
 /// Answers an `http` capability call.
 ///
 /// The plugin passed a request table `{ url, method?, headers?, body? }`. The
@@ -46,12 +59,16 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 /// back to a permissive default: the host is contract-agnostic (ADR-0029), so
 /// this check is the only thing standing between a sandboxed plugin and the
 /// network.
+///
+/// A request that survives the check may still gain the app's own credential on
+/// the way out ([`attach_credential`]); the plugin is told nothing about it.
 pub fn answer_http(call: &CallbackCall, plugins_dir: &Utf8Path) -> Result<Json, String> {
     if call.capability != "http" {
         return Err(format!("unsupported capability `{}`", call.capability));
     }
 
-    let declared = granted_domains_for_plugin(plugins_dir, &call.plugin);
+    let policy = manifest_policy(plugins_dir, &call.plugin);
+    let declared = policy.domains;
     if declared.is_empty() {
         return Err("http: the plugin's manifest grants no domains".to_string());
     }
@@ -79,11 +96,12 @@ pub fn answer_http(call: &CallbackCall, plugins_dir: &Utf8Path) -> Result<Json, 
         .get("url")
         .and_then(Json::as_str)
         .ok_or("http: request.url is required")?;
-    let url = url::Url::parse(url_str).map_err(|err| format!("http: invalid url: {err}"))?;
+    let mut url = url::Url::parse(url_str).map_err(|err| format!("http: invalid url: {err}"))?;
     let host = url.host_str().ok_or("http: url has no host")?;
     if !host_allowed(host, &allowlist) {
         return Err(format!("http: host `{host}` is not allowed"));
     }
+    attach_credential(&policy.credentials, &mut url);
 
     let method_str = request
         .get("method")
@@ -145,6 +163,36 @@ fn host_allowed(host: &str, allowlist: &[String]) -> bool {
         .any(|allowed| host == allowed || host.ends_with(&format!(".{allowed}")))
 }
 
+/// Adds the app's own credential to a request that may carry one.
+///
+/// The key is compiled into the application ([`crate::secrets_embed`]) rather
+/// than declared by the plugin: a manifest is user-editable and readable by
+/// anything that can read the plugin's directory, so a key in `[config]` would be
+/// a key handed out. The plugin asks for the lookup; the app adds the credential
+/// on the way out, and the reply carries no trace of it.
+///
+/// A plugin gets a secret only by name, and only for the request the secret is
+/// valid on: declaring `google_books` does not put the key on a request to some
+/// other host, because the host and path live here. Every other request crosses
+/// untouched. A request that already names a `key` keeps its own, so a reader who
+/// pastes their own key into the plugin still spends that one.
+fn attach_credential(declared: &[String], url: &mut url::Url) {
+    if !declared.iter().any(|name| name == GOOGLE_BOOKS_SECRET)
+        || url.host_str() != Some(GOOGLE_BOOKS_API_HOST)
+        || !url.path().starts_with(GOOGLE_BOOKS_API_PATH)
+    {
+        return;
+    }
+    if url.query_pairs().any(|(name, _)| name == "key") {
+        return;
+    }
+    let key = crate::secrets_embed::GOOGLE_BOOKS_API_KEY.trim();
+    if key.is_empty() {
+        return;
+    }
+    url.query_pairs_mut().append_pair("key", key);
+}
+
 /// The manifest fields this module trusts.
 ///
 /// Only the `http` capability's approved parameters are read: the host validates
@@ -167,8 +215,21 @@ struct ManifestHttp {
     /// fail the whole manifest open.
     #[serde(default)]
     domains: Vec<toml::Value>,
+    /// App-held secrets this plugin asks to have attached, by name. A claim, not
+    /// a grant: [`attach_credential`] decides where each named secret may go.
+    #[serde(default)]
+    app_credentials: Vec<toml::Value>,
 }
 
+/// What a plugin's manifest asks for: hosts it may reach, secrets it wants.
+#[derive(Debug, Default)]
+struct ManifestPolicy {
+    domains: Vec<String>,
+    credentials: Vec<String>,
+}
+
+#[cfg(test)]
+#[cfg_attr(test, allow(dead_code))]
 /// The domains this plugin's own manifest grants `http`, read from
 /// `<plugins_dir>/<plugin>/plugin.toml`.
 ///
@@ -176,18 +237,34 @@ struct ManifestHttp {
 /// — an unsafe plugin name, an unreadable or unparsable manifest, no declared
 /// `http` capability — narrows to nothing rather than falling back to a default.
 fn granted_domains_for_plugin(plugins_dir: &Utf8Path, plugin: &str) -> Vec<String> {
+    manifest_policy(plugins_dir, plugin).domains
+}
+
+/// The manifest policy in one read: both sides of it come from the same table,
+/// so reading it twice could see two different files.
+fn manifest_policy(plugins_dir: &Utf8Path, plugin: &str) -> ManifestPolicy {
     if !is_safe_plugin_name(plugin) {
-        return Vec::new();
+        return ManifestPolicy::default();
     }
     let manifest_path = plugins_dir.join(plugin).join("plugin.toml");
     let Ok(text) = std::fs::read_to_string(&manifest_path) else {
-        return Vec::new();
+        return ManifestPolicy::default();
     };
     let Ok(manifest) = toml::from_str::<PluginManifest>(&text) else {
-        return Vec::new();
+        return ManifestPolicy::default();
     };
     let declared = manifest.capabilities.http.unwrap_or_default();
-    clean_domains(declared.domains.iter().filter_map(toml::Value::as_str))
+    ManifestPolicy {
+        domains: clean_domains(declared.domains.iter().filter_map(toml::Value::as_str)),
+        credentials: declared
+            .app_credentials
+            .iter()
+            .filter_map(toml::Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    }
 }
 
 /// A plugin name is a single path segment: anything else could read a manifest
@@ -431,6 +508,98 @@ mod tests {
         assert_eq!(
             granted_domains_for_plugin(&plugins, "probe"),
             vec!["openlibrary.org".to_string()]
+        );
+    }
+
+    /// The `key` a URL carries, for asserting what a request ended up asking for.
+    fn key_in(url: &url::Url) -> Option<String> {
+        url.query_pairs()
+            .find(|(name, _)| name == "key")
+            .map(|(_, value)| value.into_owned())
+    }
+
+    /// The compiled-in Google key reaches the Google Books volume API this app's
+    /// plugin calls, and nothing else. Every other request — another plugin, another
+    /// host, another Google API — must cross without it, and a key the plugin named
+    /// itself must survive. This is the whole exposure surface of an embedded
+    /// secret, so each arm is asserted rather than implied by a skip.
+    #[test]
+    fn attaches_the_embedded_key_only_to_the_requests_it_is_valid_on() {
+        let embedded = crate::secrets_embed::GOOGLE_BOOKS_API_KEY;
+        let parse = |text: &str| url::Url::parse(text).unwrap();
+        let declaring = [String::from(GOOGLE_BOOKS_SECRET)];
+
+        let mut books = parse("https://www.googleapis.com/books/v1/volumes?q=isbn%3A9780441013593");
+        attach_credential(&declaring, &mut books);
+        assert_eq!(key_in(&books), Some(embedded.to_string()));
+        assert!(
+            books
+                .query_pairs()
+                .any(|(name, value)| name == "q" && value == "isbn:9780441013593"),
+            "attaching the key must not disturb the query it is added to"
+        );
+
+        // A plugin that declares nothing gets nothing, whatever it is called.
+        let mut undeclared = parse("https://www.googleapis.com/books/v1/volumes");
+        attach_credential(&[], &mut undeclared);
+        assert_eq!(
+            key_in(&undeclared),
+            None,
+            "a plugin that declares no secret spends none"
+        );
+
+        // A declaration of some other secret is not this key.
+        let mut other_secret = parse("https://www.googleapis.com/books/v1/volumes");
+        attach_credential(&[String::from("sentry_dsn")], &mut other_secret);
+        assert_eq!(
+            key_in(&other_secret),
+            None,
+            "only the secret it named is attached"
+        );
+
+        let mut another_api = parse("https://www.googleapis.com/customsearch/v1");
+        attach_credential(&declaring, &mut another_api);
+        assert_eq!(
+            key_in(&another_api),
+            None,
+            "the key is not a Google-wide key"
+        );
+
+        let mut another_host = parse("https://books.google.com/books/content?id=x");
+        attach_credential(&declaring, &mut another_host);
+        assert_eq!(
+            key_in(&another_host),
+            None,
+            "the key never leaves Google's API"
+        );
+
+        let mut own_key = parse("https://www.googleapis.com/books/v1/volumes?key=mine");
+        attach_credential(&declaring, &mut own_key);
+        assert_eq!(key_in(&own_key), Some("mine".to_string()));
+    }
+
+    /// The declaration is the plugin's, the scope is the app's: a manifest can
+    /// ask for `google_books` but cannot move the key off Google's Books API.
+    #[test]
+    fn the_manifest_declares_which_secrets_a_plugin_may_ask_for() {
+        let root = tempfile::tempdir().unwrap();
+        let plugins = camino::Utf8PathBuf::from_path_buf(root.path().to_path_buf())
+            .unwrap()
+            .join("plugins");
+        let plugin_dir = plugins.join("probe");
+        fs::create_dir_all(&plugin_dir).unwrap();
+        fs::write(
+            plugin_dir.join("plugin.toml"),
+            "name = \"probe\"\nversion = \"1.0.0\"\n\n[capabilities.http]\ndomains = [\"www.googleapis.com\"]\napp_credentials = [\"google_books\", 7, \"  \"]\n",
+        )
+        .unwrap();
+
+        let policy = manifest_policy(&plugins, "probe");
+        assert_eq!(policy.domains, vec!["www.googleapis.com".to_string()]);
+        assert_eq!(
+            policy.credentials,
+            vec![String::from("google_books")],
+            "non-string and blank entries are dropped, like the domain list"
         );
     }
 

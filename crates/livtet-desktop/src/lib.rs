@@ -2,6 +2,7 @@ pub mod atproto;
 pub mod commands;
 mod error;
 mod http;
+mod koreader_sync;
 mod mcp;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 mod menu;
@@ -69,6 +70,123 @@ fn stdout_processor() -> impl Processor {
     processor::from_fn(write_pretty)
 }
 
+/// Crates whose per-packet chatter is not worth a line at the level the
+/// environment asks for.
+///
+/// A dev `RUST_LOG` here ends with a bare `trace`, which sets the default level
+/// for every target and so overrides any `iroh=...` a developer writes in front of
+/// it. These directives are appended *after* the environment's, and a later
+/// `EnvFilter` directive wins — that ordering is what makes them effective
+/// rather than merely present. `warn` keeps a real transport failure visible
+/// while dropping the frame-by-frame TRACE/DEBUG stream that, measured, was
+/// 43,000 of the last 100,000 log lines.
+const QUIET_TRANSPORTS: &[&str] = &[
+    "iroh=warn",
+    "iroh_base=warn",
+    "iroh_dns=warn",
+    "iroh_mdns_address_lookup=warn",
+    "iroh_metrics=warn",
+    "iroh_relay=warn",
+    "mdns_sd=warn",
+    "quinn=warn",
+    "quinn_proto=warn",
+    "quinn_udp=warn",
+    "swarm_discovery=warn",
+    "acto=warn",
+    // What the transport's own plumbing logs under it: name resolution, the
+    // netlink socket it watches interfaces through, and the poll loop.
+    "hickory_proto=warn",
+    "hickory_resolver=warn",
+    "netlink_proto=warn",
+    "netlink_sys=warn",
+    "netwatch=warn",
+    "mio=warn",
+    // iroh 1.3's QUIC stack, its TLS, and the DNS resolver it resolves relays
+    // through — the crates the first mute list missed.
+    "noq=warn",
+    "noq_proto=warn",
+    "noq_udp=warn",
+    "rustls=warn",
+    "n0_dns_resolver=warn",
+    "hyper_util=warn",
+    "reqwest=warn",
+    "tokio_tungstenite=warn",
+    "tokio_tungstenite::compat=warn",
+];
+
+/// Apply [`QUIET_TRANSPORTS`] to a filter, so they win over whatever level it
+/// already carries.
+fn quiet_transports(mut filter: EnvFilter) -> miette::Result<EnvFilter> {
+    for directive in QUIET_TRANSPORTS {
+        filter = filter.add_directive(directive.parse().into_diagnostic()?);
+    }
+    Ok(filter)
+}
+
+/// `RUST_LOG`, with the transport mutes appended so they win over it.
+fn log_filter() -> miette::Result<EnvFilter> {
+    quiet_transports(EnvFilter::try_from_default_env().into_diagnostic()?)
+}
+
+#[cfg(test)]
+mod logging_tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    use tracing::Level;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    use super::{EnvFilter, quiet_transports};
+
+    /// A dev `RUST_LOG` ends in a bare `trace`, which sets the default level for
+    /// every target — so the mutes only work by being appended after it. Both
+    /// halves are asserted: a later directive that stopped winning would put the
+    /// transport firehose back, and dropping one of the mutes would too.
+    #[test]
+    fn transport_mutes_override_a_global_trace_setting() {
+        let filter = quiet_transports(EnvFilter::new("trace")).unwrap();
+        let subscriber = tracing_subscriber::registry().with(filter);
+        tracing::subscriber::with_default(subscriber, || {
+            // `event_enabled!` needs its target at compile time, so the list is
+            // unrolled rather than looped.
+            macro_rules! assert_muted {
+                ($($target:literal),+ $(,)?) => {
+                    $(
+                        assert!(
+                            !tracing::event_enabled!(target: $target, Level::TRACE),
+                            "{} at TRACE must be muted",
+                            $target
+                        );
+                        assert!(
+                            tracing::event_enabled!(target: $target, Level::WARN),
+                            "{} at WARN must still reach the log",
+                            $target
+                        );
+                    )+
+                };
+            }
+
+            assert_muted!(
+                "iroh",
+                "iroh_relay",
+                "iroh_mdns_address_lookup",
+                "swarm_discovery",
+                "acto",
+                "quinn_proto",
+                "hickory_proto",
+                "netlink_proto",
+                "netwatch",
+                "mio",
+                "noq_proto",
+                "rustls",
+                "n0_dns_resolver",
+            );
+            assert!(
+                tracing::event_enabled!(target: "livtet_desktop", Level::TRACE),
+                "the global level must survive for everything else"
+            );
+        });
+    }
+}
+
 async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     let prev_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -89,11 +207,7 @@ async fn init_tracing(logs_dir: Utf8PathBuf) -> miette::Result<()> {
     fs_err::tokio::create_dir_all(&logs_dir)
         .await
         .into_diagnostic()?;
-    let env_filter = EnvFilter::try_from_default_env().into_diagnostic()?;
-
-    let filter = env_filter
-        .add_directive("tokio_tungstenite=warn".parse().into_diagnostic()?)
-        .add_directive("tokio_tungstenite::compat=warn".parse().into_diagnostic()?);
+    let filter = log_filter()?;
 
     let file_appender = RollingFileAppender::new(Rotation::DAILY, logs_dir, "livtet.log");
     let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
@@ -330,6 +444,14 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         .map_err(|error| std::io::Error::other(error.to_string()))?;
     let spotlight_store: Arc<dyn spotlight::SpotlightSettingsStore> = spotlight_store;
 
+    // The KOReader sync server's settings, in their own store beside the OPDS
+    // server's. The account's password never lands here: only its MD5, which
+    // is all KOReader ever sends.
+    let koreader_sync_store = tauri_plugin_store::StoreBuilder::new(&*app, "koreader-sync.json")
+        .build()
+        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    let koreader_sync_store: Arc<dyn koreader_sync::KoreaderSyncSettingsStore> =
+        koreader_sync_store;
     // Loopback byte server for library files the webview must fetch:
     // `<audio>` playback (WebKitGTK routes media through GStreamer, which
     // cannot fetch the app's custom schemes) and ranged PDF reads.
@@ -359,6 +481,7 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         mcp: Arc::new(mcp::McpRuntime::new(mcp_store)),
         opds_server: Arc::new(opds_server::OpdsServerRuntime::new(opds_server_store)),
         spotlight: Arc::new(spotlight::SpotlightRuntime::new(spotlight_store)),
+        koreader_sync: Arc::new(koreader_sync::KoreaderSyncRuntime::new(koreader_sync_store)),
         enrichment_cache: ArcMut::new(RwLock::new(HashMap::new())),
     };
     {
@@ -392,6 +515,12 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
         });
     }
 
+    // The KOReader sync server takes pushes from reading devices. It starts on
+    // the same terms as the OPDS server — only when the persisted settings say
+    // so — and maps the library's documents in the background so the first
+    // device request does not pay for a whole library.
+    let koreader_sync_deps = koreader_sync::KoreaderSyncDeps::from_state(&state);
+    koreader_sync::start_from_settings(&state.koreader_sync, &koreader_sync_deps).await;
     app.manage(state);
 
     Ok(())
@@ -492,6 +621,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::spotlight::spotlight_status,
         commands::spotlight::spotlight_set_enabled,
         commands::spotlight::spotlight_reindex,
+        commands::koreader_sync::koreader_sync_status,
+        commands::koreader_sync::koreader_sync_settings_save,
+        commands::koreader_sync::koreader_sync_start,
+        commands::koreader_sync::koreader_sync_stop,
         commands::enrich::apply_enrichment,
         commands::enrich::enrich_library,
         commands::enrich::preview_enrichment,

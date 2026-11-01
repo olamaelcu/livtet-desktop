@@ -1,0 +1,17 @@
+name = "googlebooks"
+version = "0.1.0"
+entry = "plugin.lua"
+
+# No key is declared here. The application compiles a Google Books key in and
+# attaches it, on its own side of the sandbox boundary, to every
+# `www.googleapis.com/books/v1/…` request this plugin makes — so the secret never
+# reaches this file or the plugin's process. `app_credentials` names the secret
+# this plugin asks for; the app decides which host and path that name may travel
+# to, so a plugin cannot send the key somewhere its owner did not intend. A
+# `[config] api_key` would be a key anyone who can read the plugin directory
+# could copy, and `[secrets]` is not a stanchion manifest field (its schema denies
+# unknown keys), so it would fail the load outright.
+
+[capabilities.http]
+domains = ["www.googleapis.com", "books.google.com"]
+app_credentials = ["google_books"]
