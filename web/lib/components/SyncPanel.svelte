@@ -285,17 +285,18 @@ function revokeDevice(deviceId: string) {
 type PullReport = { name: string; offered: number; error?: string }
 
 /**
- * Pull every paired device once.
+ * Pull every device this desktop claimed.
  *
  * A book offered to this desktop only exists in the sender's change log, so
- * this is what makes it appear here. Each device is tried on its own: a peer
- * that paired to this desktop rather than being claimed by it cannot be
- * pulled from, and that must not stop the others.
+ * this is what makes it appear here. Only outbound rows qualify: the daemon
+ * refuses the rest, because an approved device holds a token this desktop
+ * issued and may only pull *from* here.
  */
 const pull = createMutation(() => ({
   mutationFn: async (): Promise<PullReport[]> => {
     const reports: PullReport[] = []
     for (const device of devices.data ?? []) {
+      if (!device.outbound) continue
       const name = device.name ?? device.device_id
       try {
         const outcome = await syncPull(device.device_id)
@@ -314,7 +315,20 @@ const pull = createMutation(() => ({
       syncKeys.conflicts(),
     )
     if (!reports.length) {
-      toast.info('No paired devices to pull from')
+      // Nothing was pulled, but the Devices list above may still show rows: an
+      // approved device is a real pairing that points the other way. Say which
+      // ones, or the message reads as a contradiction of the list.
+      const paired = (devices.data ?? []).map((device) => device.name ?? device.device_id)
+      if (paired.length) {
+        toast.info(`Nothing can be pulled from ${paired.join(', ')}`, {
+          description:
+            'Those devices paired to this desktop, so they may pull your books but not the reverse. Claim one from Nearby devices with Re-pair to receive its books.',
+        })
+      } else {
+        toast.info('No paired devices yet', {
+          description: 'Pair a device from Nearby devices to sync with it.',
+        })
+      }
       return
     }
     const offered = reports.reduce((total, report) => total + report.offered, 0)
@@ -652,13 +666,18 @@ onMount(() => {
       </div>
     </div>
     <p class="description">
-      Books another device offers only arrive when this one pulls: check here,
-      or wait for the pull a fresh pairing runs on its own.
+      Pairing is directional. <strong>Receive from</strong> means this desktop claimed
+      the device, so it pulls that device's books about once a minute.
+      <strong>Send to</strong> means the device paired to this desktop and pulls your
+      books. Check for books pulls now.
     </p>
     {#each devices.data ?? [] as device (device.device_id)}
       <div class="row">
         <span class="row-main">
           <strong>{device.name ?? device.device_id}</strong>
+          <wa-badge variant={device.outbound ? 'success' : 'neutral'}>
+            {device.outbound ? 'Receive from' : 'Send to'}
+          </wa-badge>
           <span class="muted">
             · {device.device_type_id ?? 'unknown'} · paired {device.paired_at}
             {device.last_sync_at ? `· last sync ${device.last_sync_at}` : ''}

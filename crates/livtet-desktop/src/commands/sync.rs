@@ -605,6 +605,11 @@ pub struct SyncDevice {
     pub device_type_id: Option<String>,
     pub paired_at: String,
     pub last_sync_at: Option<String>,
+    /// Whether this desktop claimed the peer, which is the only case the
+    /// daemon will pull from: an outbound row holds the token the peer issued.
+    /// An approved device holds a token this desktop issued, so it may pull
+    /// from here and nothing else.
+    pub outbound: bool,
 }
 
 /// What one `devices.pull` pass took from a paired device.
@@ -859,7 +864,7 @@ mod tests {
                 json!([{
                     "device_id": "dev-2", "name": "Pixel", "listen_on": "192.168.1.20:7000",
                     "device_type_id": "phone", "paired_at": "2026-10-14T10:02:00Z",
-                    "last_sync_at": null,
+                    "last_sync_at": null, "outbound": true,
                 }]),
             ),
             acknowledged(

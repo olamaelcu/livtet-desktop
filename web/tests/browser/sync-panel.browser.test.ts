@@ -14,7 +14,7 @@ const { listen } = vi.hoisted(() => ({ listen: vi.fn() }))
 vi.mock('@tauri-apps/api/event', () => ({ listen }))
 
 const { toast } = vi.hoisted(() => ({
-  toast: { error: vi.fn(), success: vi.fn() },
+  toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }))
 vi.mock('svelte-sonner', () => ({ toast }))
 
@@ -30,6 +30,7 @@ beforeEach(() => {
   toast.error.mockReset()
   toast.success.mockReset()
   listen.mockImplementation(async () => () => {})
+  toast.info.mockReset()
 
   health = {
     status: 'ok',
@@ -223,6 +224,7 @@ test('revoking a device toasts', async () => {
           device_type_id: null,
           paired_at: 'yesterday',
           last_sync_at: null,
+          outbound: true,
         },
       ]
     }
@@ -437,4 +439,77 @@ test('diagnosing reachability reports what each probe answered', async () => {
   expect(container.querySelector(`${reach} .probes`)?.textContent).toContain(
     '192.168.1.137:7777: error sending request',
   )
+})
+
+// Pairing is directional. A device that paired *to* this desktop holds the
+// token this side issued, so the daemon cannot pull from it; the listed flag
+// says so, and the pull is never attempted rather than refused.
+test('a device that paired to this one is never pulled from', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_devices_list') {
+      return [
+        {
+          device_id: 'device-inbound',
+          name: 'Laptop',
+          listen_on: '0.0.0.0:7710',
+          device_type_id: null,
+          paired_at: 'yesterday',
+          last_sync_at: null,
+          outbound: false,
+        },
+      ]
+    }
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('Laptop')
+  expect(container.textContent).toContain('Send to')
+
+  panelButton(container, 'Check for books').click()
+
+  await expect
+    .poll(() => toast.info)
+    .toHaveBeenCalledWith(
+      'Nothing can be pulled from Laptop',
+      expect.objectContaining({ description: expect.stringContaining('Re-pair') }),
+    )
+  expect(toast.error).not.toHaveBeenCalled()
+  const pulled = invoke.mock.calls.filter(([command]) => command === 'sync_pull')
+  expect(pulled).toHaveLength(0)
+})
+
+// The receive path itself: a device this desktop claimed had an offer waiting.
+test('pulling a claimed device reports the offers it brought', async () => {
+  invoke.mockImplementation(async (command: string) => {
+    if (command === 'sync_devices_list') {
+      return [
+        {
+          device_id: 'device-claimed',
+          name: 'Laptop',
+          listen_on: '192.168.1.137:7710',
+          device_type_id: null,
+          paired_at: 'today',
+          last_sync_at: null,
+          outbound: true,
+        },
+      ]
+    }
+    if (command === 'sync_pull') {
+      return { device_id: 'device-claimed', applied: 0, offered: 2, conflicts: 0 }
+    }
+    if (command === 'sync_health') return health
+    if (command === 'sync_status') return status
+    return []
+  })
+  const { container } = await render(SyncPanelFixture)
+  await expect.poll(() => container.textContent).toContain('Laptop')
+  expect(container.textContent).toContain('Receive from')
+
+  panelButton(container, 'Check for books').click()
+
+  await expect.poll(() => toast.success).toHaveBeenCalledWith('Received 2 offered books')
+  expect(invoke).toHaveBeenCalledWith('sync_pull', { deviceId: 'device-claimed' })
+  expect(toast.error).not.toHaveBeenCalled()
 })

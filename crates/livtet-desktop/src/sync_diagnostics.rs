@@ -325,6 +325,7 @@ mod tests {
             device_type_id: Some("desktop".to_string()),
             paired_at: "2026-11-01 13:56:05".to_string(),
             last_sync_at: Some("2026-11-01 17:50:00".to_string()),
+            outbound: true,
         }
     }
 

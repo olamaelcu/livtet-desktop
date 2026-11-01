@@ -130,6 +130,7 @@ test('offers the book to a paired device', async () => {
           device_type_id: 'mobile',
           paired_at: 'today',
           last_sync_at: null,
+          outbound: false,
         },
       ]
     }

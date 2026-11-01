@@ -4,7 +4,7 @@ Date: 2026-11-01
 
 ## Status
 
-Accepted
+Superceded by [56. Show paired devices with their pairing direction](0056-show-paired-devices-with-their-pairing-direction.md)
 
 ## Context
 
