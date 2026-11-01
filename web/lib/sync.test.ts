@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { syncErrorMessage } from '$lib/sync'
+import { peerEndpoint, syncErrorMessage } from '$lib/sync'
 
 describe('syncErrorMessage', () => {
   test('reports the message from an Unavailable error', () => {
@@ -38,5 +38,40 @@ describe('syncErrorMessage', () => {
   // renders as "[object Object]" — no use in a toast.
   test('renders an object shape with an empty variant as [object Object]', () => {
     expect(syncErrorMessage({ Rpc: null })).toBe('[object Object]')
+  })
+})
+
+describe('peerEndpoint', () => {
+  function peer(addresses: string[], port = 7710, hostname = 'livtet-abc.local') {
+    return {
+      node_id: 'node-1',
+      device_id: 'dev-1',
+      name: 'Laptop',
+      device_type: 'desktop',
+      version: '0.1.0',
+      hostname,
+      addresses,
+      port,
+    }
+  }
+
+  test('prefers a routable address over loopback and link-local ones', () => {
+    const endpoint = peerEndpoint(peer(['127.0.0.1', '169.254.10.4', '192.168.1.137']))
+
+    expect(endpoint).toBe('192.168.1.137:7710')
+  })
+
+  test('brackets an IPv6 address so the request parses', () => {
+    const endpoint = peerEndpoint(peer(['fe80::1c2b', '2001:db8::5']))
+
+    expect(endpoint).toBe('[2001:db8::5]:7710')
+  })
+
+  test('falls back to the advertised addresses when none is routable', () => {
+    expect(peerEndpoint(peer(['127.0.0.1']))).toBe('127.0.0.1:7710')
+  })
+
+  test('falls back to the hostname when the peer advertised no address', () => {
+    expect(peerEndpoint(peer([]))).toBe('livtet-abc.local:7710')
   })
 })

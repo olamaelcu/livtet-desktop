@@ -7,6 +7,7 @@ import ConfirmDialog from '../library/ConfirmDialog.svelte'
 import { syncKeys } from '../query/keys'
 import {
   listenToSyncEvents,
+  peerEndpoint,
   syncConflictsList,
   syncConflictsResolve,
   syncDeviceNameGet,
@@ -23,6 +24,7 @@ import {
   syncPairingBegin,
   syncPairingList,
   syncPairingReject,
+  syncPull,
   syncRequestsRecent,
   syncServerStart,
   syncServerStop,
@@ -117,6 +119,9 @@ const conflicts = createQuery(() => ({
   queryFn: syncConflictsList,
   refetchInterval: SYNC_POLL_MS,
 }))
+
+/** Device ids this desktop already holds a row for, so discovery can mark them. */
+const pairedIds = $derived(new Set((devices.data ?? []).map((device) => device.device_id)))
 
 /** Only unresolved rows can be acted on; resolved ones stay visible as history. */
 const unresolvedConflicts = $derived(
@@ -255,6 +260,57 @@ function revokeDevice(deviceId: string) {
   action.mutate({ message: 'Device revoked', run: () => syncDevicesRevoke(deviceId) })
 }
 
+type PullReport = { name: string; offered: number; error?: string }
+
+/**
+ * Pull every paired device once.
+ *
+ * A book offered to this desktop only exists in the sender's change log, so
+ * this is what makes it appear here. Each device is tried on its own: a peer
+ * that paired to this desktop rather than being claimed by it cannot be
+ * pulled from, and that must not stop the others.
+ */
+const pull = createMutation(() => ({
+  mutationFn: async (): Promise<PullReport[]> => {
+    const reports: PullReport[] = []
+    for (const device of devices.data ?? []) {
+      const name = device.name ?? device.device_id
+      try {
+        const outcome = await syncPull(device.device_id)
+        reports.push({ name, offered: outcome.offered })
+      } catch (error) {
+        reports.push({ name, offered: 0, error: syncErrorMessage(error) })
+      }
+    }
+    return reports
+  },
+  onSuccess: (reports) => {
+    invalidateQueries(
+      syncKeys.offers(),
+      syncKeys.devices(),
+      syncKeys.status(),
+      syncKeys.conflicts(),
+    )
+    if (!reports.length) {
+      toast.info('No paired devices to pull from')
+      return
+    }
+    const offered = reports.reduce((total, report) => total + report.offered, 0)
+    const failed = reports.filter((report) => report.error)
+    if (offered > 0) {
+      toast.success(`Received ${offered} offered ${offered === 1 ? 'book' : 'books'}`)
+    } else if (!failed.length) {
+      toast.info('Nothing new from your paired devices')
+    }
+    if (failed.length) {
+      toast.error(`Could not pull from ${failed.map((report) => report.name).join(', ')}`, {
+        description: failed[0]?.error,
+      })
+    }
+  },
+  onError: (error) => toast.error(syncErrorMessage(error)),
+}))
+
 function resolveConflict(conflict: SyncConflict) {
   const resolution = resolutions[conflict.id] ?? 'local'
   const merged = resolution === 'merged' ? (mergedPayloads[conflict.id] ?? '') : undefined
@@ -280,10 +336,14 @@ let pairingWith = $state<string | null>(null)
 
 async function pairWith(peer: SyncNearbyPeer) {
   if (pairingWith) return
-  const host = peer.addresses[0] ?? peer.hostname
+  const endpoint = peerEndpoint(peer)
+  if (!endpoint) {
+    toast.error(`${peer.name} advertised no address to pair with`)
+    return
+  }
   pairingWith = peer.node_id
   try {
-    await syncPairClaim(`${host}:${peer.port}`, peer.node_id, peer.name)
+    await syncPairClaim(endpoint, peer.node_id, peer.name)
     toast.info(`Pairing request sent to ${peer.name}`, {
       description: 'Approve it on that device, then its books can be pulled here.',
     })
@@ -488,18 +548,27 @@ onMount(() => {
 
     <div class="nearby">
       <h4>Nearby devices</h4>
+      <p class="description">
+        Pairing from here claims the other device, which is what lets this one
+        pull its books. Approving a device instead only lets it pull from this
+        one, so re-pair from here to receive its books.
+      </p>
       {#if nearby.isPending}
         <p class="muted">Scanning the local network…</p>
       {:else if nearby.isError}
         <p class="muted">Nearby discovery is unavailable.</p>
       {:else if nearby.data?.length}
         {#each nearby.data as peer (peer.node_id)}
+          {@const paired = pairedIds.has(peer.device_id)}
           <div class="row">
             <span class="nearby-emoji" aria-hidden="true">{deviceEmoji(peer.device_type)}</span>
             <span class="row-main">
               <strong>{peer.name}</strong>
+              {#if paired}
+                <wa-badge variant="neutral">Paired</wa-badge>
+              {/if}
               <span class="muted">
-                · {peer.device_type} · {peer.addresses[0] ?? peer.hostname}:{peer.port}
+                · {peer.device_type} · {peerEndpoint(peer) ?? peer.hostname}
               </span>
             </span>
             <wa-button-group>
@@ -509,7 +578,7 @@ onMount(() => {
                 onclick={() => pairWith(peer)}
                 disabled={pairingWith !== null}
               >
-                {pairingWith === peer.node_id ? 'Waiting…' : 'Pair'}
+                {pairingWith === peer.node_id ? 'Waiting…' : paired ? 'Re-pair' : 'Pair'}
               </ActionButton>
               <ActionButton size="small" onclick={() => copy('Node ID', peer.node_id)}>
                 Copy ID
@@ -546,10 +615,24 @@ onMount(() => {
   <section class="section" aria-labelledby="sync-devices-heading">
     <div class="section-head">
       <h3 id="sync-devices-heading">Devices</h3>
-      {#if status.data?.paired_device_count}
-        <wa-badge variant="neutral">{status.data.paired_device_count}</wa-badge>
-      {/if}
+      <div class="section-actions">
+        {#if status.data?.paired_device_count}
+          <wa-badge variant="neutral">{status.data.paired_device_count}</wa-badge>
+        {/if}
+        <ActionButton
+          size="small"
+          variant="brand"
+          onclick={() => pull.mutate()}
+          disabled={pull.isPending || !devices.data?.length}
+        >
+          {pull.isPending ? 'Checking…' : 'Check for books'}
+        </ActionButton>
+      </div>
     </div>
+    <p class="description">
+      Books another device offers only arrive when this one pulls: check here,
+      or wait for the pull a fresh pairing runs on its own.
+    </p>
     {#each devices.data ?? [] as device (device.device_id)}
       <div class="row">
         <span class="row-main">
@@ -722,6 +805,12 @@ onMount(() => {
 
   .section-head h3 {
     margin: 0;
+  }
+  .section-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--wa-space-s);
+    margin-left: auto;
   }
 
   .section h4 {

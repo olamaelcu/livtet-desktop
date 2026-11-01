@@ -599,6 +599,7 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::sync::sync_lan_get,
         commands::sync::sync_lan_set,
         commands::sync::sync_send_book,
+        commands::sync::sync_pull,
         commands::sync::sync_offers_list,
         commands::sync::sync_offers_decide,
         commands::sync::sync_offer_cover,

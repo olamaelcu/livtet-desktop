@@ -13,6 +13,7 @@ import {
   type SyncPairingApproved,
   type SyncPairingTicket,
   type SyncPendingPairing,
+  type SyncPullOutcome,
   type SyncRequestRecord,
   type SyncStatusInfo,
 } from './bindings'
@@ -206,6 +207,50 @@ export function syncServerStart(): Promise<boolean> {
 /** Stop the embedded sync server. */
 export function syncServerStop(): Promise<boolean> {
   return unwrap<boolean>(commands.syncServerStop())
+}
+
+/**
+ * Pull one paired device's changes, and with them any book it offered.
+ *
+ * The peer only records the offer in its own change log; nothing reaches this
+ * library until this runs. The daemon also pulls once by itself right after a
+ * claim succeeds, so this covers every offer made after that.
+ */
+export function syncPull(deviceId: string): Promise<SyncPullOutcome> {
+  return unwrap<SyncPullOutcome>(commands.syncPull(deviceId))
+}
+
+/**
+ * The `host:port` to claim a discovered peer at.
+ *
+ * An advertisement lists every address the peer has, loopback and link-local
+ * included, and the daemon sorts them as strings — so `addresses[0]` is not
+ * the reachable one. Prefer the first routable address, fall back to whatever
+ * was advertised, and bracket IPv6 so the result parses as a URL.
+ */
+export function peerEndpoint(peer: SyncNearbyPeer): string | null {
+  const host = peer.addresses.find(isRoutable) ?? peer.addresses[0] ?? peer.hostname
+  if (!host) return null
+  const bare = host.replace(/^\[|\]$/g, '')
+  const formatted = bare.includes(':') ? `[${bare}]` : bare
+  return `${formatted}:${peer.port}`
+}
+
+/** Whether `address` could be reached from another machine. */
+function isRoutable(address: string): boolean {
+  const bare = address.replace(/^\[|\]$/g, '')
+  if (bare.includes(':')) {
+    const first = Number.parseInt(bare.split(':')[0] ?? '', 16)
+    if (Number.isNaN(first)) return false
+    // `::1` loopback, `::` unspecified, `fe80::/10` link-local.
+    if (bare === '::1' || bare === '::') return false
+    return (first & 0xffc0) !== 0xfe80
+  }
+  const octets = bare.split('.').map(Number)
+  if (octets.length !== 4 || octets.some((octet) => Number.isNaN(octet))) return false
+  const [a, b] = octets as [number, number, number, number]
+  // 127/8 loopback, 0/8 unspecified, 169.254/16 link-local.
+  return a !== 127 && a !== 0 && !(a === 169 && b === 254)
 }
 
 /** The Tauri events the sync daemon re-emits. */

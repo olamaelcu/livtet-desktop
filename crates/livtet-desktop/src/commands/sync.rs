@@ -3,17 +3,13 @@
 //! Each command forwards to [`crate::sync::SyncHandle::call`] and deserialises
 //! the daemon's `result` value into a Specta-derivable struct. Integer command
 //! parameters are `i32` (the Specta/JS-safe width) and are widened to the
-//! daemon's own types when the request params are built.
-//!
-//! Only one command joins two methods: [`sync_nearby_devices`] drops the peers
-//! that already have a device row. Everything else is one call in, one struct
-//! out.
+//! daemon's own types when the request params are built. Every command is one
+//! call in, one struct out.
 
 use livtet_sync_server::rpc::method;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use specta::Type;
-use std::collections::HashSet;
 use tauri::State;
 
 use crate::error::SyncError;
@@ -176,11 +172,11 @@ async fn sync_pairing_list_inner(sync: &SyncHandle) -> Result<Vec<SyncPendingPai
 
 /// Peers advertising `_livtet-sync._tcp` on the local network.
 ///
-/// A paired device keeps advertising after it is approved, so raw discovery
-/// would list it again as something to pair. The daemon answers discovery
-/// verbatim (minus this desktop's own record) and the device rows live in a
-/// different method, so joining the two is this command's job: paired peers
-/// never reach the panel.
+/// Paired devices keep advertising, so this returns them too. That is
+/// deliberate: an approved device holds a token *this* desktop issued, which
+/// only lets it pull from here — receiving from it needs the reverse claim, and
+/// hiding it would leave no way to make one. The panel marks the peers it
+/// already has a row for instead of dropping them.
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_nearby_devices(
@@ -190,30 +186,7 @@ pub async fn sync_nearby_devices(
 }
 
 async fn sync_nearby_devices_inner(sync: &SyncHandle) -> Result<Vec<SyncNearbyPeer>, SyncError> {
-    let peers: Vec<SyncNearbyPeer> =
-        parse(sync.call(method::DISCOVERY_NEARBY, Value::Null).await?)?;
-    let paired = sync_devices_list_inner(sync).await?;
-    Ok(unpaired_peers(peers, &paired))
-}
-
-/// Drop the nearby peers this desktop already holds a device row for.
-///
-/// The device id is the correlation key: both pairing directions record the
-/// peer's own device id — the `device_id` TXT field it advertises and the one
-/// its `/sync/identity` answers with — so an approved device matches its
-/// advertisement. A peer advertising no device id matches nothing and is
-/// kept: it cannot be identified, and hiding it would leave it unlisted
-/// everywhere.
-fn unpaired_peers(peers: Vec<SyncNearbyPeer>, paired: &[SyncDevice]) -> Vec<SyncNearbyPeer> {
-    let paired_ids: HashSet<&str> = paired
-        .iter()
-        .map(|device| device.device_id.as_str())
-        .filter(|device_id| !device_id.is_empty())
-        .collect();
-    peers
-        .into_iter()
-        .filter(|peer| peer.device_id.is_empty() || !paired_ids.contains(peer.device_id.as_str()))
-        .collect()
+    parse(sync.call(method::DISCOVERY_NEARBY, Value::Null).await?)
 }
 
 /// The stored device name; `None` means the daemon generates one.
@@ -277,6 +250,31 @@ pub async fn sync_send_book(
                 method::DEVICES_OFFER_BOOK,
                 json!({ "edition_id": edition_id, "device_id": device_id }),
             )
+            .await?,
+    )
+}
+
+/// Pull one paired device's changes, and with them any books it offered.
+///
+/// Nothing but this call moves bytes towards this library: the offering device
+/// only records an offer in its own change log and waits for the receiver to
+/// pull it. Accepting an offer (`offers.decide`) downloads from the peer, but
+/// the offer itself never arrives without a pull.
+#[tauri::command]
+#[specta::specta]
+pub async fn sync_pull(
+    device_id: String,
+    state: State<'_, AppState>,
+) -> Result<SyncPullOutcome, SyncError> {
+    sync_pull_inner(&state.sync, device_id).await
+}
+
+async fn sync_pull_inner(
+    sync: &SyncHandle,
+    device_id: String,
+) -> Result<SyncPullOutcome, SyncError> {
+    parse(
+        sync.call(method::DEVICES_PULL, json!({ "device_id": device_id }))
             .await?,
     )
 }
@@ -582,6 +580,18 @@ pub struct SyncDevice {
     pub last_sync_at: Option<String>,
 }
 
+/// What one `devices.pull` pass took from a paired device.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+pub struct SyncPullOutcome {
+    pub device_id: String,
+    /// Catalog rows written by the pulled changes.
+    pub applied: i32,
+    /// Books the peer offered, now waiting on the offers list.
+    pub offered: i32,
+    /// Rows the merge could not apply, left for `conflicts.list`.
+    pub conflicts: i32,
+}
+
 /// An unresolved sync conflict from `conflicts.list`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SyncConflict {
@@ -663,59 +673,32 @@ mod tests {
         }
     }
 
-    fn device(device_id: &str) -> SyncDevice {
-        SyncDevice {
-            device_id: device_id.to_string(),
-            name: None,
-            listen_on: None,
-            device_type_id: None,
-            paired_at: "2026-10-14T10:02:00Z".to_string(),
-            last_sync_at: None,
-        }
-    }
-
-    /// Discovery answers with every peer on the LAN, approved ones included;
-    /// the command is what keeps them out of the pairing panel.
+    /// Discovery is passed through untouched — approved peers included.
+    ///
+    /// An approved peer keeps advertising, and it is exactly the row a reader
+    /// needs to claim from the other direction: filtering it out of the
+    /// pairing panel would leave no way to make an outbound pairing with a
+    /// device that already holds a token from this one.
     #[tokio::test]
-    async fn nearby_devices_omit_peers_that_are_already_paired() {
-        // The approved peer advertised itself, then kept advertising after the
-        // device row was written: that is the case the filter exists for.
-        let approved = peer("node-paired", "dev-2");
-        let unpaired = peer("node-new", "dev-3");
-        let replies = HashMap::from([
-            (
-                method::DISCOVERY_NEARBY,
-                serde_json::to_value([approved, unpaired.clone()]).unwrap(),
-            ),
-            (
-                method::DEVICES_LIST,
-                serde_json::to_value([device("dev-2")]).unwrap(),
-            ),
-        ]);
+    async fn nearby_devices_pass_discovery_through() {
+        let paired = peer("node-paired", "dev-2");
+        let fresh = peer("node-new", "dev-3");
+        let replies = HashMap::from([(
+            method::DISCOVERY_NEARBY,
+            serde_json::to_value([paired.clone(), fresh.clone()]).unwrap(),
+        )]);
         let (sync, recorded) = scripted(move |name| Ok(replies[name].clone()));
 
         let nearby = sync_nearby_devices_inner(&sync).await.unwrap();
 
-        assert_eq!(nearby, vec![unpaired]);
+        assert_eq!(nearby, vec![paired, fresh]);
         let sent: Vec<String> = recorded
             .lock()
             .unwrap()
             .iter()
             .map(|(name, _)| name.clone())
             .collect();
-        assert_eq!(sent, vec![method::DISCOVERY_NEARBY, method::DEVICES_LIST]);
-    }
-
-    /// An advertisement without a device id cannot be matched to a device row,
-    /// so it stays listed rather than vanishing from every view.
-    #[test]
-    fn a_peer_advertising_no_device_id_is_kept() {
-        let nearby = unpaired_peers(
-            vec![peer("node-anon", ""), peer("node-paired", "dev-2")],
-            &[device("dev-2")],
-        );
-
-        assert_eq!(nearby, vec![peer("node-anon", "")]);
+        assert_eq!(sent, vec![method::DISCOVERY_NEARBY]);
     }
 
     /// Run the command behind daemon method `name` with fixed arguments and
@@ -737,6 +720,7 @@ mod tests {
             }
             method::PAIRING_REJECT => to_json(sync_pairing_reject_inner(sync, "node-reject").await),
             method::DEVICES_LIST => to_json(sync_devices_list_inner(sync).await),
+            method::DEVICES_PULL => to_json(sync_pull_inner(sync, "dev-1".to_string()).await),
             method::DEVICES_REVOKE => to_json(sync_devices_revoke_inner(sync, "dev-9").await),
             method::OFFERS_LIST => to_json(sync_offers_list_inner(sync).await),
             method::OFFERS_DECIDE => {
@@ -856,6 +840,13 @@ mod tests {
                 json!({ "device_id": "dev-9" }),
                 json!({ "ok": true, "removed": 1 }),
                 true,
+            ),
+            decoded(
+                method::DEVICES_PULL,
+                json!({ "device_id": "dev-1" }),
+                json!({
+                    "device_id": "dev-1", "applied": 4, "offered": 2, "conflicts": 1,
+                }),
             ),
             decoded(
                 method::OFFERS_LIST,
