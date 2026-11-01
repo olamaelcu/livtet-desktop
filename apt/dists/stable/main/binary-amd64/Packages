@@ -1,0 +1,15 @@
+Package: livtet-desktop
+Version: 0.2.1
+Architecture: amd64
+Maintainer: Jacky Alcine <yo@jacky.wtf>
+Installed-Size: 71264
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/l/livtet-desktop/livtet-desktop_0.2.1_amd64.deb
+Size: 32597038
+MD5sum: ec8ce0e449cfa70d4d097dd19a3739f4
+SHA1: 6b2811f3b182b1fa6916b185c42225d300d7cd76
+SHA256: 54c84d7cce6534cc52fe2a58025c80909a726181f1315e0aa64a0865730c0349
+Priority: optional
+Description: A Tauri-powered application for showing the Livtet experience
+ (none)
+

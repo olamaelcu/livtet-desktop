@@ -1,0 +1,6 @@
+[Flatpak Repo]
+Title=Livtet
+Url=https://download.livtet.olamaelcu.net/flatpak/repo/
+Homepage=https://github.com/olamaelcu/livtet-desktop
+Comment=Livtet desktop releases
+GPGKey=mDMEauOD6BYJKwYBBAHaRw8BAQdARJ44MiN8TwVs9DqZrMI1sIZDawS6kaeQSOcs2UwPpN60OExpdnRldCBQYWNrYWdlcyAoQVBUIGFuZCBGbGF0cGFrIHNpZ25pbmcpIDx5b0BqYWNreS53dGY+iJAEExYKADgWIQQHKLJNTfjQ/B3WbVrLf+xBBKmUHQUCauOD6AIbAwULCQgHAgYVCgkICwIEFgIDAQIeAQIXgAAKCRDLf+xBBKmUHazrAQCDJWdQhwvTI0B8Kf726/q3wl2WeRV7cczVZXSKNbMQ3gD/dXA4wxoq3POLmlVtzuYrY+TjljHE8lEq6jeWROuOJQU=

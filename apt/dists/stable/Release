@@ -1,0 +1,32 @@
+Architectures: amd64 arm64
+Codename: stable
+Components: main
+Date: Sun, 01 Nov 2026 03:35:48 +0000
+Description: Livtet desktop packages
+Label: livtet
+Origin: livtet
+Suite: stable
+MD5Sum:
+ fcd258eec4a20d59a3bb87b42c5083e6              179 Release
+ f3eed84fca39ba705f24fcf4699c3829              509 main/binary-amd64/Packages
+ fcf88d05c4d7300ec2d6f5e040ce2512              392 main/binary-amd64/Packages.gz
+ 273e23b8bb89217b882a044787c79ba1              509 main/binary-arm64/Packages
+ 049f18e72b80fc00fe07141e7d587181              392 main/binary-arm64/Packages.gz
+SHA1:
+ c815c4e8ba286ebf13ed7c2eef91874e2af4d858              179 Release
+ c52db2655595a76682748e76be572e6957f69e0d              509 main/binary-amd64/Packages
+ b89c925ceb1422094a96174252e2a12f7cf6fa78              392 main/binary-amd64/Packages.gz
+ 8209aff3b3e627c83b11c7275e9e120198837c27              509 main/binary-arm64/Packages
+ 089984854f73e5bad8c575635a29b276cb7b0281              392 main/binary-arm64/Packages.gz
+SHA256:
+ f01ba1cafae423087248812c7d675ea476e2bff4dc80d303096b8ab34730ce35              179 Release
+ 8aba236a5fbd307a6823d3028d6db806d03395b14f3d8d61de0da948feefb11a              509 main/binary-amd64/Packages
+ bb53351c5fa50c8888c9a9e5a380987eb1e8ae50f8f39af19ee6920a9166556e              392 main/binary-amd64/Packages.gz
+ 78fb2a868240d66376087daacf1a330cf91ab193d5273acb33baed11afbc21aa              509 main/binary-arm64/Packages
+ fa6ce60be031927ced1993994f795bb1faacbb30a8bffb3fba5471ad6b750274              392 main/binary-arm64/Packages.gz
+SHA512:
+ 32c1cf6f218aa4b119916ec098d23db1aceaefffa14396bb8a9a40af37066e1d560fcf59778386c7134f16a821e995eaf8995328d574821ba477818db1291501              179 Release
+ 1e07876cac06988666b97c1dbbbfb8e8459df7848d77230d17cb440dd2c67b0d3b36b5141f62acd9a017473ecbd6d626d8e77aab948038e73f6432b64e5a9019              509 main/binary-amd64/Packages
+ e774c76f00d9909c90510ab76527ad3051a089b1cf2eccb91cba46208380719cbe9a3842298f34c7b15f494ecbe3140e7f0b5bb929dd8ae3e3d33c683c78fbb5              392 main/binary-amd64/Packages.gz
+ 5781670a7e5d909c54587559d6878be48223aa5b5d1f35e5b402603377113a01a60e76e35c90a8aae068973d3b6282e15571475439eba8eede9d4e5797a33504              509 main/binary-arm64/Packages
+ 8e8dacdc5b4f0f95d2b12f05f940854f67efe1591a8dd2a9291cf5a3b012c71f49e1322bd27f59cc7ee700d69372e9ba3b9866ced87966c669c89943eb275e82              392 main/binary-arm64/Packages.gz

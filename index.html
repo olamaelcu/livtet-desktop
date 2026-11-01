@@ -91,8 +91,8 @@
     <main>
       <h1>Livtet downloads</h1>
       <p class="lede">
-        Signed package repositories for the Livtet desktop app. Both channels are
-        rebuilt from every release and signed by the same key.
+        Signed package repositories for the Livtet desktop app. Every channel is
+        rebuilt from each release and signed by the same key.
       </p>
 
       <section>
@@ -111,6 +111,24 @@ sudo apt install livtet-desktop</code></pre>
           Builds are published for <code>amd64</code> and <code>arm64</code>. The
           key lives at <a href="apt/livtet.asc">apt/livtet.asc</a>; the repository
           index is <a href="apt/dists/stable/InRelease">apt/dists/stable/InRelease</a>.
+        </p>
+      </section>
+
+      <section>
+        <h2>Fedora / RHEL (dnf)</h2>
+        <p>
+          Add the repository definition, then install:
+        </p>
+        <pre><code>sudo curl -fsSL https://download.livtet.olamaelcu.net/rpm/livtet.repo \
+  -o /etc/yum.repos.d/livtet.repo
+sudo dnf install livtet-desktop</code></pre>
+        <p class="note">
+          Builds are published for <code>x86_64</code> and <code>aarch64</code>. The
+          repository definition is at <a href="rpm/livtet.repo">rpm/livtet.repo</a>,
+          and the package index for this architecture at
+          <a href="rpm/x86_64/repodata/repomd.xml">rpm/x86_64/repodata/repomd.xml</a>.
+          The index is signed, so <code>repo_gpgcheck</code> is on; the bundler does
+          not sign individual packages, so <code>gpgcheck</code> is off.
         </p>
       </section>
 
