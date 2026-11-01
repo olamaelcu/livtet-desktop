@@ -211,6 +211,7 @@ export function syncServerStop(): Promise<boolean> {
 /** The Tauri events the sync daemon re-emits. */
 export type SyncEventName =
   | 'sync://completed'
+  | 'sync://pulled'
   | 'sync://pairing-requested'
   | 'sync://request'
   | 'sync://server-started'

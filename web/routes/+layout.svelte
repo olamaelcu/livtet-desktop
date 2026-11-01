@@ -21,6 +21,7 @@ import { listenToAppNavigation } from '../lib/navigation'
 import { queryClient } from '../lib/query/client'
 import { atprotoKeys } from '../lib/query/keys'
 import { listenToSpotlightSelections } from '../lib/spotlight'
+import { refreshLibraryOnPull } from '../lib/sync/library'
 
 let { children } = $props()
 
@@ -90,6 +91,7 @@ onMount(() => {
   let unlisten: (() => void) | undefined
   let unlistenNavigation: (() => void) | undefined
   let unlistenSpotlight: (() => void) | undefined
+  let unlistenLibraryPull: (() => void) | undefined
   let cancelled = false
   void listenToAppNavigation((route) => {
     void goto(route)
@@ -109,6 +111,17 @@ onMount(() => {
       if (cancelled) stop()
       else unlistenSpotlight = stop
     })
+    .catch(() => {})
+
+  // The daemon pulls on its own clock, so books can arrive with no click
+  // behind them. Subscribing at the shell keeps every route's catalog views
+  // live, not just an open Library tab.
+  void refreshLibraryOnPull(queryClient)
+    .then((stop) => {
+      if (cancelled) stop()
+      else unlistenLibraryPull = stop
+    })
+    // Outside Tauri (SSR, component tests) there is no event bridge.
     .catch(() => {})
 
   void listenToAtprotoEvents({
@@ -131,6 +144,7 @@ onMount(() => {
     unlisten?.()
     unlistenNavigation?.()
     unlistenSpotlight?.()
+    unlistenLibraryPull?.()
   }
 })
 </script>
