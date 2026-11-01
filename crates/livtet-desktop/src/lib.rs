@@ -1,5 +1,6 @@
 pub mod atproto;
 pub mod commands;
+pub mod firewall;
 mod error;
 mod http;
 mod koreader_sync;
@@ -610,6 +611,8 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::sync::sync_devices_list,
         commands::sync::sync_devices_revoke,
         commands::sync::sync_diagnostics,
+        firewall::sync_firewall_hint,
+        firewall::sync_firewall_allow,
         commands::sync::sync_conflicts_list,
         commands::sync::sync_conflicts_resolve,
         commands::sync::sync_server_start,

@@ -16,6 +16,8 @@ import {
   syncDevicesRevoke,
   syncDiagnostics,
   syncErrorMessage,
+  syncFirewallAllow,
+  syncFirewallHint,
   syncHealth,
   syncLanGet,
   syncLanSet,
@@ -123,6 +125,36 @@ const devices = createQuery(() => ({
  */
 const diagnose = createMutation(() => ({
   mutationFn: syncDiagnostics,
+  onError: (error) => toast.error(syncErrorMessage(error)),
+}))
+
+/**
+ * The firewall rule a peer would need to reach this server.
+ *
+ * Only asked once the daemon reports a port: the rule is for that port, and a
+ * query against 0 would only produce an error.
+ */
+const firewall = createQuery(() => ({
+  queryKey: syncKeys.firewall(),
+  queryFn: () => syncFirewallHint(status.data?.port ?? 0),
+  enabled: Boolean(status.data?.port),
+}))
+
+/**
+ * The port the reader has already allowed this session.
+ *
+ * The host firewall's rule cannot be read back without elevation, so a
+ * successful `allow` is the only evidence the callout has been dealt with;
+ * hiding it for that port keeps the notice from outliving its purpose.
+ */
+let allowedPort = $state<number | null>(null)
+
+const allowFirewall = createMutation(() => ({
+  mutationFn: (port: number) => syncFirewallAllow(port),
+  onSuccess: (_result, port) => {
+    allowedPort = port
+    toast.success(`Allowed inbound connections on port ${port}`)
+  },
   onError: (error) => toast.error(syncErrorMessage(error)),
 }))
 
@@ -714,6 +746,40 @@ onMount(() => {
       place. Diagnose dials this device's own server from loopback and from its
       network address, then reports what arrived on it.
     </p>
+    {#if firewall.data && firewall.data.port !== allowedPort}
+      <wa-callout variant="warning">
+        <wa-icon slot="icon" name="shield-halved"></wa-icon>
+        <p>
+          <strong>{firewall.data.tool}</strong> is enabled on this machine and drops
+          new inbound connections, so no peer can reach port
+          <code>{firewall.data.port}</code>.
+          {#if firewall.data.automatic}
+            Allowing it asks your system for permission.
+          {:else}
+            Run the command below in a terminal; this build cannot elevate.
+          {/if}
+        </p>
+        <div class="firewall-rule">
+          <code>{firewall.data.command}</code>
+          <ActionButton
+            size="small"
+            onclick={() => copy('Command', firewall.data?.command ?? '')}
+          >
+            Copy
+          </ActionButton>
+          {#if firewall.data.automatic}
+            <ActionButton
+              size="small"
+              variant="brand"
+              onclick={() => allowFirewall.mutate(firewall.data?.port ?? 0)}
+              disabled={allowFirewall.isPending}
+            >
+              {allowFirewall.isPending ? 'Waiting…' : 'Allow'}
+            </ActionButton>
+          {/if}
+        </div>
+      </wa-callout>
+    {/if}
     {#if diagnose.data}
       <ul class="findings">
         {#each diagnose.data.findings as finding, index (index)}
@@ -865,6 +931,12 @@ onMount(() => {
     margin: 0;
   }
 
+  .firewall-rule {
+    display: flex;
+    align-items: center;
+    gap: var(--wa-space-s);
+    flex-wrap: wrap;
+  }
   .findings {
     display: flex;
     flex-direction: column;

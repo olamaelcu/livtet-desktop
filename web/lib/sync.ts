@@ -6,6 +6,7 @@ import {
   type SyncDevice,
   type SyncDiagnostics,
   type SyncError,
+  type SyncFirewallHint,
   type SyncHealth,
   type SyncIncomingOffer,
   type SyncNearbyPeer,
@@ -264,6 +265,28 @@ function isRoutable(address: string): boolean {
   const [a, b] = octets as [number, number, number, number]
   // 127/8 loopback, 0/8 unspecified, 169.254/16 link-local.
   return a !== 127 && a !== 0 && !(a === 169 && b === 254)
+}
+
+/**
+ * The firewall rule a peer would need in order to reach this device's sync
+ * port, or `null` when no firewall is enabled.
+ *
+ * Linux only: `ufw`'s default `deny (incoming)` policy drops the inbound
+ * connection a claim or pull needs, and nothing outside the host can tell a
+ * firewalled port from an absent one.
+ */
+export function syncFirewallHint(port: number): Promise<SyncFirewallHint | null> {
+  return unwrap<SyncFirewallHint | null>(commands.syncFirewallHint(port))
+}
+
+/**
+ * Add that rule, letting the desktop's polkit agent ask the reader.
+ *
+ * The rejection carries the tool's own message, so a cancelled prompt and a
+ * rejected rule read differently.
+ */
+export function syncFirewallAllow(port: number): Promise<null> {
+  return unwrap<null>(commands.syncFirewallAllow(port))
 }
 
 /** The Tauri events the sync daemon re-emits. */

@@ -70,6 +70,8 @@ beforeEach(() => {
         return []
       case 'sync_device_name_get':
         return null
+      case 'sync_firewall_hint':
+        return null
       case 'sync_pairing_begin':
         return { node_id: 'node-1', expires_at: 'soon' }
       case 'sync_pairing_approve':

@@ -12,6 +12,7 @@ export const syncKeys = {
   nearby: () => [...syncKeys.all, 'nearby'] as const,
   deviceName: () => [...syncKeys.all, 'device-name'] as const,
   lan: () => [...syncKeys.all, 'lan'] as const,
+  firewall: () => [...syncKeys.all, 'firewall'] as const,
   devices: () => [...syncKeys.all, 'devices'] as const,
   offers: () => [...syncKeys.all, 'offers'] as const,
   offerCover: (offerId: string) => [...syncKeys.all, 'offer-cover', offerId] as const,

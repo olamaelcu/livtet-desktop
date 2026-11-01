@@ -9,6 +9,7 @@ describe('syncKeys', () => {
     expect(syncKeys.nearby()).toEqual(['sync', 'nearby'])
     expect(syncKeys.deviceName()).toEqual(['sync', 'device-name'])
     expect(syncKeys.devices()).toEqual(['sync', 'devices'])
+    expect(syncKeys.firewall()).toEqual(['sync', 'firewall'])
     expect(syncKeys.conflicts()).toEqual(['sync', 'conflicts'])
     expect(syncKeys.requests(50)).toEqual(['sync', 'requests', { limit: 50 }])
   })
