@@ -94,7 +94,37 @@ pub async fn sync_offers_decide(
     accepted: bool,
     state: State<'_, AppState>,
 ) -> Result<SyncOfferDecision, SyncError> {
-    sync_offers_decide_inner(&state.sync, offer_id, accepted).await
+    let decision = sync_offers_decide_inner(&state.sync, offer_id, accepted).await?;
+    if decision.applied > 0 {
+        index_received_book(&state, decision.edition_id.as_deref()).await;
+    }
+    Ok(decision)
+}
+
+/// Add a book the daemon just received to the search index and Spotlight.
+///
+/// The daemon writes the file and the catalog rows, which is what an import
+/// does too — but only the desktop owns the search index, so nothing would
+/// find the book without this. Failing here must not fail the decision: the
+/// rows are already in the library and the next full reindex picks them up.
+async fn index_received_book(state: &AppState, edition_id: Option<&str>) {
+    let Some(edition_id) = edition_id else {
+        return;
+    };
+    let Ok(edition) = edition_id.parse::<livtet_types::DbId>() else {
+        tracing::warn!(%edition_id, "received book carried an unreadable edition id");
+        return;
+    };
+    let conn = state.db.db_conn();
+    {
+        let guard = state.search_index.read().await;
+        if let Some(index) = guard.as_deref()
+            && let Err(error) = index.add_edition(&conn, edition).await
+        {
+            tracing::warn!(%error, %edition_id, "could not index a received book");
+        }
+    }
+    state.spotlight.schedule_reindex(state.db.clone());
 }
 
 async fn sync_offers_decide_inner(
@@ -580,6 +610,10 @@ pub struct SyncOfferDecision {
     /// Catalog rows written; zero for a declined offer.
     pub applied: i32,
     pub conflicts: i32,
+    /// The edition the offer carried, so the receiving side can index what it
+    /// accepted the way an import would.
+    #[serde(default)]
+    pub edition_id: Option<String>,
 }
 
 /// An offer's cover image, ready to hand to an `<img>`.
@@ -897,7 +931,7 @@ mod tests {
                 json!({ "offer_id": "offer-1", "accepted": true }),
                 json!({
                     "offer_id": "offer-1", "accepted": true, "delivered": true,
-                    "applied": 1, "conflicts": 0,
+                    "applied": 1, "conflicts": 0, "edition_id": "01M652BF35STC9CWKPF4WKDAZV",
                 }),
             ),
             decoded(

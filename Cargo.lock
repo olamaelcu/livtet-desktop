@@ -5296,7 +5296,7 @@ dependencies = [
 [[package]]
 name = "livtet-core"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-trait",
  "camino",
@@ -5327,7 +5327,7 @@ dependencies = [
 [[package]]
 name = "livtet-covers"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-trait",
  "blake3",
@@ -5346,7 +5346,7 @@ dependencies = [
 [[package]]
 name = "livtet-data"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-trait",
  "camino-tempfile",
@@ -5491,7 +5491,7 @@ dependencies = [
 [[package]]
 name = "livtet-iroh"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "iroh",
  "iroh-mdns-address-lookup",
@@ -5640,7 +5640,7 @@ dependencies = [
 [[package]]
 name = "livtet-search"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-trait",
  "camino",
@@ -5663,7 +5663,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-trait",
  "hex",
@@ -5690,7 +5690,7 @@ dependencies = [
 [[package]]
 name = "livtet-sync-http"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -5712,9 +5712,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "livtet-sync-iroh"
+version = "0.1.0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
+dependencies = [
+ "iroh",
+ "livtet-iroh",
+ "livtet-sync",
+ "livtet-types",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "livtet-sync-server"
 version = "0.2.1"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "base64 0.22.1",
  "camino",
@@ -5726,6 +5742,7 @@ dependencies = [
  "livtet-iroh",
  "livtet-sync",
  "livtet-sync-http",
+ "livtet-sync-iroh",
  "livtet-types",
  "mdns-sd",
  "poem",
@@ -5743,7 +5760,7 @@ dependencies = [
 [[package]]
 name = "livtet-temporal-quotes"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "blake3",
  "time",
@@ -5752,7 +5769,7 @@ dependencies = [
 [[package]]
 name = "livtet-types"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet?branch=main#049c72afa22cd709675c394476ed10a0385a48a0"
+source = "git+https://github.com/olamaelcu/livtet?branch=main#b0ffe9eb5a2a3cb726b50fd195c71be563cc83b9"
 dependencies = [
  "async-trait",
  "camino",

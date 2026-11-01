@@ -31,6 +31,9 @@ use crate::error::SyncError;
 
 use crate::sync_settings::SyncSettingsStore;
 
+/// How often the daemon reads every paired peer, in seconds.
+pub(crate) const PULL_INTERVAL_SECS: u64 = 5;
+
 /// How long a JSON-RPC call may wait for its response, by default.
 ///
 /// Control calls are answered from memory or one SQLite query, so ten seconds
@@ -335,6 +338,12 @@ fn sidecar_args(
         books_dir.to_string(),
         "--covers-dir".to_string(),
         covers_dir.to_string(),
+        // The peer cannot push, so this is the only thing that makes a book
+        // arrive without the reader asking. Five seconds costs one dial and
+        // one query per paired peer; a one-second loop would spend that
+        // continuously for a change that is not urgent.
+        "--pull-interval-secs".to_string(),
+        PULL_INTERVAL_SECS.to_string(),
     ];
     if lan {
         args.push("--lan".to_string());
