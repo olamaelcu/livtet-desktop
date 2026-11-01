@@ -4,6 +4,11 @@
 //! with `--device-name`, and saving it later applies live through the
 //! `discovery.rename` RPC. Keeping it in its own store mirrors the MCP and
 //! OPDS server settings stores.
+//!
+//! The listen port lives here for the same reason the name does — it travels
+//! as a spawn flag — but it is remembered rather than chosen: a paired peer
+//! stores this device's address once, at pairing time, so the server has to
+//! come back on the same port for that pairing to keep working.
 
 use serde::{Deserialize, Serialize};
 
@@ -20,6 +25,12 @@ pub struct SyncSettings {
     /// on loopback.
     #[serde(default = "lan_enabled")]
     pub lan: bool,
+    /// Port the sync server binds, remembered from the last successful start.
+    ///
+    /// `None` on a fresh install (and on settings written before this field
+    /// existed); the first start records what the daemon actually bound.
+    #[serde(default)]
+    pub listen_port: Option<u16>,
 }
 
 /// Default for [`SyncSettings::lan`], applied to settings written before the
@@ -33,6 +44,7 @@ impl Default for SyncSettings {
         Self {
             device_name: None,
             lan: lan_enabled(),
+            listen_port: None,
         }
     }
 }
@@ -41,6 +53,13 @@ impl SyncSettings {
     /// Replace the advertised name while keeping every other preference.
     pub fn with_device_name(mut self, name: Option<String>) -> Self {
         self.device_name = name;
+        self
+    }
+
+    /// Remember the port the daemon bound while keeping every other
+    /// preference.
+    pub fn with_listen_port(mut self, port: Option<u16>) -> Self {
+        self.listen_port = port;
         self
     }
 }
@@ -78,6 +97,8 @@ pub fn normalize_device_name(name: Option<String>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
+
     use super::normalize_device_name;
 
     #[test]
@@ -102,10 +123,38 @@ mod tests {
         let offline = SyncSettings {
             device_name: None,
             lan: false,
+            listen_port: Some(7723),
         };
         let renamed = offline.with_device_name(Some("Josh's MacBook".to_string()));
 
         assert_eq!(renamed.device_name.as_deref(), Some("Josh's MacBook"));
         assert!(!renamed.lan, "a rename must not turn LAN sharing back on");
+        assert_eq!(
+            renamed.listen_port,
+            Some(7723),
+            "a rename must not strand the address every peer already stores"
+        );
+    }
+
+    /// The remembered port is only useful if it survives the store: a settings
+    /// file written before the field existed must load, and the port must come
+    /// back on the next launch.
+    #[test]
+    fn the_listen_port_survives_the_store_and_older_settings_files() {
+        use super::SyncSettings;
+
+        let legacy: SyncSettings = serde_json::from_value(serde_json::json!({
+            "device_name": "Josh's MacBook",
+            "lan": true,
+        }))
+        .expect("settings written before the field existed still load");
+        assert_eq!(legacy.listen_port, None);
+
+        let stored = serde_json::to_value(legacy.clone().with_listen_port(Some(7740)))
+            .expect("settings serialize");
+        let reloaded: SyncSettings = serde_json::from_value(stored).expect("settings round-trip");
+
+        assert_eq!(reloaded.listen_port, Some(7740));
+        assert_eq!(reloaded, legacy.with_listen_port(Some(7740)));
     }
 }

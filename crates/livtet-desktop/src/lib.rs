@@ -401,14 +401,19 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     // `lan` defaults to on: the daemon advertises on the LAN and every data
     // route requires a session token minted at pairing approval.
     let sync_lan = sync_settings.lan;
-    let sync = crate::sync::SyncHandle::spawn(
+    // The port is resolved from the store and written back once the daemon is
+    // serving: peers store this device's address at pairing time, so a restart
+    // has to come back on the same one.
+    let sync = crate::sync::SyncHandle::spawn_with_remembered_port(
         app.handle(),
+        sync_store.as_ref(),
         &sync_db_path,
         sync_device_name.as_deref(),
         sync_lan,
         &paths.books_dir,
         &paths.covers_dir,
-    )?;
+    )
+    .await?;
 
     // Shared HTTP client for OPDS catalog requests: consistent User-Agent and a
     // bounded timeout. All remote fetches stay in Rust (CSP keeps `connect-src`
