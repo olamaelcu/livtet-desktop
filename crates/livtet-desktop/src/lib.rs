@@ -1,7 +1,7 @@
 pub mod atproto;
 pub mod commands;
-pub mod firewall;
 mod error;
+pub mod firewall;
 mod http;
 mod koreader_sync;
 mod mcp;

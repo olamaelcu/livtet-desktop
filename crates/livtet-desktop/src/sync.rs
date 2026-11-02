@@ -711,8 +711,8 @@ mod tests {
     use std::sync::Mutex;
     use std::time::Duration;
 
-    use livtet_sync_server::rpc::method;
     use super::timeout_for;
+    use livtet_sync_server::rpc::method;
     use serde_json::{Value, json};
     use tauri_plugin_shell::process::CommandEvent;
     use tokio::sync::oneshot;

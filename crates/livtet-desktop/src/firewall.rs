@@ -161,9 +161,11 @@ fn firewalld_configuration() -> Option<Tool> {
 /// more useful than a generic failure.
 #[cfg(target_os = "linux")]
 pub fn allow(port: u16) -> Result<(), String> {
-    let tool = ufw_configuration().or_else(firewalld_configuration).ok_or_else(|| {
-        "no firewall is enabled on this machine, so there is no rule to add".to_string()
-    })?;
+    let tool = ufw_configuration()
+        .or_else(firewalld_configuration)
+        .ok_or_else(|| {
+            "no firewall is enabled on this machine, so there is no rule to add".to_string()
+        })?;
     let path = tool.executable().ok_or_else(|| {
         format!(
             "{} is enabled but its command is not installed",
@@ -221,7 +223,9 @@ mod tests {
 
     #[test]
     fn ufw_counts_as_enabled_only_when_the_flag_says_yes() {
-        assert!(ufw_enabled("IPV6=yes\nENABLED=yes\nDEFAULT_INPUT_POLICY=\"DROP\"\n"));
+        assert!(ufw_enabled(
+            "IPV6=yes\nENABLED=yes\nDEFAULT_INPUT_POLICY=\"DROP\"\n"
+        ));
         assert!(ufw_enabled("  enabled = YES  \n"));
     }
 
