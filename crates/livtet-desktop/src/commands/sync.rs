@@ -48,25 +48,6 @@ async fn sync_status_inner(sync: &SyncHandle) -> Result<SyncStatusInfo, SyncErro
     parse(sync.call(method::STATUS, Value::Null).await?)
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn sync_requests_recent(
-    limit: Option<i32>,
-    state: State<'_, AppState>,
-) -> Result<Vec<SyncRequestRecord>, SyncError> {
-    sync_requests_recent_inner(&state.sync, limit).await
-}
-
-async fn sync_requests_recent_inner(
-    sync: &SyncHandle,
-    limit: Option<i32>,
-) -> Result<Vec<SyncRequestRecord>, SyncError> {
-    parse(
-        sync.call(method::REQUESTS_RECENT, json!({ "limit": limit }))
-            .await?,
-    )
-}
-
 /// Books paired devices have offered, waiting on the reader's decision.
 ///
 /// The daemon records an offer on pull instead of taking it, so everything
@@ -239,7 +220,7 @@ pub async fn sync_device_name_save(
 ) -> Result<Option<String>, SyncError> {
     let name = normalize_device_name(name);
     // Read-modify-write: the name is one preference, and saving it must not
-    // reset the LAN toggle (or anything added beside it later).
+    // reset the remembered port (or anything added beside it later).
     let settings = state
         .sync_settings
         .read()
@@ -309,29 +290,6 @@ async fn sync_pull_inner(
     )
 }
 
-/// Whether the daemon should accept sync peers from the LAN.
-#[tauri::command]
-#[specta::specta]
-pub async fn sync_lan_get(state: State<'_, AppState>) -> Result<bool, SyncError> {
-    Ok(state.sync_settings.read().unwrap_or_default().lan)
-}
-
-/// Persist the LAN preference.
-///
-/// The daemon binds its interface when the sidecar is spawned, so this takes
-/// effect at the next launch rather than live.
-#[tauri::command]
-#[specta::specta]
-pub async fn sync_lan_set(enabled: bool, state: State<'_, AppState>) -> Result<bool, SyncError> {
-    let mut settings = state.sync_settings.read().unwrap_or_default();
-    settings.lan = enabled;
-    state
-        .sync_settings
-        .write(&settings)
-        .map_err(SyncError::storage)?;
-    Ok(settings.lan)
-}
-
 /// Ask a discovered peer to pair with this desktop.
 ///
 /// Returns once the claim is filed; the peer approves it in its own UI and the
@@ -339,7 +297,6 @@ pub async fn sync_lan_set(enabled: bool, state: State<'_, AppState>) -> Result<b
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_pair_claim(
-    listen_on: String,
     node_id: String,
     device_name: Option<String>,
     state: State<'_, AppState>,
@@ -348,7 +305,7 @@ pub async fn sync_pair_claim(
         .sync
         .call(
             method::PAIRING_CLAIM,
-            json!({ "listen_on": listen_on, "node_id": node_id, "device_name": device_name }),
+            json!({ "node_id": node_id, "device_name": device_name }),
         )
         .await?;
     Ok(())
@@ -403,13 +360,12 @@ async fn sync_devices_list_inner(sync: &SyncHandle) -> Result<Vec<SyncDevice>, S
     parse(sync.call(method::DEVICES_LIST, Value::Null).await?)
 }
 
-/// Diagnose why a paired device cannot reach this one.
+/// Sum up this device's sync state and the peers it is paired with.
 ///
-/// Pull works from this side because it is an outbound request; the reverse
-/// direction is an inbound request this device has to answer, and every way it
-/// can fail — a stopped server, a loopback-only bind, a firewall that drops
-/// packets, a token this device no longer knows — looks the same from the
-/// settings page. The probes and the verdict live in [`crate::sync_diagnostics`].
+/// The daemon speaks iroh over a UDP endpoint and advertises itself over mDNS,
+/// so there is no server to start or address to dial: what can go wrong is a
+/// pairing that never completed, or a peer that has gone quiet. The summary
+/// lives in [`crate::sync_diagnostics`].
 #[tauri::command]
 #[specta::specta]
 pub async fn sync_diagnostics(
@@ -423,11 +379,7 @@ async fn sync_diagnostics_inner(
 ) -> Result<crate::sync_diagnostics::SyncDiagnostics, SyncError> {
     let status: SyncStatusInfo = parse(sync.call(method::STATUS, Value::Null).await?)?;
     let peers: Vec<SyncDevice> = parse(sync.call(method::DEVICES_LIST, Value::Null).await?)?;
-    let inbound: Vec<SyncRequestRecord> = parse(
-        sync.call(method::REQUESTS_RECENT, json!({ "limit": 50 }))
-            .await?,
-    )?;
-    Ok(crate::sync_diagnostics::collect(&status, peers, inbound).await)
+    Ok(crate::sync_diagnostics::collect(&status, peers))
 }
 
 #[tauri::command]
@@ -488,28 +440,6 @@ async fn sync_conflicts_resolve_inner(
     Ok(ok(&value))
 }
 
-#[tauri::command]
-#[specta::specta]
-pub async fn sync_server_start(state: State<'_, AppState>) -> Result<bool, SyncError> {
-    sync_server_start_inner(&state.sync).await
-}
-
-async fn sync_server_start_inner(sync: &SyncHandle) -> Result<bool, SyncError> {
-    let value = sync.call(method::SERVER_START, Value::Null).await?;
-    Ok(ok(&value))
-}
-
-#[tauri::command]
-#[specta::specta]
-pub async fn sync_server_stop(state: State<'_, AppState>) -> Result<bool, SyncError> {
-    sync_server_stop_inner(&state.sync).await
-}
-
-async fn sync_server_stop_inner(sync: &SyncHandle) -> Result<bool, SyncError> {
-    let value = sync.call(method::SERVER_STOP, Value::Null).await?;
-    Ok(ok(&value))
-}
-
 /// Liveness payload returned by `health`.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SyncHealth {
@@ -517,7 +447,8 @@ pub struct SyncHealth {
     pub version: String,
     pub pid: i32,
     pub uptime_secs: i32,
-    pub server_running: bool,
+    /// This device's iroh endpoint id, the identity peers dial.
+    pub node_id: String,
     pub port: i32,
 }
 
@@ -525,24 +456,12 @@ pub struct SyncHealth {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct SyncStatusInfo {
     pub device_id: String,
-    pub server_running: bool,
-    pub host: String,
+    /// This device's iroh endpoint id, the identity peers dial.
+    pub node_id: String,
     pub port: i32,
     pub latest_version: i32,
     pub paired_device_count: i32,
     pub pending_pairing_count: i32,
-    pub requests_served: i32,
-    pub last_request_at: Option<String>,
-}
-
-/// One served HTTP request from `requests.recent`.
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-pub struct SyncRequestRecord {
-    pub method: String,
-    pub path: String,
-    pub status: i32,
-    pub at: String,
-    pub device_id: Option<String>,
 }
 
 /// A freshly minted pairing identity from `pairing.begin` (identity primitive; replaces token/URI).
@@ -778,7 +697,6 @@ mod tests {
         match name {
             method::HEALTH => to_json(sync_health_inner(sync).await),
             method::STATUS => to_json(sync_status_inner(sync).await),
-            method::REQUESTS_RECENT => to_json(sync_requests_recent_inner(sync, Some(5)).await),
             method::PAIRING_BEGIN => {
                 to_json(sync_pairing_begin_inner(sync, Some("phone"), None).await)
             }
@@ -801,8 +719,6 @@ mod tests {
             method::CONFLICTS_RESOLVE => to_json(
                 sync_conflicts_resolve_inner(sync, 7, "merge", Some(r#"{"title":"x"}"#)).await,
             ),
-            method::SERVER_START => to_json(sync_server_start_inner(sync).await),
-            method::SERVER_STOP => to_json(sync_server_stop_inner(sync).await),
             other => panic!("no command for daemon method {other}"),
         }
     }
@@ -843,27 +759,17 @@ mod tests {
                 Value::Null,
                 json!({
                     "status": "ok", "version": "0.1.0", "pid": 4242,
-                    "uptime_secs": 17, "server_running": true, "port": 8443,
+                    "uptime_secs": 17, "node_id": "node-self", "port": 8443,
                 }),
             ),
             decoded(
                 method::STATUS,
                 Value::Null,
                 json!({
-                    "device_id": "desk-1", "server_running": false, "host": "127.0.0.1",
-                    "port": 0, "latest_version": 12, "paired_device_count": 2,
-                    "pending_pairing_count": 1, "requests_served": 30, "last_request_at": null,
+                    "device_id": "desk-1", "node_id": "node-self", "port": 7710,
+                    "latest_version": 12, "paired_device_count": 2,
+                    "pending_pairing_count": 1,
                 }),
-            ),
-            decoded(
-                method::REQUESTS_RECENT,
-                json!({ "limit": 5 }),
-                json!([
-                    { "method": "GET", "path": "/sync/pull", "status": 200,
-                      "at": "2026-10-14T10:00:00Z", "device_id": "dev-1" },
-                    { "method": "POST", "path": "/pair", "status": 403,
-                      "at": "2026-10-14T10:01:00Z", "device_id": null },
-                ]),
             ),
             decoded(
                 method::PAIRING_BEGIN,
@@ -952,18 +858,6 @@ mod tests {
             acknowledged(
                 method::CONFLICTS_RESOLVE,
                 json!({ "id": 7, "resolution": "merge", "merged_payload": r#"{"title":"x"}"# }),
-                json!({ "ok": false }),
-                false,
-            ),
-            acknowledged(
-                method::SERVER_START,
-                Value::Null,
-                json!({ "ok": true, "already_running": true }),
-                true,
-            ),
-            acknowledged(
-                method::SERVER_STOP,
-                Value::Null,
                 json!({ "ok": false }),
                 false,
             ),

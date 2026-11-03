@@ -406,10 +406,7 @@ async fn sync_wrappers_map_a_dead_daemon_pipe_to_unavailable() {
 
     assert_unavailable("sync_health", sync::sync_health(state()).await);
     assert_unavailable("sync_status", sync::sync_status(state()).await);
-    assert_unavailable(
-        "sync_requests_recent",
-        sync::sync_requests_recent(Some(5), state()).await,
-    );
+    assert_unavailable("sync_offers_list", sync::sync_offers_list(state()).await);
     assert_unavailable(
         "sync_pairing_begin",
         sync::sync_pairing_begin(Some("phone".to_string()), Some(30), state()).await,
@@ -442,8 +439,6 @@ async fn sync_wrappers_map_a_dead_daemon_pipe_to_unavailable() {
         )
         .await,
     );
-    assert_unavailable("sync_server_start", sync::sync_server_start(state()).await);
-    assert_unavailable("sync_server_stop", sync::sync_server_stop(state()).await);
 }
 
 // ---------------------------------------------------------------------------

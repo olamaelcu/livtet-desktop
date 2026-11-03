@@ -14,9 +14,6 @@ import {
   syncPairingBegin,
   syncPairingList,
   syncPairingReject,
-  syncRequestsRecent,
-  syncServerStart,
-  syncServerStop,
   syncStatus,
 } from './sync'
 
@@ -33,14 +30,12 @@ test('queries forward to their Tauri commands', async () => {
   await syncPairingList()
   await syncDevicesList()
   await syncConflictsList()
-  await syncRequestsRecent(50)
 
   expect(invoke).toHaveBeenCalledWith('sync_health')
   expect(invoke).toHaveBeenCalledWith('sync_status')
   expect(invoke).toHaveBeenCalledWith('sync_pairing_list')
   expect(invoke).toHaveBeenCalledWith('sync_devices_list')
   expect(invoke).toHaveBeenCalledWith('sync_conflicts_list')
-  expect(invoke).toHaveBeenCalledWith('sync_requests_recent', { limit: 50 })
 })
 
 test('mutations forward arguments', async () => {
@@ -50,8 +45,6 @@ test('mutations forward arguments', async () => {
   await syncDevicesRevoke('dev-1')
   await syncConflictsResolve(7, 'local')
   await syncConflictsResolve(8, 'merged', '{}')
-  await syncServerStart()
-  await syncServerStop()
 
   expect(invoke).toHaveBeenCalledWith('sync_pairing_begin', { deviceType: 'mobile', ttlSecs: 300 })
   // Pairing is keyed by the peer's node identity, not a ticket token.
@@ -68,8 +61,6 @@ test('mutations forward arguments', async () => {
     resolution: 'merged',
     mergedPayload: '{}',
   })
-  expect(invoke).toHaveBeenCalledWith('sync_server_start')
-  expect(invoke).toHaveBeenCalledWith('sync_server_stop')
 })
 
 test('daemon errors surface their message', () => {

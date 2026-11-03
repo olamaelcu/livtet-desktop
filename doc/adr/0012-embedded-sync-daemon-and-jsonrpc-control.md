@@ -4,7 +4,9 @@ Date: 2026-09-23
 
 ## Status
 
-Accepted
+Accepted. The transport details are superseded by [ADR 0057](0057-sync-over-iroh-only.md):
+the daemon now serves peers over iroh, so `server.start|stop`, `requests.recent`,
+and the `server.*`/`request.received`/`sync.completed` notifications are retired.
 
 ## Context
 
@@ -40,7 +42,8 @@ Ship the sync server as a **Tauri-managed sidecar**:
 * **Launch** — via `tauri-plugin-shell`'s `ShellExt::shell().sidecar(
   "livtet-sync-daemon")`, so Tauri owns path resolution and process lifetime.
   The daemon is started in `app_setup` with `--db <data>/livtet.db --host
-  127.0.0.1 --port 0`.
+  127.0.0.1 --port 0`. (Since [ADR 0057](0057-sync-over-iroh-only.md) the bound
+  port is UDP and `--host` is gone.)
 * **Control protocol** — **JSON-RPC 2.0, newline-delimited JSON over
   stdin/stdout**. The daemon's stdout carries only NDJSON; its logs go to
   stderr. The codec and method-name constants live in

@@ -13,40 +13,18 @@
 use serde::{Deserialize, Serialize};
 
 /// The settings stored in `sync.json`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SyncSettings {
     /// Name advertised to nearby peers; absent/blank generates one from the
     /// device id.
     #[serde(default)]
     pub device_name: Option<String>,
-    /// Bind the sync daemon on all interfaces so peers on the LAN can reach
-    /// it. Defaults to `true`: `/sync/*` data routes require a session token,
-    /// and pairing still needs approval here. Set `false` to keep the daemon
-    /// on loopback.
-    #[serde(default = "lan_enabled")]
-    pub lan: bool,
     /// Port the sync server binds, remembered from the last successful start.
     ///
     /// `None` on a fresh install (and on settings written before this field
     /// existed); the first start records what the daemon actually bound.
     #[serde(default)]
     pub listen_port: Option<u16>,
-}
-
-/// Default for [`SyncSettings::lan`], applied to settings written before the
-/// field existed.
-fn lan_enabled() -> bool {
-    true
-}
-
-impl Default for SyncSettings {
-    fn default() -> Self {
-        Self {
-            device_name: None,
-            lan: lan_enabled(),
-            listen_port: None,
-        }
-    }
 }
 
 impl SyncSettings {
@@ -122,13 +100,11 @@ mod tests {
 
         let offline = SyncSettings {
             device_name: None,
-            lan: false,
             listen_port: Some(7723),
         };
         let renamed = offline.with_device_name(Some("Josh's MacBook".to_string()));
 
         assert_eq!(renamed.device_name.as_deref(), Some("Josh's MacBook"));
-        assert!(!renamed.lan, "a rename must not turn LAN sharing back on");
         assert_eq!(
             renamed.listen_port,
             Some(7723),
@@ -145,7 +121,6 @@ mod tests {
 
         let legacy: SyncSettings = serde_json::from_value(serde_json::json!({
             "device_name": "Josh's MacBook",
-            "lan": true,
         }))
         .expect("settings written before the field existed still load");
         assert_eq!(legacy.listen_port, None);

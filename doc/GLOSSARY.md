@@ -68,10 +68,9 @@ Naming policy: use the canonical term from code or ADRs. Expand abbreviations on
 
 ## Backend
 
-- **sync daemon** — the `livtet-sync-daemon` sidecar Tauri launches; it calls `livtet_sync_server::run` and hosts the poem `/sync/*` server. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
-- **sync control channel** — JSON-RPC 2.0, newline-delimited, over the daemon's stdin/stdout: requests (`health`, `status`, `requests.recent`, `pairing.*`, `discovery.nearby|rename`, `devices.*`, `conflicts.*`, `server.*`, `shutdown`) plus notifications. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
+- **sync daemon** — the `livtet-sync-daemon` sidecar Tauri launches; it calls `livtet_sync_server::run` and serves peers over iroh. See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md) and [ADR 0057](adr/0057-sync-over-iroh-only.md).
+- **sync control channel** — JSON-RPC 2.0, newline-delimited, over the daemon's stdin/stdout: requests (`health`, `status`, `pairing.*`, `discovery.nearby|rename`, `devices.*`, `offers.*`, `conflicts.*`, `shutdown`) plus notifications (`pairing.requested|claimed`, `sync.pulled`, `offer.received|decided`). See [ADR 0012](adr/0012-embedded-sync-daemon-and-jsonrpc-control.md).
 - **client migration** — the `livtet-data` migrator (`Kind::Client`) that owns `change_log`, `conflicts`, the pairing tables, `client_settings`, and the audit triggers. See [core ADR 2](../../core/docs/adr/0002-own-the-sync-client-schema-in-livtet-data-migrations.md).
-- **request log** — the daemon's bounded ring buffer of recently served `/sync/*` requests, read via `requests.recent` and refreshed by `sync://request`.
 - **fs_read** — host-to-application capability callback that returns the selected import file's bytes, scoped to that exact path. See [ADR 0011](adr/0011-importer-plugin-contract-and-import-file-command.md).
 - **plugin host** — the `livtet-plugin-host` sidecar that runs Lua plugins out of process, launched per call and answering method calls by name (`extensions`, `read_metadata`, `sources`, `enrich`). It is contract-agnostic: which methods a plugin may be asked for is the application's decision, not the host's. See [ADR 0029](adr/0029-livtet-plugin-host-sidecar.md) and [ADR 0031](adr/0031-host-provided-sandbox-modules.md).
 - **livtet-mobi** — the in-crate parser extracting MOBI-family metadata and covers; no text decompression. See [ADR 0023](adr/0023-import-mobi-family-files-with-an-in-crate-livtet-mobi-parser.md).

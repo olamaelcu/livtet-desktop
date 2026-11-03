@@ -1,9 +1,10 @@
 //! Opening this device's sync port in the host firewall.
 //!
-//! `ufw`'s default `deny (incoming)` policy drops every new inbound TCP
-//! connection, which is exactly the direction a peer needs to claim this
-//! device and pull from it. Nothing in the app can observe that from the
-//! outside — a firewalled port is indistinguishable from an absent one — so
+//! `ufw`'s default `deny (incoming)` policy drops every new inbound packet,
+//! and the sync daemon's iroh endpoint is UDP. That inbound port is exactly
+//! the direction a peer needs to reach this device directly. Nothing in the
+//! app can observe that from the outside — a firewalled port is
+//! indistinguishable from an absent one — so
 //! this module reads the host's own configuration instead and offers the one
 //! command that fixes it.
 //!
@@ -55,7 +56,7 @@ impl Tool {
         candidates
             .iter()
             .copied()
-            .find(|path| std::path::Path::new(path).exists())
+            .find(|path| camino::Utf8Path::new(path).exists())
     }
 
     fn name(self) -> &'static str {
@@ -74,8 +75,8 @@ impl Tool {
     /// reloaded or the machine reboots.
     fn args(self, path: &str, port: u16) -> Vec<String> {
         match self {
-            Tool::Ufw => vec![path.to_string(), "allow".to_string(), format!("{port}/tcp")],
-            Tool::Firewalld => vec![path.to_string(), format!("--add-port={port}/tcp")],
+            Tool::Ufw => vec![path.to_string(), "allow".to_string(), format!("{port}/udp")],
+            Tool::Firewalld => vec![path.to_string(), format!("--add-port={port}/udp")],
         }
     }
 }
@@ -84,7 +85,7 @@ impl Tool {
 fn pkexec() -> Option<&'static str> {
     ["/usr/bin/pkexec", "/usr/local/bin/pkexec"]
         .into_iter()
-        .find(|path| std::path::Path::new(path).exists())
+        .find(|path| camino::Utf8Path::new(path).exists())
 }
 
 /// A sandboxed build cannot reach the host's polkit agent, so elevation has to
@@ -92,7 +93,7 @@ fn pkexec() -> Option<&'static str> {
 fn sandboxed() -> bool {
     std::env::var_os("FLATPAK_ID").is_some()
         || std::env::var_os("SNAP").is_some()
-        || std::path::Path::new("/.flatpak-info").exists()
+        || camino::Utf8Path::new("/.flatpak-info").exists()
 }
 
 /// Whether a ufw configuration enables the firewall.
@@ -240,21 +241,21 @@ mod tests {
     fn ufw_rule_is_an_allow_for_the_given_port() {
         let args = Tool::Ufw.args("/usr/sbin/ufw", 7710);
 
-        assert_eq!(args, ["/usr/sbin/ufw", "allow", "7710/tcp"]);
+        assert_eq!(args, ["/usr/sbin/ufw", "allow", "7710/udp"]);
     }
 
     #[test]
     fn firewalld_rule_names_the_port_in_its_own_syntax() {
         let args = Tool::Firewalld.args("/usr/bin/firewall-cmd", 7710);
 
-        assert_eq!(args, ["/usr/bin/firewall-cmd", "--add-port=7710/tcp"]);
+        assert_eq!(args, ["/usr/bin/firewall-cmd", "--add-port=7710/udp"]);
     }
 
     #[test]
     fn the_displayed_command_is_the_one_that_would_run() {
         let args = Tool::Ufw.args("/usr/sbin/ufw", 7710);
 
-        assert_eq!(shell_join(&args), "/usr/sbin/ufw allow 7710/tcp");
+        assert_eq!(shell_join(&args), "/usr/sbin/ufw allow 7710/udp");
     }
 
     #[test]
@@ -269,7 +270,7 @@ mod tests {
     /// way detection must not invent a hint.
     #[test]
     fn a_machine_without_an_enabled_firewall_gets_no_hint() {
-        if cfg!(target_os = "linux") && std::path::Path::new("/etc/ufw/ufw.conf").exists() {
+        if cfg!(target_os = "linux") && camino::Utf8Path::new("/etc/ufw/ufw.conf").exists() {
             return;
         }
         assert_eq!(detect(7710), None);

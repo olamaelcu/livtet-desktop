@@ -37,19 +37,16 @@ beforeEach(() => {
     version: '0.1.0',
     pid: 4242,
     uptime_secs: 90,
-    server_running: true,
+    node_id: 'node-self',
     port: 7777,
   }
   status = {
     device_id: 'device-abc',
-    server_running: true,
-    host: '127.0.0.1',
+    node_id: 'node-self',
     port: 7777,
     latest_version: 12,
     paired_device_count: 2,
     pending_pairing_count: 1,
-    requests_served: 34,
-    last_request_at: '2026-10-08T12:00:00Z',
   }
 
   invoke.mockImplementation(async (command: string) => {
@@ -65,7 +62,6 @@ beforeEach(() => {
       case 'sync_pairing_list':
       case 'sync_devices_list':
       case 'sync_conflicts_list':
-      case 'sync_requests_recent':
       case 'sync_nearby_devices':
         return []
       case 'sync_device_name_get':
@@ -78,26 +74,17 @@ beforeEach(() => {
         return { device_id: 'device-abc', session_token: 'sess-1' }
       case 'sync_diagnostics':
         return {
-          server_running: true,
-          host: '0.0.0.0',
+          device_id: 'device-abc',
+          node_id: 'node-self',
           port: 7777,
-          loopback: { target: '127.0.0.1:7777', status: 401, error: null },
-          lan: {
-            target: '192.168.1.137:7777',
-            status: null,
-            error: 'error sending request for url (http://192.168.1.137:7777/sync/status)',
-          },
+          paired_device_count: 2,
+          pending_pairing_count: 1,
           peers: [],
-          inbound: [],
-          findings: [
-            '192.168.1.137:7777 never answered. A firewall, VLAN isolation, or client isolation on the access point drops these packets; outbound pulls are unaffected by all three.',
-          ],
+          findings: ['1 pairing request(s) are waiting for approval here.'],
         }
       case 'sync_pairing_reject':
       case 'sync_devices_revoke':
       case 'sync_conflicts_resolve':
-      case 'sync_server_start':
-      case 'sync_server_stop':
         return true
       default:
         throw new Error(`unexpected command: ${command}`)
@@ -138,9 +125,8 @@ test('renders the daemon facts once health and status resolve', async () => {
   const text = factsText(container)
   expect(text).toContain('device-abc')
   expect(text).toContain('12')
-  expect(text).toContain('34')
-  expect(serverCalloutText(container)).toContain('127.0.0.1:7777')
-  expect(serverCalloutText(container)).toContain('Sharing on')
+  expect(serverCalloutText(container)).toContain('Sync is on')
+  expect(serverCalloutText(container)).toContain('Paired devices stay in step')
   expect(unavailable(container)).toBeNull()
   expect(toast.error).not.toHaveBeenCalled()
 })
@@ -366,7 +352,6 @@ test('lists a discovered peer with a pictogram and its friendly name', async () 
   const { container } = await render(SyncPanelFixture)
 
   await expect.poll(() => container.textContent).toContain('Amber Otter')
-  expect(container.textContent).toContain('192.168.1.40:4321')
   expect(container.textContent).toContain('📱')
 
   const pair = [...container.querySelectorAll('wa-button')].find(
@@ -377,7 +362,6 @@ test('lists a discovered peer with a pictogram and its friendly name', async () 
   await expect
     .poll(() => invoke)
     .toHaveBeenCalledWith('sync_pair_claim', {
-      listenOn: '192.168.1.40:4321',
       nodeId: 'peer-node',
       deviceName: 'Amber Otter',
     })
@@ -407,40 +391,22 @@ test('saves the chosen device name', async () => {
   expect(invoke).toHaveBeenCalledWith('sync_device_name_save', { name: "Josh's MacBook" })
 })
 
-test('shows the server as stopped while the daemon is still reachable', async () => {
-  health = { ...(health as Record<string, unknown>), server_running: false }
-  status = { ...(status as Record<string, unknown>), server_running: false }
-
-  const { container } = await render(SyncPanelFixture)
-
-  await expect.poll(() => facts(container)).not.toBeNull()
-  expect(serverCalloutText(container)).toContain('Server stopped')
-})
-
-test('diagnosing reachability reports what each probe answered', async () => {
+test('checking the sync state lists the pairing findings', async () => {
   const { container } = await render(SyncPanelFixture)
   await expect.poll(() => facts(container)).not.toBeNull()
 
-  const diagnose = [...container.querySelectorAll<HTMLElement>('wa-button, button')].find(
-    (button) => button.textContent?.trim() === 'Diagnose',
+  const check = [...container.querySelectorAll<HTMLElement>('wa-button, button')].find(
+    (button) => button.textContent?.trim() === 'Check',
   )
-  expect(diagnose).not.toBeUndefined()
-  diagnose?.click()
+  expect(check).not.toBeUndefined()
+  check?.click()
 
   const reach = 'section[aria-labelledby="sync-reach-heading"]'
   await expect.poll(() => container.querySelector(`${reach} .findings`)).not.toBeNull()
 
   const findings = container.querySelector(`${reach} .findings`)?.textContent ?? ''
-  expect(findings).toContain('firewall')
+  expect(findings).toContain('pairing request(s) are waiting')
   expect(findings).not.toContain('pair again')
-
-  // The probes are shown as they answered: a 401 is reachability, an error is not.
-  await expect
-    .poll(() => container.querySelector(`${reach} .probes`)?.textContent ?? '')
-    .toContain('127.0.0.1:7777 answered 401')
-  expect(container.querySelector(`${reach} .probes`)?.textContent).toContain(
-    '192.168.1.137:7777: error sending request',
-  )
 })
 
 // Pairing is directional. A device that paired *to* this desktop holds the

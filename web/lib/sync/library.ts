@@ -12,9 +12,6 @@ import { listenToSyncEvents } from '../sync'
  * From that moment every cached page, filter count, and cover is stale, so the
  * whole catalog domain is dropped rather than the one key this module could
  * guess — the library view builds its own query shapes from the active filters.
- *
- * `sync://completed` is deliberately left alone: that reports a request this
- * device *served*, which fills the other device's library, not this one.
  */
 export function refreshLibraryOnPull(queryClient: QueryClient): Promise<UnlistenFn> {
   return listenToSyncEvents({

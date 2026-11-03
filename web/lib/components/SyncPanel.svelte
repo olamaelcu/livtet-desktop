@@ -7,7 +7,6 @@ import ConfirmDialog from '../library/ConfirmDialog.svelte'
 import { syncKeys } from '../query/keys'
 import {
   listenToSyncEvents,
-  peerEndpoint,
   syncConflictsList,
   syncConflictsResolve,
   syncDeviceNameGet,
@@ -19,8 +18,6 @@ import {
   syncFirewallAllow,
   syncFirewallHint,
   syncHealth,
-  syncLanGet,
-  syncLanSet,
   syncNearbyDevices,
   syncPairClaim,
   syncPairingApprove,
@@ -28,15 +25,11 @@ import {
   syncPairingList,
   syncPairingReject,
   syncPull,
-  syncRequestsRecent,
-  syncServerStart,
-  syncServerStop,
   syncStatus,
 } from '../sync'
 import ActionButton from './ActionButton.svelte'
 
 const SYNC_POLL_MS = 30_000
-const REQUEST_LIMIT = 50
 
 const queryClient = useQueryClient()
 
@@ -77,11 +70,6 @@ const deviceName = createQuery(() => ({
   queryFn: syncDeviceNameGet,
 }))
 
-const lan = createQuery(() => ({
-  queryKey: syncKeys.lan(),
-  queryFn: syncLanGet,
-}))
-
 /**
  * The editable name. Seeded once from the store so a background refresh never
  * overwrites what the reader is typing.
@@ -118,10 +106,10 @@ const devices = createQuery(() => ({
 }))
 
 /**
- * Probe this device's own server from the loopback and LAN addresses.
+ * Sum up this device's pairing state and the peers it holds.
  *
- * A mutation rather than a query: every run dials real sockets, and the answer
- * is about this moment, not a cacheable fact.
+ * A mutation rather than a query: it is a snapshot the reader asks for, and
+ * its findings would otherwise be refetched while they are being read.
  */
 const diagnose = createMutation(() => ({
   mutationFn: syncDiagnostics,
@@ -153,20 +141,10 @@ const allowFirewall = createMutation(() => ({
   mutationFn: (port: number) => syncFirewallAllow(port),
   onSuccess: (_result, port) => {
     allowedPort = port
-    toast.success(`Allowed inbound connections on port ${port}`)
+    toast.success('Allowed other devices to connect')
   },
   onError: (error) => toast.error(syncErrorMessage(error)),
 }))
-
-/** What a probe found, in one line. */
-function probeLabel(probe: {
-  target: string
-  status: number | null
-  error: string | null
-}): string {
-  if (probe.status !== null) return `${probe.target} answered ${probe.status}`
-  return `${probe.target}: ${probe.error ?? 'no answer'}`
-}
 
 const conflicts = createQuery(() => ({
   queryKey: syncKeys.conflicts(),
@@ -181,15 +159,6 @@ const pairedIds = $derived(new Set((devices.data ?? []).map((device) => device.d
 const unresolvedConflicts = $derived(
   (conflicts.data ?? []).filter((conflict) => !conflict.resolved),
 )
-
-const requests = createQuery(() => ({
-  queryKey: syncKeys.requests(REQUEST_LIMIT),
-  queryFn: () => syncRequestsRecent(REQUEST_LIMIT),
-  refetchInterval: SYNC_POLL_MS,
-}))
-
-const running = $derived(status.data?.server_running ?? health.data?.server_running ?? false)
-const address = $derived(status.data ? `${status.data.host}:${status.data.port}` : null)
 
 type SyncAction = { message: string; run: () => Promise<unknown> }
 
@@ -258,26 +227,8 @@ function applyDeviceName() {
   saveName.mutate(trimmed === '' ? null : trimmed)
 }
 
-const setLan = createMutation(() => ({
-  mutationFn: (enabled: boolean) => syncLanSet(enabled),
-  onSuccess: (enabled) => {
-    queryClient.setQueryData(syncKeys.lan(), enabled)
-    toast.success(
-      enabled ? 'LAN sharing on — restart to apply' : 'LAN sharing off — restart to apply',
-    )
-  },
-  onError: (error) => toast.error(syncErrorMessage(error)),
-}))
-
-function onLanToggle(event: Event) {
-  setLan.mutate((event.currentTarget as WaSwitchElement).checked)
-}
-
 /**
- * The v2 pairing link: node id plus the advertised name.
- *
- * No address is embedded — a discovered peer resolves one over Bonjour, and
- * the manual entry sheet covers networks where multicast is blocked.
+ * The v2 pairing link: the pairing code plus the advertised name.
  */
 function pairingLink(ticket: SyncPairingTicket): string {
   const parts = ['v=2', `nodeId=${encodeURIComponent(ticket.node_id)}`]
@@ -288,14 +239,6 @@ function pairingLink(ticket: SyncPairingTicket): string {
 
 function refreshAll() {
   return invalidateQueries(syncKeys.all)
-}
-
-function startServer() {
-  action.mutate({ message: 'Sync server started', run: syncServerStart })
-}
-
-function stopServer() {
-  action.mutate({ message: 'Sync server stopped', run: syncServerStop })
 }
 
 function beginPairing() {
@@ -342,8 +285,7 @@ const pullElapsed = $derived(
  * A book offered to this desktop only exists in the sender's change log, so
  * this is what makes it appear here. Pairing is mutual, so a device this
  * desktop paired with is pullable in both directions; only a pairing approved
- * before that was true — or one whose claim carried no address — is still
- * send-only, and the daemon refuses to pull it.
+ * before that was true is still send-only, and the daemon refuses to pull it.
  */
 const pull = createMutation(() => ({
   mutationFn: async (): Promise<PullReport[]> => {
@@ -430,14 +372,9 @@ let pairingWith = $state<string | null>(null)
 
 async function pairWith(peer: SyncNearbyPeer) {
   if (pairingWith) return
-  const endpoint = peerEndpoint(peer)
-  if (!endpoint) {
-    toast.error(`${peer.name} advertised no address to pair with`)
-    return
-  }
   pairingWith = peer.node_id
   try {
-    await syncPairClaim(endpoint, peer.node_id, peer.name)
+    await syncPairClaim(peer.node_id, peer.name)
     toast.info(`Pairing request sent to ${peer.name}`, {
       description: 'Approve it on that device, then its books can be pulled here.',
     })
@@ -463,10 +400,9 @@ onMount(() => {
 
   listenToSyncEvents({
     'sync://pairing-requested': () => invalidateQueries(syncKeys.pending(), syncKeys.status()),
-    'sync://request': () => invalidateQueries(syncKeys.requests(REQUEST_LIMIT), syncKeys.status()),
-    'sync://completed': () => invalidateQueries(syncKeys.status(), syncKeys.conflicts()),
-    'sync://server-started': () => invalidateQueries(syncKeys.health(), syncKeys.status()),
-    'sync://server-stopped': () => invalidateQueries(syncKeys.health(), syncKeys.status()),
+    // A pull this device made applied rows here, so the catalog and any
+    // conflicts it raised are both stale.
+    'sync://pulled': () => invalidateQueries(syncKeys.status(), syncKeys.conflicts()),
     'sync://offer-received': (payload) => {
       // A pull records offers as it finds them, so this is live progress even
       // while the pull's own reply is still pending.
@@ -479,6 +415,9 @@ onMount(() => {
       const name = (payload as { name?: string } | null)?.name
       toast.success(name ? `Paired with ${name}` : 'Device paired')
     },
+    // A peer answered an offer this device sent; the sender's offer rows and
+    // its peer list both move.
+    'sync://offer-decided': () => invalidateQueries(syncKeys.offers(), syncKeys.devices()),
   }).then((stop) => {
     if (disposed) stop()
     else unlisten = stop
@@ -496,40 +435,21 @@ onMount(() => {
     <h2 id="sync-heading">Sync</h2>
     <p class="description">
       Keeps reading positions, shelves, and notes in step between paired devices.
-      The daemon runs beside the library; its server is the endpoint the other
-      device talks to.
+      The daemon runs quietly beside the library.
     </p>
   </header>
 
   <section class="section" aria-labelledby="sync-status-heading">
     <div class="section-head">
-      <h3 id="sync-status-heading">Server</h3>
+      <h3 id="sync-status-heading">Daemon</h3>
       <ActionButton size="small" onclick={refreshAll} disabled={busy}>Refresh</ActionButton>
     </div>
 
     {#if health.data || status.data}
-      <wa-callout variant={running ? 'success' : 'neutral'}>
-        <wa-icon slot="icon" name={running ? 'circle-check' : 'circle-xmark'}></wa-icon>
-        {#if running}
-          <span class="status">
-            {#if address}
-              Sharing on <code>{address}</code>
-              <ActionButton size="small" onclick={() => copy('Address', address ?? '')}>
-                Copy
-              </ActionButton>
-            {:else}
-              The server is running.
-            {/if}
-          </span>
-          {#if address}
-            <span class="hint">
-              Pair a device below, then point it at this address to begin syncing.
-            </span>
-          {/if}
-        {:else}
-          Server stopped. The daemon is still reachable, so the library is not
-          being published.
-        {/if}
+      <wa-callout variant="success">
+        <wa-icon slot="icon" name="circle-check"></wa-icon>
+        <span class="status">Sync is on.</span>
+        <span class="hint">Paired devices stay in step automatically.</span>
       </wa-callout>
 
       <dl class="facts">
@@ -544,7 +464,7 @@ onMount(() => {
           </dd>
         </div>
         <div class="fact">
-          <dt>Device</dt>
+          <dt>Device ID</dt>
           <dd><code>{status.data?.device_id ?? 'unknown'}</code></dd>
         </div>
         <div class="fact">
@@ -559,22 +479,7 @@ onMount(() => {
           <dt>Pending pairings</dt>
           <dd>{status.data?.pending_pairing_count ?? 0}</dd>
         </div>
-        <div class="fact">
-          <dt>Requests served</dt>
-          <dd>{status.data?.requests_served ?? 0}</dd>
-        </div>
-        <div class="fact">
-          <dt>Last request</dt>
-          <dd>{status.data?.last_request_at ?? 'never'}</dd>
-        </div>
       </dl>
-
-      <div class="actions">
-        <ActionButton variant="brand" onclick={startServer} disabled={busy || running}>
-          Start server
-        </ActionButton>
-        <ActionButton onclick={stopServer} disabled={busy || !running}>Stop server</ActionButton>
-      </div>
     {:else}
       <p class="muted">Sync daemon is unavailable.</p>
     {/if}
@@ -600,21 +505,6 @@ onMount(() => {
         Save
       </ActionButton>
     </div>
-    <div class="name-row">
-      <wa-switch
-        aria-label="Accept sync peers from the LAN"
-        checked={lan.data ?? true}
-        disabled={setLan.isPending}
-        onchange={onLanToggle}
-      >
-        Accept sync peers from the LAN
-      </wa-switch>
-    </div>
-    <p class="description">
-      On: the daemon binds every interface and advertises on the local network.
-      Off: loopback only. Data routes still require a paired session, and this
-      applies after the app restarts.
-    </p>
   </section>
 
   <section class="section" aria-labelledby="sync-pairing-heading">
@@ -628,13 +518,15 @@ onMount(() => {
     {#if ticket}
       <div class="ticket">
         <p class="muted">
-          Scan this code on the other device, or enter the node ID, while the
-          ticket is valid.
+          Scan this code on the other device, or enter the pairing code, while
+          the ticket is valid.
         </p>
         <div class="ticket-body">
           <div class="ticket-entry">
-            <wa-input readonly={true} label="Node ID" value={ticket.node_id}></wa-input>
-            <ActionButton onclick={() => copy('Node ID', ticket?.node_id ?? '')}>Copy</ActionButton>
+            <wa-input readonly={true} label="Pairing code" value={ticket.node_id}></wa-input>
+            <ActionButton onclick={() => copy('Pairing code', ticket?.node_id ?? '')}>
+              Copy
+            </ActionButton>
           </div>
           <wa-qr-code
             class="ticket-qr"
@@ -655,7 +547,7 @@ onMount(() => {
         one, so re-pair from here to receive its books.
       </p>
       {#if nearby.isPending}
-        <p class="muted">Scanning the local network…</p>
+        <p class="muted">Looking for nearby devices…</p>
       {:else if nearby.isError}
         <p class="muted">Nearby discovery is unavailable.</p>
       {:else if nearby.data?.length}
@@ -669,7 +561,7 @@ onMount(() => {
                 <wa-badge variant="neutral">Paired</wa-badge>
               {/if}
               <span class="muted">
-                · {peer.device_type} · {peerEndpoint(peer) ?? peer.hostname}
+                · {peer.device_type}
               </span>
             </span>
             <wa-button-group>
@@ -681,14 +573,14 @@ onMount(() => {
               >
                 {pairingWith === peer.node_id ? 'Waiting…' : paired ? 'Re-pair' : 'Pair'}
               </ActionButton>
-              <ActionButton size="small" onclick={() => copy('Node ID', peer.node_id)}>
-                Copy ID
+              <ActionButton size="small" onclick={() => copy('Pairing code', peer.node_id)}>
+                Copy code
               </ActionButton>
             </wa-button-group>
           </div>
         {/each}
       {:else}
-        <p class="muted">No devices found on this network.</p>
+        <p class="muted">No nearby devices found.</p>
       {/if}
     </div>
 
@@ -736,9 +628,9 @@ onMount(() => {
     </div>
     <p class="description">
       Pairing is mutual: either device can read the other's library, and both
-      pull about once a minute. A device paired before that was true shows as
-      <strong>One-way</strong> — it reads here, this device cannot read it until
-      the two are paired again. Check for books pulls now.
+      pull about once a minute. A device shows as <strong>One-way</strong>
+      means that it reads here, this device cannot read it until the two are
+      paired again.
     </p>
     {#each devices.data ?? [] as device (device.device_id)}
       <div class="row">
@@ -748,7 +640,7 @@ onMount(() => {
             {device.outbound ? 'Two-way' : 'One-way'}
           </wa-badge>
           <span class="muted">
-            · {device.device_type_id ?? 'unknown'} · paired {device.paired_at}
+            {device.device_type_id ?? 'Unknown'} · paired {device.paired_at}
             {device.last_sync_at ? `· last sync ${device.last_sync_at}` : ''}
             {device.outbound ? '' : '· pair again to read its books'}
           </span>
@@ -764,31 +656,29 @@ onMount(() => {
 
   <section class="section" aria-labelledby="sync-reach-heading">
     <div class="section-head">
-      <h3 id="sync-reach-heading">Reaching this device</h3>
+      <h3 id="sync-reach-heading">Sync check</h3>
       <div class="section-actions">
         <ActionButton
           size="small"
           onclick={() => diagnose.mutate()}
           disabled={diagnose.isPending}
         >
-          {diagnose.isPending ? 'Probing…' : 'Diagnose'}
+          {diagnose.isPending ? 'Checking…' : 'Check'}
         </ActionButton>
       </div>
     </div>
     <p class="description">
-      Pulling works from this side because it is an outbound request. A peer
-      reading this library is an inbound one, and a firewall, a loopback-only
-      bind, or a pairing this device no longer knows each stop it in a different
-      place. Diagnose dials this device's own server from loopback and from its
-      network address, then reports what arrived on it.
+      If a paired device is not keeping in step, check reports what is getting
+      in the way: a request that was never approved, or a pairing that works
+      only one way.
     </p>
     {#if firewall.data && firewall.data.port !== allowedPort}
       <wa-callout variant="warning">
         <wa-icon slot="icon" name="shield-halved"></wa-icon>
         <p>
-          <strong>{firewall.data.tool}</strong> is enabled on this machine and drops
-          new inbound connections, so no peer can reach port
-          <code>{firewall.data.port}</code>.
+          <strong>{firewall.data.tool}</strong> is enabled on this machine and blocks
+          connections from other devices, so a paired device cannot sync with this
+          one.
           {#if firewall.data.automatic}
             Allowing it asks your system for permission.
           {:else}
@@ -822,17 +712,6 @@ onMount(() => {
           <li>{finding}</li>
         {/each}
       </ul>
-      <div class="probes">
-        <p class="muted">{probeLabel(diagnose.data.loopback)}</p>
-        {#if diagnose.data.lan}
-          <p class="muted">{probeLabel(diagnose.data.lan)}</p>
-        {/if}
-        <p class="muted">
-          {diagnose.data.inbound.length} inbound
-          {diagnose.data.inbound.length === 1 ? 'request' : 'requests'} served since the daemon
-          started
-        </p>
-      </div>
     {/if}
   </section>
 
@@ -933,21 +812,6 @@ onMount(() => {
     />
   </section>
 
-  <section class="section" aria-labelledby="sync-requests-heading">
-    <div class="section-head">
-      <h3 id="sync-requests-heading">Recent requests</h3>
-    </div>
-    {#each requests.data ?? [] as record, index (record.at + record.path + index)}
-      <div class="request">
-        <span class="method">{record.method}</span>
-        <span class="path">{record.path}</span>
-        <wa-badge variant={record.status < 400 ? 'success' : 'danger'}>{record.status}</wa-badge>
-        <span class="muted">{record.at}</span>
-      </div>
-    {:else}
-      <p class="muted">No requests yet.</p>
-    {/each}
-  </section>
 </div>
 
 <style>
@@ -979,16 +843,6 @@ onMount(() => {
     gap: var(--wa-space-2xs);
     margin: 0;
     padding-inline-start: var(--wa-space-l);
-  }
-
-  .probes {
-    display: flex;
-    flex-direction: column;
-    gap: var(--wa-space-3xs);
-  }
-
-  .probes p {
-    margin: 0;
   }
 
   .description {
@@ -1065,12 +919,6 @@ onMount(() => {
   .fact dd {
     margin: 0;
     overflow-wrap: anywhere;
-  }
-
-  .actions {
-    display: flex;
-    align-items: center;
-    gap: var(--wa-space-s);
   }
 
   .name-row {
@@ -1256,33 +1104,6 @@ onMount(() => {
   .control textarea:focus-visible {
     outline: none;
     box-shadow: var(--wa-focus-ring);
-  }
-
-  .request {
-    display: grid;
-    grid-template-columns: 4.5rem minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: var(--wa-space-s);
-    padding-block: var(--wa-space-xs);
-    border-block-start: var(--wa-border-width-s) var(--wa-border-style)
-      var(--wa-color-surface-border);
-    font-size: var(--wa-font-size-s);
-  }
-
-  .request:first-of-type {
-    border-block-start: none;
-  }
-
-  .method {
-    font-family: var(--wa-font-family-code);
-    font-size: var(--wa-font-size-xs);
-    text-transform: uppercase;
-  }
-
-  .path {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .muted {

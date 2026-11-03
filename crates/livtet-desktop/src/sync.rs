@@ -117,29 +117,20 @@ pub struct SyncHandle {
 impl SyncHandle {
     /// Spawn the daemon sidecar against `db_path` and start draining its output.
     ///
-    /// `listen_port` is what the embedded server binds; `None` lets the kernel
-    /// pick. Prefer [`SyncHandle::spawn_with_remembered_port`], which resolves
-    /// and records the port instead of leaving peers with a stale address.
-    /// `lan` selects `--lan` (every interface) over the loopback default;
-    /// `device_name` is advertised to nearby peers, and a blank or absent value
-    /// makes the daemon generate one from the device id.
+    /// `listen_port` is the UDP port the iroh endpoint binds; `None` lets the
+    /// kernel pick. Prefer [`SyncHandle::spawn_with_remembered_port`], which
+    /// resolves and records the port instead of leaving peers with a stale
+    /// address. `device_name` is advertised to nearby peers, and a blank or
+    /// absent value makes the daemon generate one from the device id.
     pub fn spawn(
         app: &AppHandle,
         db_path: &Utf8Path,
         device_name: Option<&str>,
-        lan: bool,
         books_dir: &Utf8Path,
         covers_dir: &Utf8Path,
         listen_port: Option<u16>,
     ) -> Result<Self, SyncError> {
-        let args = sidecar_args(
-            db_path,
-            device_name,
-            lan,
-            books_dir,
-            covers_dir,
-            listen_port,
-        );
+        let args = sidecar_args(db_path, device_name, books_dir, covers_dir, listen_port);
 
         let command = app
             .shell()
@@ -177,22 +168,14 @@ impl SyncHandle {
         settings: &dyn SyncSettingsStore,
         db_path: &Utf8Path,
         device_name: Option<&str>,
-        lan: bool,
         books_dir: &Utf8Path,
         covers_dir: &Utf8Path,
     ) -> Result<Self, SyncError> {
         let remembered = settings.read().and_then(|settings| settings.listen_port);
-        let wanted = choose_listen_port(bind_host(lan), remembered);
+        let wanted = choose_listen_port(remembered);
 
-        let mut handle = Self::spawn(
-            app,
-            db_path,
-            device_name,
-            lan,
-            books_dir,
-            covers_dir,
-            wanted,
-        )?;
+        let mut handle =
+            Self::spawn(app, db_path, device_name, books_dir, covers_dir, wanted)?;
         let mut bound = handle.served_port().await;
         if bound.is_none() {
             tracing::warn!(
@@ -200,7 +183,7 @@ impl SyncHandle {
                 "sync daemon did not serve the requested port; retrying on an ephemeral one"
             );
             handle.shutdown().await;
-            handle = Self::spawn(app, db_path, device_name, lan, books_dir, covers_dir, None)?;
+            handle = Self::spawn(app, db_path, device_name, books_dir, covers_dir, None)?;
             bound = handle.served_port().await;
         }
 
@@ -224,16 +207,12 @@ impl SyncHandle {
     async fn served_port(&self) -> Option<u16> {
         for _ in 0..PORT_SETTLE_ATTEMPTS {
             if let Ok(status) = self.call(rpc::method::STATUS, Value::Null).await {
-                let running = status
-                    .get("server_running")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
                 let port = status
                     .get("port")
                     .and_then(Value::as_u64)
                     .and_then(|port| u16::try_from(port).ok())
                     .filter(|port| *port > 0);
-                if running && port.is_some() {
+                if port.is_some() {
                     return port;
                 }
             }
@@ -319,12 +298,10 @@ impl SyncHandle {
 /// The daemon arguments for a spawn.
 ///
 /// Split out from [`SyncHandle::spawn`] so the flag selection is testable
-/// without a Tauri app: `--lan` replaces the loopback host, never accompanies
-/// it.
+/// without a Tauri app.
 fn sidecar_args(
     db_path: &Utf8Path,
     device_name: Option<&str>,
-    lan: bool,
     books_dir: &Utf8Path,
     covers_dir: &Utf8Path,
     listen_port: Option<u16>,
@@ -345,12 +322,6 @@ fn sidecar_args(
         "--pull-interval-secs".to_string(),
         PULL_INTERVAL_SECS.to_string(),
     ];
-    if lan {
-        args.push("--lan".to_string());
-    } else {
-        args.push("--host".to_string());
-        args.push("127.0.0.1".to_string());
-    }
     let chosen_name = device_name.map(str::trim).filter(|name| !name.is_empty());
     if let Some(name) = chosen_name {
         args.push("--device-name".to_string());
@@ -359,51 +330,25 @@ fn sidecar_args(
     args
 }
 
-/// The interface the embedded server binds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum BindHost {
-    /// `--lan`: every interface, which is what makes a peer on the network
-    /// able to reach this device at all.
-    EveryInterface,
-    /// `--host 127.0.0.1`: this machine only.
-    Loopback,
-}
-
-impl BindHost {
-    fn socket_addr(self, port: u16) -> std::net::SocketAddr {
-        match self {
-            Self::EveryInterface => std::net::SocketAddr::from(([0, 0, 0, 0], port)),
-            Self::Loopback => std::net::SocketAddr::from(([127, 0, 0, 1], port)),
-        }
-    }
-}
-
-/// The interface the daemon will bind for this `lan` setting.
-fn bind_host(lan: bool) -> BindHost {
-    if lan {
-        BindHost::EveryInterface
-    } else {
-        BindHost::Loopback
-    }
-}
-
 /// Whether the daemon would be able to bind `port`.
 ///
-/// Binding is the only honest probe: it answers for every holder of the port,
-/// not just for other Livtet processes. The listener is dropped immediately, so
-/// the daemon's own bind follows a moment later.
-fn port_is_free(host: BindHost, port: u16) -> bool {
-    std::net::TcpListener::bind(host.socket_addr(port)).is_ok()
+/// The iroh endpoint is a UDP socket, so the probe must bind UDP: a port free
+/// for TCP says nothing about the one the daemon asks for. Binding is the only
+/// honest probe — it answers for every holder of the port, not just other
+/// Livtet processes — and the socket is dropped immediately so the daemon's
+/// own bind follows a moment later.
+fn port_is_free(port: u16) -> bool {
+    std::net::UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], port))).is_ok()
 }
 
 /// The port to ask the daemon for: the remembered one when it is still free,
 /// otherwise the first free port in [`PORT_SCAN`], otherwise `None` so the
 /// kernel picks and [`SyncHandle::spawn_with_remembered_port`] records that.
-fn choose_listen_port(host: BindHost, remembered: Option<u16>) -> Option<u16> {
-    if let Some(port) = remembered.filter(|port| port_is_free(host, *port)) {
+fn choose_listen_port(remembered: Option<u16>) -> Option<u16> {
+    if let Some(port) = remembered.filter(|port| port_is_free(*port)) {
         return Some(port);
     }
-    PORT_SCAN.clone().find(|port| port_is_free(host, *port))
+    PORT_SCAN.clone().find(|port| port_is_free(*port))
 }
 
 /// Adapts the sidecar's stdin pipe to [`AsyncWrite`]. The shell plugin only
@@ -551,13 +496,9 @@ fn notification_event(method: &str) -> Option<&'static str> {
     match method {
         rpc::method::NOTIFY_PAIRING_REQUESTED => Some("sync://pairing-requested"),
         rpc::method::NOTIFY_PAIRING_CLAIMED => Some("sync://paired"),
-        rpc::method::NOTIFY_REQUEST_RECEIVED => Some("sync://request"),
-        rpc::method::NOTIFY_SYNC_COMPLETED => Some("sync://completed"),
         rpc::method::NOTIFY_SYNC_PULLED => Some("sync://pulled"),
         rpc::method::NOTIFY_OFFER_RECEIVED => Some("sync://offer-received"),
         rpc::method::NOTIFY_OFFER_DECIDED => Some("sync://offer-decided"),
-        rpc::method::NOTIFY_SERVER_STARTED => Some("sync://server-started"),
-        rpc::method::NOTIFY_SERVER_STOPPED => Some("sync://server-stopped"),
         _ => None,
     }
 }
@@ -719,8 +660,8 @@ mod tests {
 
     use super::testing::connect;
     use super::{
-        BindHost, Pending, SyncHandle, choose_listen_port, daemon_level, fail_pending,
-        port_is_free, sidecar_args,
+        Pending, SyncHandle, choose_listen_port, daemon_level, fail_pending, port_is_free,
+        sidecar_args,
     };
     use crate::error::SyncError;
 
@@ -776,11 +717,10 @@ mod tests {
         handle.pending.lock().unwrap().len()
     }
 
-    fn args(db: &str, name: Option<&str>, lan: bool) -> Vec<String> {
+    fn args(db: &str, name: Option<&str>) -> Vec<String> {
         sidecar_args(
             camino::Utf8Path::new(db),
             name,
-            lan,
             camino::Utf8Path::new("/tmp/books"),
             camino::Utf8Path::new("/tmp/covers"),
             None,
@@ -788,32 +728,15 @@ mod tests {
     }
 
     #[test]
-    fn lan_replaces_the_loopback_host() {
-        let args = args("/tmp/livtet.db", None, true);
-        assert!(args.contains(&"--lan".to_string()));
-        assert!(
-            !args.contains(&"--host".to_string()),
-            "the two bind flags must not be sent together: {args:?}"
-        );
-    }
-
-    #[test]
-    fn loopback_is_the_fall_back() {
-        let args = args("/tmp/livtet.db", None, false);
-        assert!(!args.contains(&"--lan".to_string()));
-        assert!(args.windows(2).any(|pair| pair == ["--host", "127.0.0.1"]));
-    }
-
-    #[test]
     fn a_chosen_name_is_trimmed_and_blank_is_omitted() {
-        let named = args("/tmp/livtet.db", Some("  Nimble Quail  "), true);
+        let named = args("/tmp/livtet.db", Some("  Nimble Quail  "));
         assert!(
             named
                 .windows(2)
                 .any(|pair| pair == ["--device-name", "Nimble Quail"])
         );
 
-        let blank = args("/tmp/livtet.db", Some("   "), true);
+        let blank = args("/tmp/livtet.db", Some("   "));
         assert!(!blank.contains(&"--device-name".to_string()));
     }
 
@@ -822,7 +745,6 @@ mod tests {
         let ported = sidecar_args(
             camino::Utf8Path::new("/tmp/livtet.db"),
             None,
-            true,
             camino::Utf8Path::new("/tmp/books"),
             camino::Utf8Path::new("/tmp/covers"),
             Some(7714),
@@ -832,7 +754,7 @@ mod tests {
             "a remembered port must reach the daemon: {ported:?}"
         );
 
-        let ephemeral = args("/tmp/livtet.db", None, true);
+        let ephemeral = args("/tmp/livtet.db", None);
         assert!(
             ephemeral.windows(2).any(|pair| pair == ["--port", "0"]),
             "without a remembered port the kernel picks: {ephemeral:?}"
@@ -843,29 +765,29 @@ mod tests {
     /// daemon would exit on startup and the app would lose sync entirely.
     #[test]
     fn a_taken_port_is_skipped_for_one_that_can_be_bound() {
-        let taken = std::net::TcpListener::bind(std::net::SocketAddr::from(([0, 0, 0, 0], 0)))
-            .expect("ephemeral listener");
+        let taken = std::net::UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], 0)))
+            .expect("ephemeral socket");
         let taken_port = taken.local_addr().expect("listener address").port();
 
-        let chosen = choose_listen_port(BindHost::EveryInterface, Some(taken_port));
+        let chosen = choose_listen_port(Some(taken_port));
 
         assert_ne!(chosen, Some(taken_port), "a held port must not be reused");
         let chosen = chosen.expect("a free port inside the scan range");
         assert!(
-            port_is_free(BindHost::EveryInterface, chosen),
+            port_is_free(chosen),
             "{chosen} must be bindable, or the daemon exits instead of serving"
         );
     }
 
     #[test]
     fn a_free_remembered_port_is_preferred_over_the_scan() {
-        let free = std::net::TcpListener::bind(std::net::SocketAddr::from(([127, 0, 0, 1], 0)))
-            .expect("ephemeral listener");
+        let free = std::net::UdpSocket::bind(std::net::SocketAddr::from(([0, 0, 0, 0], 0)))
+            .expect("ephemeral socket");
         let free_port = free.local_addr().expect("listener address").port();
         drop(free);
 
         assert_eq!(
-            choose_listen_port(BindHost::Loopback, Some(free_port)),
+            choose_listen_port(Some(free_port)),
             Some(free_port),
             "stability is the whole point: the remembered port must win"
         );
@@ -995,13 +917,9 @@ mod tests {
         let routes = [
             (method::NOTIFY_PAIRING_REQUESTED, "sync://pairing-requested"),
             (method::NOTIFY_PAIRING_CLAIMED, "sync://paired"),
-            (method::NOTIFY_REQUEST_RECEIVED, "sync://request"),
-            (method::NOTIFY_SYNC_COMPLETED, "sync://completed"),
             (method::NOTIFY_SYNC_PULLED, "sync://pulled"),
             (method::NOTIFY_OFFER_RECEIVED, "sync://offer-received"),
             (method::NOTIFY_OFFER_DECIDED, "sync://offer-decided"),
-            (method::NOTIFY_SERVER_STARTED, "sync://server-started"),
-            (method::NOTIFY_SERVER_STOPPED, "sync://server-stopped"),
         ];
 
         let (result, ()) = tokio::join!(handle.call(method::STATUS, Value::Null), async {
@@ -1032,7 +950,7 @@ mod tests {
     async fn daemon_termination_fails_in_flight_calls_promptly() {
         let (handle, mut daemon) = connect(PATIENT);
 
-        let (result, ()) = tokio::join!(handle.call(method::SERVER_START, Value::Null), async {
+        let (result, ()) = tokio::join!(handle.call(method::STATUS, Value::Null), async {
             daemon.next_request().await;
             daemon.terminate().await;
         });

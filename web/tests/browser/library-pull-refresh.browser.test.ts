@@ -34,15 +34,3 @@ test('a pull that added books refetches the library page', async () => {
   // fetch is only possible if the pull dropped it.
   await expect.poll(() => container.textContent).toContain('book 2')
 })
-
-test('a request this device served is not this library changing', async () => {
-  const { container } = await render(PullRefreshFixture)
-  await expect.poll(() => container.querySelectorAll('.library li').length).toBe(1)
-
-  emit('sync://completed', { path: '/sync/changes', status: 200 })
-
-  // Serving a peer's pull fills their library; refetching here would be a
-  // wasted round trip on every sync tick.
-  await expect.poll(() => container.textContent).toContain('book 1')
-  expect(container.textContent).not.toContain('book 2')
-})

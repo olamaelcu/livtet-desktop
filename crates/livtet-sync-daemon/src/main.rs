@@ -17,9 +17,12 @@ USAGE:
 
 OPTIONS:
     --db <PATH>        SQLite database path (default: livtet-sync.db)
-    --host <HOST>      Interface to bind the sync HTTP server on (default: 127.0.0.1)
-    --port <PORT>      Port to bind; 0 selects an ephemeral port (default: 0)
+    --port <PORT>      UDP port for the iroh endpoint; 0 picks an ephemeral one
     --device-id <ID>   Pre-set device id (default: read from the database)
+    --device-name <NAME>  Name advertised to nearby peers
+    --books-dir <PATH>    Where received book files are written
+    --covers-dir <PATH>   Where received cover images are written
+    --pull-interval-secs <N>  How often every outbound peer is pulled (default: 60)
     -h, --help         Print this help message and exit
 ";
 
@@ -45,8 +48,8 @@ fn main() -> ExitCode {
 
     tracing::info!(
         db = %config.db_path,
-        host = %config.host,
         port = config.port,
+        pull_interval_secs = config.pull_interval_secs,
         "livtet-sync-daemon starting"
     );
 

@@ -400,18 +400,14 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let sync_store: Arc<dyn sync_settings::SyncSettingsStore> = sync_store;
     let sync_settings = sync_store.read().unwrap_or_default();
     let sync_device_name = sync_settings.device_name;
-    // `lan` defaults to on: the daemon advertises on the LAN and every data
-    // route requires a session token minted at pairing approval.
-    let sync_lan = sync_settings.lan;
     // The port is resolved from the store and written back once the daemon is
-    // serving: peers store this device's address at pairing time, so a restart
-    // has to come back on the same one.
+    // serving. Peers dial the iroh node id, not the port, but a firewall rule
+    // names the UDP port, so keeping it stable keeps that rule matching.
     let sync = crate::sync::SyncHandle::spawn_with_remembered_port(
         app.handle(),
         sync_store.as_ref(),
         &sync_db_path,
         sync_device_name.as_deref(),
-        sync_lan,
         &paths.books_dir,
         &paths.covers_dir,
     )
@@ -592,14 +588,11 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::reader::list_reader_bookmarks,
         commands::sync::sync_health,
         commands::sync::sync_status,
-        commands::sync::sync_requests_recent,
         commands::sync::sync_pairing_begin,
         commands::sync::sync_pairing_list,
         commands::sync::sync_nearby_devices,
         commands::sync::sync_device_name_get,
         commands::sync::sync_device_name_save,
-        commands::sync::sync_lan_get,
-        commands::sync::sync_lan_set,
         commands::sync::sync_send_book,
         commands::sync::sync_pull,
         commands::sync::sync_offers_list,
@@ -615,8 +608,6 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         firewall::sync_firewall_allow,
         commands::sync::sync_conflicts_list,
         commands::sync::sync_conflicts_resolve,
-        commands::sync::sync_server_start,
-        commands::sync::sync_server_stop,
         commands::atproto::atproto_begin_login,
         commands::atproto::atproto_complete_login,
         commands::atproto::atproto_status,

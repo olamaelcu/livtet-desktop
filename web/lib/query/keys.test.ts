@@ -11,16 +11,11 @@ describe('syncKeys', () => {
     expect(syncKeys.devices()).toEqual(['sync', 'devices'])
     expect(syncKeys.firewall()).toEqual(['sync', 'firewall'])
     expect(syncKeys.conflicts()).toEqual(['sync', 'conflicts'])
-    expect(syncKeys.requests(50)).toEqual(['sync', 'requests', { limit: 50 }])
   })
 
   it('nests the domain root so it can invalidate every entry at once', () => {
     expect(syncKeys.all).toEqual(['sync'])
     expect(syncKeys.status().slice(0, 1)).toEqual(syncKeys.all)
-  })
-
-  it('distinguishes request limits', () => {
-    expect(syncKeys.requests(10)).not.toEqual(syncKeys.requests(50))
   })
 })
 

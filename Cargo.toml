@@ -17,9 +17,6 @@ livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-data = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-sync = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-sync-http = { git = "https://github.com/olamaelcu/livtet", branch = "main", features = [
-  "poem",
-] }
 livtet-sync-server = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer-types = { path = "crates/livtet-importer-types" }
