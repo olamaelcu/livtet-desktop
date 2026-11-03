@@ -509,6 +509,7 @@ async fn seed_edition(db: &livtet_core::data::orm::DatabaseConnection) -> Seed {
         notes: Set(Some("A note".to_string())),
         description: Set(Some("An edition".to_string())),
         format_metadata: Set(None),
+        cover_image_url: Set(None),
         created_at: Set(now),
         updated_at: Set(None),
     }

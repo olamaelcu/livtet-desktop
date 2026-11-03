@@ -808,6 +808,9 @@ pub(crate) async fn persist_import(
             notes: Set(None),
             description: Set(meta.description.clone()),
             format_metadata: Set(format_metadata.clone()),
+            // Covers imported from a file live on disk under
+            // `digital_inventory.cover_path`; there is no remote URL to keep.
+            cover_image_url: Set(None),
             created_at: Set(now),
             updated_at: Set(None),
         }
@@ -1097,6 +1100,9 @@ pub(crate) async fn create_virtual_book_inner(
         notes: Set(input.notes.clone()),
         description: Set(input.description.clone()),
         format_metadata: Set(None),
+        // The cover, when one could be fetched, is written under
+        // `digital_inventory.cover_path`; the remote URL is not retained.
+        cover_image_url: Set(None),
         created_at: Set(now),
         updated_at: Set(None),
     }

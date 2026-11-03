@@ -88,6 +88,7 @@ async fn fixture(format: KnownFormats) -> Fixture {
         notes: Set(None),
         description: Set(None),
         format_metadata: Set(format_metadata),
+        cover_image_url: Set(None),
         created_at: Set(now_primitive()),
         updated_at: Set(None),
     }
@@ -1120,6 +1121,7 @@ fn families_follow_the_catalogs_format() {
         notes: None,
         description: None,
         format_metadata: None,
+        cover_image_url: None,
         created_at: now_primitive(),
         updated_at: None,
     };

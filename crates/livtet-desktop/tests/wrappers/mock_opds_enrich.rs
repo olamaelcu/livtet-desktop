@@ -609,6 +609,7 @@ async fn seed_enrichable_edition(test_db: &TestDb, with_identifier: bool) -> DbI
         notes: Set(None),
         description: Set(None),
         format_metadata: Set(None),
+        cover_image_url: Set(None),
         created_at: Set(now_primitive()),
         updated_at: Set(None),
     }

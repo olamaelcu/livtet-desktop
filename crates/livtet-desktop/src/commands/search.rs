@@ -454,6 +454,7 @@ mod tests {
             notes: Set(None),
             description: Set(Some(spec.description.to_string())),
             format_metadata: Set(None),
+            cover_image_url: Set(None),
             created_at: Set(created_at),
             updated_at: Set(None),
         }
