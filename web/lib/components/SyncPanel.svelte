@@ -628,9 +628,9 @@ onMount(() => {
     </div>
     <p class="description">
       Pairing is mutual: either device can read the other's library, and both
-      pull about once a minute. A device shows as <strong>One-way</strong>
-      means that it reads here, this device cannot read it until the two are
-      paired again.
+      pull about once a minute. A device marked <strong>One-way</strong> can
+      read this library, but this device cannot read it until the two are paired
+      again.
     </p>
     {#each devices.data ?? [] as device (device.device_id)}
       <div class="row">
