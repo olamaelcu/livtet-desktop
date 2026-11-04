@@ -989,9 +989,10 @@ grid-template-columns: minmax(0, 1fr);
 }
 
 .section {
-display: flex;
-flex-direction: column;
-gap: var(--wa-space-s);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wa-space-s);
+margin: var(--wa-space-xs) 0;
 }
 
 /* One card per source's cover: the image is the thing being chosen, so it leads. */
