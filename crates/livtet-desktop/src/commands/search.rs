@@ -466,6 +466,7 @@ mod tests {
         authors::ActiveModel {
             id: Set(author_id),
             name: Set(spec.author.to_string()),
+            ..Default::default()
         }
         .insert(db)
         .await
@@ -641,6 +642,7 @@ mod tests {
             edition_publishers::ActiveModel {
                 edition_id: Set(foundation.edition_id),
                 publisher_id: Set(gnome_press_id),
+                ..Default::default()
             }
             .insert(&db)
             .await

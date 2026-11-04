@@ -35,6 +35,7 @@ pub(crate) async fn upsert_author(
     authors::ActiveModel {
         id: Set(id),
         name: Set(name.to_string()),
+        ..Default::default()
     }
     .insert(txn)
     .await?;

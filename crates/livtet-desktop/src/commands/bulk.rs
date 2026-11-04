@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 
-use livtet_core::data::entities::{digital_inventory, edition_specific_covers, editions};
+use livtet_core::data::entities::{digital_inventory, editions};
 use livtet_core::data::orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
 };
@@ -106,13 +106,6 @@ async fn collect_deletion_plans(
         {
             cover_paths.push(cover.clone());
         }
-
-        let manual = edition_specific_covers::Entity::find()
-            .filter(edition_specific_covers::Column::EditionId.eq(*id))
-            .all(db)
-            .await
-            .map_err(|e| BulkError::new("database", e.to_string()))?;
-        cover_paths.extend(manual.into_iter().map(|m| m.cover_path));
 
         plans.push(DeletionPlan {
             edition_id: *id,
@@ -695,19 +688,6 @@ mod tests {
         .expect("inventory");
     }
 
-    async fn seed_manual_cover(db: &DatabaseConnection, edition_id: DbId, cover_path: String) {
-        edition_specific_covers::ActiveModel {
-            id: Set(DbId::new()),
-            edition_id: Set(edition_id),
-            cover_path: Set(cover_path),
-            created_at: Set(now_primitive()),
-            updated_at: Set(None),
-        }
-        .insert(db)
-        .await
-        .expect("manual cover");
-    }
-
     async fn seed_tag(db: &DatabaseConnection, name: &str) -> DbId {
         let id = DbId::new();
         tags::ActiveModel {
@@ -787,8 +767,6 @@ mod tests {
             Some("/covers/a/cover.jpg".into()),
         )
         .await;
-        seed_manual_cover(&db, with_files, "/manual/a/1.jpg".into()).await;
-        seed_manual_cover(&db, with_files, "/manual/a/2.jpg".into()).await;
 
         let plans = collect_deletion_plans(&db, &[bare, with_files])
             .await
@@ -802,11 +780,8 @@ mod tests {
 
         assert_eq!(plans[1].edition_id, with_files);
         assert_eq!(plans[1].file_path.as_deref(), Some("/lib/a.epub"));
-        // The inventory cover leads; manual covers follow in any order.
-        assert_eq!(plans[1].cover_paths[0], "/covers/a/cover.jpg");
-        let mut manual = plans[1].cover_paths[1..].to_vec();
-        manual.sort();
-        assert_eq!(manual, vec!["/manual/a/1.jpg", "/manual/a/2.jpg"]);
+        // An edition has exactly one cover, and it comes from its inventory row.
+        assert_eq!(plans[1].cover_paths, vec!["/covers/a/cover.jpg"]);
     }
 
     // ---- delete_editions_inner ----------------------------------------------
@@ -825,20 +800,13 @@ mod tests {
         let book = root.join("doomed.epub");
         let cover_dir = root.join("covers").join("doomed");
         let cover = cover_dir.join("cover.jpg");
-        // The manual cover shares a directory with an unrelated file, which
-        // must survive the empty-parent cleanup.
-        let shared_dir = root.join("manual");
-        let manual = shared_dir.join("doomed.jpg");
-        let neighbour = shared_dir.join("neighbour.jpg");
         let kept_book = root.join("kept.epub");
         fs_err::create_dir_all(&cover_dir).unwrap();
-        fs_err::create_dir_all(&shared_dir).unwrap();
-        for path in [&book, &cover, &manual, &neighbour, &kept_book] {
+        for path in [&book, &cover, &kept_book] {
             fs_err::write(path, b"x").unwrap();
         }
 
         seed_inventory(&db, doomed, Some(book.to_string()), Some(cover.to_string())).await;
-        seed_manual_cover(&db, doomed, manual.to_string()).await;
         seed_inventory(&db, kept, Some(kept_book.to_string()), None).await;
 
         let outcome = delete_editions_inner(&db, None, &[doomed])
@@ -847,18 +815,12 @@ mod tests {
 
         assert_eq!(outcome.deleted, 1);
         assert_eq!(outcome.files_removed, 1);
-        assert_eq!(outcome.covers_removed, 2);
+        assert_eq!(outcome.covers_removed, 1);
         assert!(outcome.skipped.is_empty(), "{:?}", outcome.skipped);
 
         assert!(!book.exists());
         assert!(!cover.exists());
-        assert!(!manual.exists());
         assert!(!cover_dir.exists(), "emptied cover dir is pruned");
-        assert!(
-            neighbour.exists(),
-            "unrelated file in a shared dir survives"
-        );
-        assert!(shared_dir.exists(), "non-empty cover dir is kept");
 
         assert!(!edition_exists(&db, doomed).await);
         let inventory_left = digital_inventory::Entity::find()
@@ -866,12 +828,7 @@ mod tests {
             .count(&db)
             .await
             .unwrap();
-        let manual_left = edition_specific_covers::Entity::find()
-            .filter(edition_specific_covers::Column::EditionId.eq(doomed))
-            .count(&db)
-            .await
-            .unwrap();
-        assert_eq!((inventory_left, manual_left), (0, 0));
+        assert_eq!(inventory_left, 0, "the edition's inventory rows go with it");
 
         assert!(edition_exists(&db, kept).await);
         assert!(kept_book.exists());
@@ -1014,6 +971,7 @@ mod tests {
             authors::ActiveModel {
                 id: Set(author_id),
                 name: Set(name.to_string()),
+                ..Default::default()
             }
             .insert(&db)
             .await
@@ -1064,6 +1022,7 @@ mod tests {
         edition_publishers::ActiveModel {
             edition_id: Set(edition),
             publisher_id: Set(publisher_id),
+            ..Default::default()
         }
         .insert(&db)
         .await

@@ -164,6 +164,7 @@ async fn seed_book(
     authors::ActiveModel {
         id: Set(author_id),
         name: Set(author.to_string()),
+        ..Default::default()
     }
     .insert(db)
     .await
@@ -476,6 +477,7 @@ async fn filter_options_lists_every_axis_sorted_and_decorated() {
     authors::ActiveModel {
         id: Set(author_id),
         name: Set("Isaac Asimov".to_string()),
+        ..Default::default()
     }
     .insert(&db)
     .await
@@ -855,6 +857,7 @@ async fn export_editions_csv_renders_joined_metadata_and_rejects_missing_rows() 
     authors::ActiveModel {
         id: Set(author_id),
         name: Set("Frank Herbert".to_string()),
+        ..Default::default()
     }
     .insert(&db)
     .await
@@ -905,6 +908,7 @@ async fn export_editions_csv_renders_joined_metadata_and_rejects_missing_rows() 
     edition_publishers::ActiveModel {
         edition_id: Set(edition_id),
         publisher_id: Set(publisher_id),
+        ..Default::default()
     }
     .insert(&db)
     .await

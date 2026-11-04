@@ -320,6 +320,7 @@ pub async fn write_enrichment(
             edition_publishers::ActiveModel {
                 edition_id: Set(edition_id),
                 publisher_id: Set(publisher_id),
+                ..Default::default()
             }
             .insert(&txn)
             .await
@@ -696,6 +697,7 @@ mod tests {
         authors::ActiveModel {
             id: Set(author_id),
             name: Set("Ada Lovelace".to_string()),
+            ..Default::default()
         }
         .insert(db)
         .await
@@ -724,6 +726,7 @@ mod tests {
         edition_publishers::ActiveModel {
             edition_id: Set(edition_id),
             publisher_id: Set(publisher_id),
+            ..Default::default()
         }
         .insert(db)
         .await

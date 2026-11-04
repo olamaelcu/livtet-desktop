@@ -838,6 +838,7 @@ pub(crate) async fn persist_import(
             edition_publishers::ActiveModel {
                 edition_id: Set(edition_id),
                 publisher_id: Set(publisher_id),
+                ..Default::default()
             }
             .insert(&txn)
             .await?;
@@ -1130,6 +1131,7 @@ pub(crate) async fn create_virtual_book_inner(
         edition_publishers::ActiveModel {
             edition_id: Set(edition_id),
             publisher_id: Set(publisher_id),
+            ..Default::default()
         }
         .insert(&txn)
         .await?;

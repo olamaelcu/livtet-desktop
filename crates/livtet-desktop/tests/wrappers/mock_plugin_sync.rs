@@ -521,6 +521,7 @@ async fn seed_edition(db: &livtet_core::data::orm::DatabaseConnection) -> Seed {
     authors::ActiveModel {
         id: Set(author_id),
         name: Set("Ada Lovelace".to_string()),
+        ..Default::default()
     }
     .insert(db)
     .await
@@ -549,6 +550,7 @@ async fn seed_edition(db: &livtet_core::data::orm::DatabaseConnection) -> Seed {
     edition_publishers::ActiveModel {
         edition_id: Set(edition_id),
         publisher_id: Set(publisher_id),
+        ..Default::default()
     }
     .insert(db)
     .await
