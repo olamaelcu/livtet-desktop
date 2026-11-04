@@ -96,6 +96,14 @@ export const catalogKeys = {
     [...catalogKeys.all, 'edition-covers', { editionIds }] as const,
 }
 
+export const readingListKeys = {
+  all: ['reading-lists'] as const,
+  lists: () => [...readingListKeys.all, 'lists'] as const,
+  list: (listId: string) => [...readingListKeys.all, 'list', { listId }] as const,
+  /** Display metadata for every edition the open list refers to. */
+  books: (listId: string) => [...readingListKeys.all, 'books', { listId }] as const,
+}
+
 export const atprotoKeys = {
   all: ['atproto'] as const,
   status: () => [...atprotoKeys.all, 'status'] as const,

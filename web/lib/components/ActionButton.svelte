@@ -5,6 +5,7 @@ interface Props {
   onclick?: () => void
   disabled?: boolean
   variant?: 'brand'
+  'aria-label'?: string
   id?: string
   'aria-haspopup'?: 'dialog' | boolean
   'aria-expanded'?: boolean

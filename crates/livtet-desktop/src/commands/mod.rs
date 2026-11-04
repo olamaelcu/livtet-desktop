@@ -18,6 +18,7 @@ pub mod opds_server;
 pub mod plugin_host_callbacks;
 pub mod plugins;
 pub mod reader;
+pub mod reading_lists;
 pub mod reviews;
 pub mod search;
 pub mod spotlight;
