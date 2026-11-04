@@ -29,6 +29,7 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::error::SyncError;
 
+use crate::opds_server::{OpdsDispatch, OpdsRouteRequest};
 use crate::sync_settings::SyncSettingsStore;
 
 /// How often the daemon reads every paired peer, in seconds.
@@ -108,10 +109,18 @@ type Stdin = Box<dyn AsyncWrite + Send + Unpin>;
 /// [`SyncHandle::connect`] can resolve requests against the same registry the
 /// handle writes into.
 pub struct SyncHandle {
-    stdin: AsyncMutex<Stdin>,
+    /// Arc-wrapped so the reader task can write an answer back: the daemon
+    /// asks the desktop questions too (OPDS pass-through), over this pipe.
+    stdin: Arc<AsyncMutex<Stdin>>,
     pending: Pending,
     next_id: AtomicU64,
     timeout: Duration,
+    /// The in-process OPDS route table, registered once `AppState` exists.
+    ///
+    /// A request that arrives before registration is answered with an error,
+    /// so the daemon's caller sees a failure instead of waiting out its
+    /// timeout.
+    opds: Arc<Mutex<Option<Arc<OpdsDispatch>>>>,
 }
 
 impl SyncHandle {
@@ -235,13 +244,34 @@ impl SyncHandle {
         E: Fn(&'static str, Value) + Send + 'static,
     {
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
-        start_reader(Arc::clone(&pending), events, emit);
+        let stdin: Arc<AsyncMutex<Stdin>> = Arc::new(AsyncMutex::new(Box::new(stdin)));
+        let opds: Arc<Mutex<Option<Arc<OpdsDispatch>>>> = Arc::new(Mutex::new(None));
+        start_reader(
+            Arc::clone(&pending),
+            Arc::clone(&stdin),
+            Arc::clone(&opds),
+            events,
+            emit,
+        );
 
         Self {
-            stdin: AsyncMutex::new(Box::new(stdin)),
+            stdin,
             pending,
             next_id: AtomicU64::new(1),
             timeout,
+            opds,
+        }
+    }
+
+    /// Hand the daemon the OPDS route table it forwards requests into.
+    ///
+    /// Kept out of [`SyncHandle::spawn`] because the route table reads the
+    /// live [`crate::types::AppState`], which is built after the sidecar
+    /// starts.
+    pub(crate) fn set_opds_dispatch(&self, dispatch: OpdsDispatch) {
+        match self.opds.lock() {
+            Ok(mut slot) => *slot = Some(Arc::new(dispatch)),
+            Err(_) => tracing::warn!("the OPDS dispatch slot is poisoned; pass-through unavailable"),
         }
     }
 
@@ -379,13 +409,19 @@ impl AsyncWrite for ChildStdin {
     }
 }
 
-/// Start the output-draining reader task.
+/// Starts the output-draining reader task.
 ///
 /// Uses the Tauri async runtime; the returned handle is intentionally dropped
 /// to let the task run independently. When the daemon's output ends, for
 /// whatever reason, every parked request is failed: no response can arrive
 /// any more.
-fn start_reader<E>(pending: Pending, mut events: mpsc::Receiver<CommandEvent>, emit: E)
+fn start_reader<E>(
+    pending: Pending,
+    stdin: Arc<AsyncMutex<Stdin>>,
+    opds: Arc<Mutex<Option<Arc<OpdsDispatch>>>>,
+    mut events: mpsc::Receiver<CommandEvent>,
+    emit: E,
+)
 where
     E: Fn(&'static str, Value) + Send + 'static,
 {
@@ -398,7 +434,7 @@ where
                     if line.is_empty() {
                         continue;
                     }
-                    handle_line(&emit, &pending, line);
+                    handle_line(&emit, &pending, &stdin, &opds, line);
                 }
                 CommandEvent::Stderr(bytes) => {
                     let line = String::from_utf8_lossy(&bytes);
@@ -454,7 +490,17 @@ fn daemon_level(line: &str) -> Option<&str> {
 
 /// Decode one NDJSON line, routing responses to their waiter and notifications
 /// to `emit`.
-fn handle_line(emit: &impl Fn(&'static str, Value), pending: &Pending, line: &str) {
+///
+/// An inbound *request* is the daemon asking the desktop for something only it
+/// can do (an OPDS route answer); it is served in the background and answered
+/// on the same pipe, because the daemon is waiting on it.
+fn handle_line(
+    emit: &impl Fn(&'static str, Value),
+    pending: &Pending,
+    stdin: &Arc<AsyncMutex<Stdin>>,
+    opds: &Arc<Mutex<Option<Arc<OpdsDispatch>>>>,
+    line: &str,
+) {
     match rpc::parse_message(line) {
         Ok(RpcMessage::Response(response)) => {
             let Some(id) = response.id.as_ref().and_then(Value::as_u64) else {
@@ -482,12 +528,76 @@ fn handle_line(emit: &impl Fn(&'static str, Value), pending: &Pending, line: &st
                 ),
             }
         }
-        Ok(RpcMessage::Request(_)) => {
-            tracing::debug!("ignoring inbound request from sync daemon");
+        Ok(RpcMessage::Request(request)) => {
+            let stdin = Arc::clone(stdin);
+            let opds = Arc::clone(opds);
+            drop(tauri::async_runtime::spawn(async move {
+                answer_request(&stdin, &opds, request).await;
+            }));
         }
         Err(error) => {
             tracing::warn!(error = %error, "sync daemon emitted an unparsable line");
         }
+    }
+}
+
+/// Answer one request the daemon sent the desktop.
+///
+/// Every inbound request is answered, including one this side does not know: an
+/// unmatched question would hold the daemon's dispatch until its timeout.
+async fn answer_request(
+    stdin: &Arc<AsyncMutex<Stdin>>,
+    opds: &Arc<Mutex<Option<Arc<OpdsDispatch>>>>,
+    request: rpc::RpcRequest,
+) {
+    let id = request.id.clone();
+    let response = match request.method.as_str() {
+        rpc::method::OPDS_FETCH => match fetch_opds(opds, request.params).await {
+            Ok(answer) => rpc::RpcResponse::ok(id, answer),
+            Err((code, message)) => rpc::RpcResponse::error(id, code, message),
+        },
+        other => rpc::RpcResponse::error(
+            id,
+            rpc::error_code::METHOD_NOT_FOUND,
+            format!("the desktop does not answer {other}"),
+        ),
+    };
+    write_line(stdin, &rpc::encode_response(&response)).await;
+}
+
+/// Run one forwarded OPDS request through the in-process route table.
+async fn fetch_opds(
+    opds: &Arc<Mutex<Option<Arc<OpdsDispatch>>>>,
+    params: Option<Value>,
+) -> Result<Value, (i64, String)> {
+    let Some(dispatch) = opds.lock().ok().and_then(|slot| slot.clone()) else {
+        return Err((
+            rpc::error_code::INTERNAL_ERROR,
+            "opds: no route table is registered".to_string(),
+        ));
+    };
+    let request: OpdsRouteRequest = serde_json::from_value(params.unwrap_or(Value::Null))
+        .map_err(|error| (rpc::error_code::INVALID_PARAMS, format!("opds: {error}")))?;
+    let answer = dispatch
+        .respond(request)
+        .await
+        .map_err(|message| (rpc::error_code::INTERNAL_ERROR, message))?;
+    serde_json::to_value(&answer)
+        .map_err(|error| (rpc::error_code::INTERNAL_ERROR, error.to_string()))
+}
+
+/// Write one NDJSON line to the daemon's stdin.
+async fn write_line(stdin: &Arc<AsyncMutex<Stdin>>, line: &str) {
+    let mut guard = stdin.lock().await;
+    let mut framed = String::with_capacity(line.len() + 1);
+    framed.push_str(line);
+    framed.push('\n');
+    let written = match guard.write_all(framed.as_bytes()).await {
+        Ok(()) => guard.flush().await,
+        Err(error) => Err(error),
+    };
+    if let Err(error) = written {
+        tracing::warn!(error = %error, "could not answer the sync daemon");
     }
 }
 
@@ -684,6 +794,43 @@ mod tests {
 
     /// Long enough that reaching it means a call was never resolved.
     const PATIENT: Duration = Duration::from_secs(60);
+
+    /// The daemon asks the desktop for an OPDS answer over the same pipe it is
+    /// driven on. Every inbound request is answered — here the route table is
+    /// not registered yet — so the daemon reports a failure instead of waiting
+    /// out its timeout.
+    #[tokio::test]
+    async fn an_inbound_opds_request_is_answered_even_without_a_route_table() {
+        let (_handle, mut daemon) = connect(Duration::from_secs(5));
+
+        daemon
+            .write_line(
+                &json!({
+                    "jsonrpc": "2.0",
+                    "id": 7,
+                    "method": method::OPDS_FETCH,
+                    "params": { "method": "GET", "path": "/", "headers": {}, "body": [] },
+                })
+                .to_string(),
+            )
+            .await;
+
+        let line = daemon
+            .stdin
+            .next_line()
+            .await
+            .expect("a line arrives")
+            .expect("the handle answered the request");
+        let answer: Value = serde_json::from_str(&line).expect("the answer is JSON");
+
+        assert_eq!(answer["id"], 7);
+        assert!(
+            answer["error"]["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("no route table")),
+            "an unregistered route table is reported, not awaited: {answer}"
+        );
+    }
 
     /// The daemon formats its own lines, so the level is the token after the
     /// timestamp. Bare text is what the daemon prints before its subscriber

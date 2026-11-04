@@ -511,6 +511,22 @@ async fn app_setup(app: &mut App) -> Result<(), Box<dyn std::error::Error + 'sta
     let opds_server_deps = opds_server::OpdsServerDeps::from_state(&state);
     opds_server::start_from_settings(&state.opds_server, &opds_server_deps).await;
 
+    // A paired platform's client cannot dial this machine's LAN address, so
+    // the sync daemon forwards its OPDS requests here and this process runs
+    // them through the same route table the LAN server uses. No port is bound
+    // for this path; links the routes build name the LAN, and the dispatch
+    // rewrites them to the origin the platform serves them from.
+    let link_base = opds_server::link_base_url(&state.opds_server);
+    let target = opds_server::platform_origin();
+    match opds_server::OpdsDispatch::new(&opds_server_deps, link_base, target).await {
+        Ok(dispatch) => state.sync.set_opds_dispatch(dispatch),
+        Err(error) => tracing::warn!(
+            code = %error.code,
+            message = %error.message,
+            "OPDS pass-through is unavailable"
+        ),
+    }
+
     // A previous session opted in: refresh in the background so editions
     // imported while the app was closed are searchable.
     if state.spotlight.enabled() {
@@ -622,6 +638,10 @@ pub fn specta_builder() -> Builder<tauri::Wry> {
         commands::reviews::load_local_reviews,
         commands::reviews::remove_local_review,
         commands::reviews::put_local_review_to_pds,
+        commands::reading_lists::list_reading_lists,
+        commands::reading_lists::get_reading_list,
+        commands::reading_lists::update_reading_list,
+        commands::reading_lists::reorder_reading_list,
         commands::mcp::mcp_settings_get,
         commands::mcp::mcp_settings_save,
         commands::opds_server::opds_server_status,

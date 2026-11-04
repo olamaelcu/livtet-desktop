@@ -40,7 +40,11 @@ run = 'mkdir -p build && ([ -f build/index.html ] || printf "<!doctype html>\n" 
 
 [tasks.dev]
 depends = ["generate-bindings"]
-run = ["cargo build -p livtet-plugin-host", "pnpm tauri dev"]
+run = [
+  "cargo build -p livtet-plugin-host",
+  "cargo build -p livtet-sync-daemon",
+  "pnpm tauri dev",
+]
 
 # --- Local parity with CI ---
 

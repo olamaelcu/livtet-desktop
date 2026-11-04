@@ -20,9 +20,12 @@ use livtet_core::data::SharedState;
 use livtet_core::search::SearchIndex;
 use livtet_opds_server::{
     LivtetOpdsRepository, OpdsHandler, OpdsServer, OpdsService, PoemOpdsServer, SharedOpdsHandler,
-    SharedOpdsRepository,
+    SharedOpdsRepository, routes::make_routes,
 };
 use livtet_opds_types::{Feed, OpdsError, Publication};
+use poem::endpoint::BoxEndpoint;
+use poem::http::{Method, Uri, header};
+use poem::{Body, Endpoint, Request, Response};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Mutex;
@@ -34,6 +37,29 @@ pub(crate) const DEFAULT_PORT: u16 = 8080;
 
 /// Key the settings are stored under inside `opds-server.json`.
 pub(crate) const SETTINGS_KEY: &str = "opds-server";
+
+/// The origin the platform serves a paired desktop's catalog from.
+///
+/// A feed's links are absolute and name the LAN address, which a client that
+/// reached us over iroh cannot dial; they are rewritten to this prefix. The
+/// value may carry a path (`https://host/opds/<node>`), which is why it is a
+/// prefix rather than a bare origin.
+pub(crate) const DEFAULT_PLATFORM_ORIGIN: &str = "https://livtet.olamaelcu.net";
+
+/// Environment override for [`DEFAULT_PLATFORM_ORIGIN`].
+pub(crate) const PLATFORM_ORIGIN_ENV: &str = "LIVTET_OPDS_ORIGIN";
+
+/// The origin forwarded links are rewritten to.
+///
+/// Read per construction rather than baked in, so a deployment on another
+/// origin (or under another path) needs no rebuild.
+pub(crate) fn platform_origin() -> String {
+    std::env::var(PLATFORM_ORIGIN_ENV)
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_PLATFORM_ORIGIN.to_string())
+}
 
 /// How the server is configured, persisted under [`SETTINGS_KEY`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -282,6 +308,16 @@ fn base_url(port: u16) -> String {
     }
 }
 
+/// The base URL a pass-through route table builds its links from.
+///
+/// The listener may be off — pass-through does not need it — so the stored
+/// port is used whether or not anything is bound to it. A stored zero is
+/// treated as the default, the same rule the listener applies.
+pub(crate) fn link_base_url(runtime: &OpdsServerRuntime) -> String {
+    let port = runtime.settings().port;
+    base_url(if port == 0 { DEFAULT_PORT } else { port })
+}
+
 /// The machine's primary IPv4 address.
 ///
 /// A UDP `connect` sends no packet: it asks the kernel which local address the
@@ -384,6 +420,163 @@ impl OpdsHandler for LiveOpdsHandler {
     }
 }
 
+/// One OPDS request the sync daemon forwards over its stdio control channel.
+///
+/// The fields mirror the wire request (`method`, `path`, `headers`, `body`).
+/// The type is local because the sidecar's wire crate is not a dependency of
+/// this process: JSON is the contract between the two, and its shape is the
+/// daemon's `Opds` request.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub(crate) struct OpdsRouteRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    #[serde(default)]
+    pub(crate) headers: OpdsRequestHeaders,
+    #[serde(default)]
+    pub(crate) body: Vec<u8>,
+}
+
+/// The negotiation headers a forwarded request carries.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub(crate) struct OpdsRequestHeaders {
+    pub(crate) accept: Option<String>,
+    pub(crate) accept_language: Option<String>,
+    pub(crate) accept_encoding: Option<String>,
+}
+
+/// The route's answer, shaped like the wire's `OpdsResponse`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct OpdsRouteResponse {
+    pub(crate) status: u16,
+    pub(crate) content_type: String,
+    pub(crate) body: Vec<u8>,
+}
+
+/// The OPDS route table, callable without a listener.
+///
+/// A paired platform's client cannot reach this machine's LAN address, so the
+/// desktop answers through the sync daemon instead: the daemon forwards the
+/// request, this runs it through the same `make_routes` table the LAN server
+/// serves, and the answer goes back the same way. Nothing binds a port.
+pub(crate) struct OpdsDispatch {
+    endpoint: BoxEndpoint<'static, Response>,
+    /// The base URL the route table builds absolute links from.
+    base_url: String,
+    /// The origin those links are rewritten to.
+    target: String,
+}
+
+impl OpdsDispatch {
+    /// Build the route table over the live repository.
+    ///
+    /// `base_url` is the address the routes believe they serve (the LAN base
+    /// URL); [`OpdsDispatch::respond`] rewrites what they emit to `target`.
+    pub(crate) async fn new(
+        deps: &OpdsServerDeps,
+        base_url: String,
+        target: String,
+    ) -> Result<Self, OpdsServerError> {
+        let handler = deps.handler(base_url.clone()).await?;
+        Ok(Self {
+            endpoint: make_routes(handler, None),
+            base_url,
+            target,
+        })
+    }
+
+    /// Serve one forwarded request and return the route's HTTP answer.
+    ///
+    /// A non-2xx status is returned as-is: the e-reader acts on the 404.
+    pub(crate) async fn respond(
+        &self,
+        request: OpdsRouteRequest,
+    ) -> Result<OpdsRouteResponse, String> {
+        let OpdsRouteRequest {
+            method,
+            path,
+            headers,
+            body,
+        } = request;
+        let method = Method::from_bytes(method.as_bytes())
+            .map_err(|error| format!("opds: invalid method {method:?}: {error}"))?;
+        let uri = path
+            .parse::<Uri>()
+            .map_err(|error| format!("opds: invalid path {path:?}: {error}"))?;
+
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(accept) = headers.accept {
+            builder = builder.header(header::ACCEPT.as_str(), accept);
+        }
+        if let Some(language) = headers.accept_language {
+            builder = builder.header(header::ACCEPT_LANGUAGE.as_str(), language);
+        }
+        if let Some(encoding) = headers.accept_encoding {
+            builder = builder.header(header::ACCEPT_ENCODING.as_str(), encoding);
+        }
+
+        // `get_response` converts a handler's error into its HTTP response
+        // (a 404 for an unknown publication) instead of surfacing it as a
+        // failure of the forward, which would erase the status the e-reader
+        // needs.
+        let response = self.endpoint.get_response(builder.body(Body::from(body))).await;
+        let status = response.status().as_u16();
+        let content_type = response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        let body = response
+            .into_body()
+            .into_vec()
+            .await
+            .map_err(|error| format!("opds: reading the route body failed: {error}"))?;
+
+        Ok(OpdsRouteResponse {
+            status,
+            content_type: content_type.clone(),
+            body: self.rewrite(&content_type, body),
+        })
+    }
+
+    /// Point absolute links at the origin the platform served the feed from.
+    ///
+    /// Only markup that can carry links is touched. A publication download is
+    /// bytes — a PDF or an EPUB — and searching it for a URL would corrupt it,
+    /// so the media type decides, never the content.
+    fn rewrite(&self, content_type: &str, body: Vec<u8>) -> Vec<u8> {
+        if self.base_url == self.target || !carries_links(content_type) {
+            return body;
+        }
+        match String::from_utf8(body) {
+            Ok(text) => text.replace(&self.base_url, &self.target).into_bytes(),
+            // Not UTF-8 despite the media type: leave the bytes untouched
+            // rather than transcode a document we cannot parse.
+            Err(error) => error.into_bytes(),
+        }
+    }
+}
+
+/// Whether a media type is text that may carry absolute links.
+///
+/// The OPDS documents this server emits are Atom XML, OPDS JSON, and the
+/// OpenSearch description; everything else is a publication or an image.
+fn carries_links(content_type: &str) -> bool {
+    let media = content_type
+        .split(';')
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    media.ends_with("+xml")
+        || media.ends_with("+json")
+        || matches!(
+            media.as_str(),
+            "application/xml" | "text/xml" | "application/json"
+        )
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -398,8 +591,9 @@ mod tests {
     use tokio::sync::RwLock;
 
     use super::{
-        DEFAULT_PORT, OpdsServerDeps, OpdsServerError, OpdsServerRuntime, OpdsServerSettings,
-        OpdsServerSettingsStore, desired_port,
+        DEFAULT_PORT, OpdsDispatch, OpdsRequestHeaders, OpdsRouteRequest, OpdsServerDeps,
+        OpdsServerError, OpdsServerRuntime, OpdsServerSettings, OpdsServerSettingsStore,
+        carries_links, desired_port,
     };
 
     /// Settings store that keeps the value in memory instead of on disk.
@@ -448,13 +642,17 @@ mod tests {
     }
 
     async fn fixture(port: u16) -> Fixture {
+        fixture_with_book(port, BOOK_BYTES).await
+    }
+
+    async fn fixture_with_book(port: u16, book_bytes: &[u8]) -> Fixture {
         let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
         let db = test_db.state().db_conn();
 
         let books = tempfile::tempdir().expect("books dir");
         let book_path = camino::Utf8PathBuf::from_path_buf(books.path().join("bridge.epub"))
             .expect("utf8 book path");
-        fs_err::write(&book_path, BOOK_BYTES).expect("write book");
+        fs_err::write(&book_path, book_bytes).expect("write book");
 
         let work_id = DbId::new();
         works::ActiveModel {
@@ -500,7 +698,7 @@ mod tests {
             blurhash: Set(None),
             dominant_color: Set(None),
             file_hash: Set(None),
-            file_size_bytes: Set(Some(BOOK_BYTES.len() as i64)),
+            file_size_bytes: Set(Some(book_bytes.len() as i64)),
             file_format: Set(Some("epub".to_string())),
             notes: Set(None),
             added_at: Set(now_primitive()),
@@ -811,5 +1009,130 @@ mod tests {
             !url.contains("0.0.0.0"),
             "a wildcard bind is not an address a client can dial: {url}"
         );
+    }
+
+    /// The LAN base URL the routes build links from, and the platform prefix
+    /// those links must name instead.
+    const LAN_BASE: &str = "http://192.168.1.5:8080";
+    const FORWARDED_ORIGIN: &str = "https://livtet.olamaelcu.net/opds/node";
+
+    fn route_request(method: &str, path: &str, accept: Option<&str>) -> OpdsRouteRequest {
+        OpdsRouteRequest {
+            method: method.to_string(),
+            path: path.to_string(),
+            headers: OpdsRequestHeaders {
+                accept: accept.map(str::to_string),
+                ..OpdsRequestHeaders::default()
+            },
+            body: Vec::new(),
+        }
+    }
+
+    async fn forwarded(fixture: &Fixture) -> OpdsDispatch {
+        OpdsDispatch::new(
+            &fixture.deps,
+            LAN_BASE.to_string(),
+            FORWARDED_ORIGIN.to_string(),
+        )
+        .await
+        .expect("the route table builds over the live repository")
+    }
+
+    /// An unknown publication is the route's own 404; forwarding must not turn
+    /// it into an error, because the e-reader acts on the status.
+    #[tokio::test]
+    async fn a_forwarded_route_404_comes_back_unchanged() {
+        let fixture = fixture(DEFAULT_PORT).await;
+        let dispatch = forwarded(&fixture).await;
+
+        let answer = dispatch
+            .respond(route_request(
+                "GET",
+                "/publications/no-such-work",
+                Some("application/opds+json"),
+            ))
+            .await
+            .expect("the route answers");
+
+        assert_eq!(answer.status, 404);
+        assert!(
+            String::from_utf8(answer.body)
+                .expect("the route's error body is text")
+                .contains("not found"),
+            "the route's own explanation survives the forward"
+        );
+    }
+
+    /// Absolute links are built from the LAN base URL; a client that reached
+    /// the platform must be sent back to the platform, not to the LAN.
+    #[tokio::test]
+    async fn forwarded_links_name_the_platform_origin() {
+        let fixture = fixture(DEFAULT_PORT).await;
+        let dispatch = forwarded(&fixture).await;
+
+        let answer = dispatch
+            .respond(route_request(
+                "GET",
+                "/",
+                Some("application/atom+xml;profile=opds-catalog"),
+            ))
+            .await
+            .expect("the feed renders");
+        let body = String::from_utf8(answer.body).expect("an Atom feed is text");
+
+        assert_eq!(answer.status, 200);
+        assert!(
+            !body.contains(LAN_BASE),
+            "no link may keep the LAN address: {body}"
+        );
+        // Every absolute link the feed emits — its own `self` and the shelf
+        // facet — must name the origin the client dialled, not the LAN.
+        assert!(
+            body.contains(&format!("{FORWARDED_ORIGIN}/search")),
+            "the shelf link names the platform: {body}"
+        );
+        assert!(
+            body.contains(FORWARDED_ORIGIN) && body.matches(FORWARDED_ORIGIN).count() >= 2,
+            "more than one link names the platform: {body}"
+        );
+    }
+
+    /// A publication download is bytes: even one whose contents happen to
+    /// contain the LAN base URL must arrive byte for byte.
+    #[tokio::test]
+    async fn a_forwarded_download_is_never_rewritten() {
+        let mut book = Vec::new();
+        book.extend_from_slice(b"%PDF-1.7\n% ");
+        book.extend_from_slice(LAN_BASE.as_bytes());
+        book.extend_from_slice(b"\n%%EOF\n");
+        let fixture = fixture_with_book(DEFAULT_PORT, &book).await;
+        let dispatch = forwarded(&fixture).await;
+
+        let answer = dispatch
+            .respond(route_request(
+                "GET",
+                &format!("/publications/{}/download", fixture.work_id),
+                None,
+            ))
+            .await
+            .expect("the download is served");
+
+        assert_eq!(answer.status, 200);
+        assert_eq!(
+            answer.body, book,
+            "a binary body is passed through untouched"
+        );
+        assert_eq!(answer.content_type, "application/epub+zip");
+    }
+
+    #[test]
+    fn only_link_carrying_markup_is_rewritten() {
+        assert!(carries_links("application/atom+xml;profile=opds-catalog"));
+        assert!(carries_links("application/opds+json"));
+        assert!(carries_links("application/opensearchdescription+xml"));
+        assert!(!carries_links("application/epub+zip"));
+        assert!(!carries_links("application/pdf"));
+        assert!(!carries_links("image/jpeg"));
+        assert!(!carries_links("application/octet-stream"));
     }
 }
