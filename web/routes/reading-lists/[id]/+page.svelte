@@ -1,17 +1,29 @@
 <script lang="ts">
-import { createQuery, useQueryClient } from '@tanstack/svelte-query'
+import { createQuery, keepPreviousData, useQueryClient } from '@tanstack/svelte-query'
 import { toast } from 'svelte-sonner'
+import { goto } from '$app/navigation'
 import { page } from '$app/state'
 import ActionButton from '../../../lib/components/ActionButton.svelte'
 import ListLayout from '../../../lib/layout/ListLayout.svelte'
-import { readingListKeys } from '../../../lib/query/keys'
+import ConfirmDialog from '../../../lib/library/ConfirmDialog.svelte'
+import { catalogKeys, readingListKeys, searchKeys } from '../../../lib/query/keys'
 import {
+  addReadingListBook,
+  deleteReadingList,
   getReadingList,
   readingListErrorMessage,
+  removeReadingListBook,
   reorderReadingList,
   updateReadingList,
 } from '../../../lib/reading-lists'
-import { type EditionDetail, loadEditionDetail } from '../../../lib/search'
+import {
+  coverUrlFor,
+  type EditionDetail,
+  loadEditionCovers,
+  loadEditionDetail,
+  type SearchResult,
+  searchTypeahead,
+} from '../../../lib/search'
 
 const listId = $derived(page.params.id ?? '')
 const queryClient = useQueryClient()
@@ -23,24 +35,55 @@ const list = createQuery(() => ({
 }))
 
 /**
- * Display metadata for the list's editions. Members cannot change from this
- * route (only their order can), so the ids are stable for the lifetime of the
- * query even as reorders update the list itself.
+ * Display metadata for the list's editions. The key follows membership, so
+ * adding or removing a book refetches details while a reorder (same set) does
+ * not.
  */
+const memberIds = $derived(list.data?.edition_ids ?? [])
+
 const books = createQuery(() => ({
-  queryKey: readingListKeys.books(listId),
+  queryKey: [...readingListKeys.books(listId), { ids: [...memberIds].sort() }],
   queryFn: async () => {
-    const ids = list.data?.edition_ids ?? []
-    const details = await Promise.all(
-      ids.map((id) => loadEditionDetail(id).catch(() => null)),
-    )
+    const ids = memberIds
+    const details = await Promise.all(ids.map((id) => loadEditionDetail(id).catch(() => null)))
     return Object.fromEntries(ids.map((id, index) => [id, details[index]])) as Record<
       string,
       EditionDetail | null
     >
   },
+
   enabled: list.data !== undefined,
+  placeholderData: keepPreviousData,
 }))
+
+let addOpen = $state(false)
+let bookQuery = $state('')
+let addError = $state<string | null>(null)
+let addingId = $state<string | null>(null)
+
+const candidates = createQuery(() => ({
+  queryKey: searchKeys.typeahead(bookQuery),
+  queryFn: () => searchTypeahead(bookQuery, 8),
+  enabled: addOpen && bookQuery.trim().length > 0,
+}))
+
+const candidateHits = $derived(
+  (candidates.data ?? []).filter(
+    (hit): hit is SearchResult & { edition_id: string } => hit.edition_id !== null,
+  ),
+)
+
+const candidateIds = $derived(candidateHits.map((hit) => hit.edition_id))
+
+const covers = createQuery(() => ({
+  queryKey: catalogKeys.editionCovers(candidateIds),
+  queryFn: () => loadEditionCovers(candidateIds),
+  enabled: addOpen && candidateIds.length > 0,
+}))
+
+const coversById = $derived(
+  new Map((covers.data ?? []).map((cover) => [cover.edition_id, cover.cover_path])),
+)
 
 function bookTitle(editionId: string): string {
   if (books.isPending) return 'Loading…'
@@ -137,6 +180,74 @@ async function move(index: number, delta: number) {
     reordering = false
   }
 }
+
+function inList(editionId: string): boolean {
+  return order.includes(editionId)
+}
+
+function closeAdd() {
+  addOpen = false
+  bookQuery = ''
+  addError = null
+}
+
+async function addBook(editionId: string) {
+  if (addingId !== null || reordering || inList(editionId)) return
+  addingId = editionId
+  addError = null
+  try {
+    const updated = await addReadingListBook(listId, editionId)
+    queryClient.setQueryData(readingListKeys.list(listId), updated)
+    pendingOrder = null
+    void queryClient.invalidateQueries({ queryKey: readingListKeys.lists() })
+    closeAdd()
+    toast.success('Book added to this list')
+  } catch (error) {
+    addError = readingListErrorMessage(error)
+  } finally {
+    addingId = null
+  }
+}
+
+let removing = $state<string | null>(null)
+
+async function removeBook(editionId: string) {
+  if (removing !== null || reordering) return
+  removing = editionId
+  reorderError = null
+  try {
+    const updated = await removeReadingListBook(listId, editionId)
+    queryClient.setQueryData(readingListKeys.list(listId), updated)
+    pendingOrder = null
+    void queryClient.invalidateQueries({ queryKey: readingListKeys.lists() })
+    toast.success('Book removed from this list')
+  } catch (error) {
+    toast.error(readingListErrorMessage(error))
+  } finally {
+    removing = null
+  }
+}
+
+let deleteOpen = $state(false)
+let deleting = $state(false)
+
+async function deleteList() {
+  if (deleting) return
+  deleteOpen = false
+  deleting = true
+  try {
+    await deleteReadingList(listId)
+    queryClient.removeQueries({ queryKey: readingListKeys.list(listId) })
+    queryClient.removeQueries({ queryKey: readingListKeys.books(listId) })
+    void queryClient.invalidateQueries({ queryKey: readingListKeys.lists() })
+    toast.success('Reading list deleted')
+    await goto('/reading-lists')
+  } catch (error) {
+    toast.error(readingListErrorMessage(error))
+  } finally {
+    deleting = false
+  }
+}
 </script>
 
 <ListLayout title={list.data?.name ?? 'Reading list'}>
@@ -144,10 +255,22 @@ async function move(index: number, delta: number) {
     <div class="actions">
       <wa-button href="/reading-lists">All lists</wa-button>
       <ActionButton
+        onclick={() => (addOpen = true)}
+        disabled={list.data === undefined || reordering || removing !== null}
+      >
+        Add book
+      </ActionButton>
+      <ActionButton
         onclick={beginEdit}
         disabled={editing || list.data === undefined}
       >
         Edit
+      </ActionButton>
+      <ActionButton
+        onclick={() => (deleteOpen = true)}
+        disabled={list.data === undefined || deleting}
+      >
+        Delete
       </ActionButton>
     </div>
   {/snippet}
@@ -221,7 +344,7 @@ async function move(index: number, delta: number) {
             <div class="move-controls">
               <ActionButton
                 size="small"
-                disabled={reordering || index === 0}
+                disabled={reordering || removing !== null || index === 0}
                 onclick={() => move(index, -1)}
                 aria-label={`Move ${bookTitle(editionId)} up`}
               >
@@ -229,11 +352,19 @@ async function move(index: number, delta: number) {
               </ActionButton>
               <ActionButton
                 size="small"
-                disabled={reordering || index === order.length - 1}
+                disabled={reordering || removing !== null || index === order.length - 1}
                 onclick={() => move(index, 1)}
                 aria-label={`Move ${bookTitle(editionId)} down`}
               >
                 Down
+              </ActionButton>
+              <ActionButton
+                size="small"
+                disabled={reordering || removing !== null}
+                onclick={() => void removeBook(editionId)}
+                aria-label={`Remove ${bookTitle(editionId)} from this list`}
+              >
+                Remove
               </ActionButton>
             </div>
           </li>
@@ -242,6 +373,84 @@ async function move(index: number, delta: number) {
     {/if}
   {/if}
 </ListLayout>
+
+{#if addOpen && list.data}
+  <wa-dialog label="Add a book" open onwa-after-hide={closeAdd}>
+    <div class="add-book">
+      <wa-input
+        label="Search books"
+        placeholder="Title or author"
+        value={bookQuery}
+        oninput={(event) => (bookQuery = event.currentTarget.value)}
+      ></wa-input>
+
+      {#if addError}
+        <wa-callout variant="danger">{addError}</wa-callout>
+      {/if}
+
+      {#if bookQuery.trim().length === 0}
+        <p class="empty">Type a title or author to search the library.</p>
+      {:else if candidates.isPending}
+        <wa-spinner></wa-spinner>
+      {:else if candidates.isError}
+        <wa-callout variant="danger">
+          {readingListErrorMessage(candidates.error)}
+        </wa-callout>
+      {:else if candidateHits.length === 0}
+        <p class="empty">No books match that search.</p>
+      {:else}
+        <ul class="candidates">
+          {#each candidateHits as hit (hit.edition_id)}
+            {@const added = inList(hit.edition_id)}
+            {@const busy = added || addingId !== null}
+            <li class="candidate-item">
+              <div
+                class="candidate"
+                role="button"
+                tabindex={busy ? -1 : 0}
+                aria-disabled={busy}
+                aria-label={`Add ${hit.title}`}
+                onclick={() => void addBook(hit.edition_id)}
+                onkeydown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    void addBook(hit.edition_id)
+                  }
+                }}
+              >
+                <figure class="candidate-cover">
+                  {#if coversById.get(hit.edition_id)}
+                    <img src={coverUrlFor(coversById.get(hit.edition_id))} alt="" />
+                  {:else}
+                    <figcaption>{hit.title}</figcaption>
+                  {/if}
+                </figure>
+                <span class="candidate-title">{hit.title}</span>
+                {#if hit.authors.length > 0}
+                  <span class="candidate-authors">{hit.authors.join(', ')}</span>
+                {/if}
+                {#if added}
+                  <wa-badge appearance="outlined">In list</wa-badge>
+                {/if}
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
+  </wa-dialog>
+{/if}
+
+{#if deleteOpen}
+  <ConfirmDialog
+    open={deleteOpen}
+    title="Delete reading list"
+    message={`Delete “${list.data?.name ?? 'this list'}”? Its books stay in your library; only the list is removed.`}
+    confirmLabel="Delete list"
+    onconfirm={deleteList}
+    oncancel={() => (deleteOpen = false)}
+  />
+{/if}
 
 <style>
   .actions {
@@ -331,5 +540,97 @@ async function move(index: number, delta: number) {
     display: flex;
     flex: none;
     gap: var(--wa-space-3xs);
+  }
+
+  .add-book {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-s);
+    inline-size: 80vw;
+  }
+
+  .candidates {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+    gap: var(--wa-space-s);
+    max-block-size: 26rem;
+    overflow: auto;
+    margin: 0;
+    padding: var(--wa-space-3xs);
+    list-style: none;
+  }
+
+  .candidate {
+    display: flex;
+    flex-direction: column;
+    gap: var(--wa-space-3xs);
+    inline-size: 100%;
+    min-inline-size: 0;
+    padding: var(--wa-space-2xs);
+    border-radius: var(--wa-border-radius-m);
+    color: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .candidate-item {
+    display: flex;
+    min-inline-size: 0;
+  }
+
+  .candidate:hover,
+  .candidate:focus-visible {
+    box-shadow: var(--wa-focus-ring);
+  }
+
+  .candidate[aria-disabled='true'] {
+    cursor: default;
+    opacity: 0.6;
+  }
+
+  .candidate-cover {
+    display: grid;
+    place-items: center;
+    inline-size: 100%;
+    aspect-ratio: 3 / 4;
+    margin: 0;
+    overflow: hidden;
+    border: var(--wa-border-width-s) var(--wa-border-style) var(--wa-color-border-default);
+    background: linear-gradient(
+      135deg,
+      var(--wa-color-surface-lowered) 0%,
+      var(--wa-color-surface-raised) 100%
+    );
+    color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-2xs, 0.75rem);
+    text-align: center;
+  }
+
+  .candidate-cover img {
+    inline-size: 100%;
+    block-size: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .candidate-cover figcaption {
+    padding: var(--wa-space-s);
+    overflow: hidden;
+  }
+
+  .candidate-title {
+    display: -webkit-box;
+    overflow: hidden;
+    font-weight: 600;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .candidate-authors {
+    color: var(--wa-color-text-secondary);
+    font-size: var(--wa-font-size-xs);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 </style>

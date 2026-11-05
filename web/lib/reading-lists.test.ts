@@ -4,9 +4,13 @@ const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }))
 vi.mock('@tauri-apps/api/core', () => ({ invoke }))
 
 import {
+  addReadingListBook,
+  createReadingList,
+  deleteReadingList,
   getReadingList,
   listReadingLists,
   readingListErrorMessage,
+  removeReadingListBook,
   reorderReadingList,
   updateReadingList,
 } from './reading-lists'
@@ -86,5 +90,60 @@ test('reorderReadingList submits the whole ordered edition id list', async () =>
   expect(invoke).toHaveBeenCalledWith('reorder_reading_list', {
     listId: '01LIST',
     editionIds: ['01B', '01A'],
+  })
+})
+
+test('createReadingList forwards the name and description', async () => {
+  const list = {
+    id: '01LIST',
+    name: 'Autumn',
+    description: null,
+    edition_ids: [],
+    created_at: '2026-11-04T00:00:00Z',
+    updated_at: null,
+  }
+  invoke.mockResolvedValue(list)
+  await expect(createReadingList('Autumn', null)).resolves.toEqual(list)
+  expect(invoke).toHaveBeenCalledWith('create_reading_list', {
+    name: 'Autumn',
+    description: null,
+  })
+})
+
+test('deleteReadingList forwards the list id', async () => {
+  invoke.mockResolvedValue(true)
+  await expect(deleteReadingList('01LIST')).resolves.toBe(true)
+  expect(invoke).toHaveBeenCalledWith('delete_reading_list', { listId: '01LIST' })
+})
+
+test('addReadingListBook forwards both ids', async () => {
+  invoke.mockResolvedValue({
+    id: '01LIST',
+    name: 'Autumn',
+    description: null,
+    edition_ids: ['01BOOK'],
+    created_at: '2026-11-04T00:00:00Z',
+    updated_at: '2026-11-04T00:01:00Z',
+  })
+  await addReadingListBook('01LIST', '01BOOK')
+  expect(invoke).toHaveBeenCalledWith('add_reading_list_book', {
+    listId: '01LIST',
+    editionId: '01BOOK',
+  })
+})
+
+test('removeReadingListBook forwards both ids', async () => {
+  invoke.mockResolvedValue({
+    id: '01LIST',
+    name: 'Autumn',
+    description: null,
+    edition_ids: [],
+    created_at: '2026-11-04T00:00:00Z',
+    updated_at: '2026-11-04T00:01:00Z',
+  })
+  await removeReadingListBook('01LIST', '01BOOK')
+  expect(invoke).toHaveBeenCalledWith('remove_reading_list_book', {
+    listId: '01LIST',
+    editionId: '01BOOK',
   })
 })

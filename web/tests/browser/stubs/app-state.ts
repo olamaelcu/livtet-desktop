@@ -6,7 +6,11 @@
 // rather than failing loudly -- add the param rather than working around it.
 export const page = {
   url: new URL('/library', 'http://localhost'),
-  params: { editionId: '01hzzzzzzzzzzzzzzzzzzzzzzz', catalogId: 'cat-standard-ebooks' },
+  params: {
+    editionId: '01hzzzzzzzzzzzzzzzzzzzzzzz',
+    catalogId: 'cat-standard-ebooks',
+    id: '01hzzzzzzzzzzzzzzzzzzzzzzz',
+  },
   // `replaceState` replaces the page state alongside the URL; routes pass the
   // current one back so that writing a query parameter does not drop it.
   state: {},
