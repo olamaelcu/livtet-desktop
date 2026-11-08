@@ -12,12 +12,12 @@ rust-version = "1.97.0"
 authors = ["Jacky Alcine <yo@jacky.wtf>"]
 
 [workspace.dependencies]
-livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-data = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-sync = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
-livtet-sync-server = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-core = { path = "../mobile/core/livtet-core" }
+livtet-types = { path = "../mobile/core/livtet-types" }
+livtet-search = { path = "../mobile/core/livtet-search" }
+livtet-data = { path = "../mobile/core/livtet-data" }
+livtet-sync = { path = "../mobile/core/livtet-sync" }
+livtet-sync-server = { path = "../mobile/core/livtet-sync-server" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer-types = { path = "crates/livtet-importer-types" }
 livtet-audio = { path = "crates/livtet-audio" }
@@ -69,6 +69,18 @@ strip = true
 # `tauri-plugin-deep-link` 2.6.2 builds `rust-ini::ParseOption` with a struct
 # literal that predates the two fields added in 0.21.3. The local copy adds
 # `..Default::default()`; drop it once upstream ships a fix.
+# `livtet-opds` names the workspace crates through git; without this patch the build
+# resolves two copies of `livtet-data`/`livtet-search` (git main and the local
+# checkout) and their types no longer meet. Keyed by that git source, so only the
+# transitive references are redirected.
+[patch."https://github.com/olamaelcu/livtet"]
+livtet-core = { path = "../mobile/core/livtet-core" }
+livtet-types = { path = "../mobile/core/livtet-types" }
+livtet-search = { path = "../mobile/core/livtet-search" }
+livtet-data = { path = "../mobile/core/livtet-data" }
+livtet-sync = { path = "../mobile/core/livtet-sync" }
+livtet-sync-server = { path = "../mobile/core/livtet-sync-server" }
+
 [patch.crates-io]
 tauri-plugin-deep-link = { path = "vendor/tauri-plugin-deep-link" }
 # 0.1.7 hardcodes `redirect_uris[0]` at the token endpoint (breaking any flow
