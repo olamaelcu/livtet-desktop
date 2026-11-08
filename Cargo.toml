@@ -12,12 +12,12 @@ rust-version = "1.97.0"
 authors = ["Jacky Alcine <yo@jacky.wtf>"]
 
 [workspace.dependencies]
-livtet-core = { path = "../mobile/core/livtet-core" }
-livtet-types = { path = "../mobile/core/livtet-types" }
-livtet-search = { path = "../mobile/core/livtet-search" }
-livtet-data = { path = "../mobile/core/livtet-data" }
-livtet-sync = { path = "../mobile/core/livtet-sync" }
-livtet-sync-server = { path = "../mobile/core/livtet-sync-server" }
+livtet-core = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-types = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-search = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-data = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-sync = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
+livtet-sync-server = { git = "https://github.com/olamaelcu/livtet", branch = "main" }
 livtet-epub = { path = "crates/livtet-epub" }
 livtet-importer-types = { path = "crates/livtet-importer-types" }
 livtet-audio = { path = "crates/livtet-audio" }
@@ -36,11 +36,11 @@ stanchion-lua = { git = "https://github.com/jalcine/stanchion", branch = "main",
   "vendored",
 ] }
 stanchion-abi = { git = "https://github.com/jalcine/stanchion", branch = "main" }
-# Local checkout until the core-free opds-server lands on its branch; the crates
-# no longer depend on livtet core, so no source patch is needed.
-livtet-opds-client = { path = "../livtet-opds/opds", features = ["atom"] }
-livtet-opds-types = { path = "../livtet-opds/opds-types" }
-livtet-opds-server = { path = "../livtet-opds/opds-server" }
+livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main", features = [
+  "atom",
+] }
+livtet-opds-types = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }
+livtet-opds-server = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }
 reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
   "json",
