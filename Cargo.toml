@@ -27,6 +27,7 @@ livtet-pdf = { path = "crates/livtet-pdf" }
 livtet-importer = { path = "crates/livtet-importer" }
 livtet-reader = { path = "crates/livtet-reader" }
 livtet-mcp-server = { path = "crates/livtet-mcp-server" }
+livtet-opds-live = { path = "crates/livtet-opds-live" }
 stanchion = { git = "https://github.com/jalcine/stanchion", branch = "main", features = [
   "remote",
 ] }
@@ -35,11 +36,11 @@ stanchion-lua = { git = "https://github.com/jalcine/stanchion", branch = "main",
   "vendored",
 ] }
 stanchion-abi = { git = "https://github.com/jalcine/stanchion", branch = "main" }
-livtet-opds-client = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main", features = [
-  "atom",
-] }
-livtet-opds-types = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }
-livtet-opds-server = { git = "https://github.com/olamaelcu/livtet-opds", branch = "main" }
+# Local checkout until the core-free opds-server lands on its branch; the crates
+# no longer depend on livtet core, so no source patch is needed.
+livtet-opds-client = { path = "../livtet-opds/opds", features = ["atom"] }
+livtet-opds-types = { path = "../livtet-opds/opds-types" }
+livtet-opds-server = { path = "../livtet-opds/opds-server" }
 reqwest = { version = "0.12", default-features = false, features = [
   "rustls-tls",
   "json",
@@ -69,18 +70,6 @@ strip = true
 # `tauri-plugin-deep-link` 2.6.2 builds `rust-ini::ParseOption` with a struct
 # literal that predates the two fields added in 0.21.3. The local copy adds
 # `..Default::default()`; drop it once upstream ships a fix.
-# `livtet-opds` names the workspace crates through git; without this patch the build
-# resolves two copies of `livtet-data`/`livtet-search` (git main and the local
-# checkout) and their types no longer meet. Keyed by that git source, so only the
-# transitive references are redirected.
-[patch."https://github.com/olamaelcu/livtet"]
-livtet-core = { path = "../mobile/core/livtet-core" }
-livtet-types = { path = "../mobile/core/livtet-types" }
-livtet-search = { path = "../mobile/core/livtet-search" }
-livtet-data = { path = "../mobile/core/livtet-data" }
-livtet-sync = { path = "../mobile/core/livtet-sync" }
-livtet-sync-server = { path = "../mobile/core/livtet-sync-server" }
-
 [patch.crates-io]
 tauri-plugin-deep-link = { path = "vendor/tauri-plugin-deep-link" }
 # 0.1.7 hardcodes `redirect_uris[0]` at the token endpoint (breaking any flow

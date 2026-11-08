@@ -5384,6 +5384,7 @@ dependencies = [
  "livtet-importer",
  "livtet-mcp-server",
  "livtet-opds-client",
+ "livtet-opds-live",
  "livtet-opds-server",
  "livtet-opds-types",
  "livtet-reader",
@@ -5534,7 +5535,6 @@ dependencies = [
 [[package]]
 name = "livtet-opds-atom"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#2c79630b776b6d81d22a688814703c1b8cf2aa9b"
 dependencies = [
  "itertools 0.15.0",
  "livtet-opds-types",
@@ -5545,7 +5545,6 @@ dependencies = [
 [[package]]
 name = "livtet-opds-client"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#2c79630b776b6d81d22a688814703c1b8cf2aa9b"
 dependencies = [
  "camino",
  "camino-tempfile",
@@ -5564,22 +5563,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "livtet-opds-server"
-version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#2c79630b776b6d81d22a688814703c1b8cf2aa9b"
+name = "livtet-opds-live"
+version = "0.0.0"
 dependencies = [
  "argon2",
  "async-trait",
  "base64 0.22.1",
+ "camino",
+ "camino-tempfile",
  "livtet-core",
- "livtet-opds-atom",
+ "livtet-opds-server",
  "livtet-opds-types",
  "livtet-search",
  "livtet-types",
+ "mime_guess",
+ "poem",
+ "rand 0.10.3",
+ "sea-orm",
+ "time",
+ "tokio",
+]
+
+[[package]]
+name = "livtet-opds-server"
+version = "0.1.0"
+dependencies = [
+ "argon2",
+ "async-trait",
+ "base64 0.22.1",
+ "livtet-opds-atom",
+ "livtet-opds-types",
  "mime",
  "mime_guess",
  "poem",
- "sea-orm",
  "serde",
  "serde_json",
  "time",
@@ -5591,7 +5607,6 @@ dependencies = [
 [[package]]
 name = "livtet-opds-types"
 version = "0.1.0"
-source = "git+https://github.com/olamaelcu/livtet-opds?branch=main#2c79630b776b6d81d22a688814703c1b8cf2aa9b"
 dependencies = [
  "mutants",
  "serde",

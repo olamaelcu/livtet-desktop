@@ -62,6 +62,7 @@ livtet-mcp-server.workspace = true
 livtet-opds-client.workspace = true
 livtet-opds-types.workspace = true
 livtet-opds-server.workspace = true
+livtet-opds-live.workspace = true
 stanchion.workspace = true
 reqwest.workspace = true
 url.workspace = true

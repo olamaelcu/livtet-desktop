@@ -1,0 +1,25 @@
+[package]
+name = "livtet-opds-live"
+version = "0.0.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+async-trait = "0.1"
+livtet-core = { workspace = true }
+livtet-opds-server = { workspace = true }
+livtet-opds-types = { workspace = true }
+livtet-search = { workspace = true }
+livtet-types = { workspace = true }
+mime_guess = "2"
+sea-orm = { version = "2.0", features = ["sqlx-sqlite", "runtime-tokio", "macros"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[dev-dependencies]
+argon2 = { version = "0.5", features = ["std"] }
+base64 = "0.22"
+camino = "1.2"
+camino-tempfile = "1"
+poem = { version = "3.1", default-features = false, features = ["server", "test"] }
+rand = "0.10"
+time = { version = "0.3", features = ["formatting", "parsing"] }

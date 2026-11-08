@@ -18,9 +18,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use livtet_core::data::SharedState;
 use livtet_core::search::SearchIndex;
+use livtet_opds_live::LivtetOpdsRepository;
 use livtet_opds_server::{
-    LivtetOpdsRepository, OpdsHandler, OpdsServer, OpdsService, PoemOpdsServer, SharedOpdsHandler,
-    SharedOpdsRepository, routes::make_routes,
+    OpdsHandler, OpdsServer, OpdsService, PoemOpdsServer, SharedOpdsHandler, SharedOpdsRepository,
+    routes::make_routes,
 };
 use livtet_opds_types::{Feed, OpdsError, Publication};
 use poem::endpoint::BoxEndpoint;
