@@ -29,6 +29,16 @@ import {
 } from '../sync'
 import ActionButton from './ActionButton.svelte'
 
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+/** Paired rows expose the device id as a ULID; discovery advertises the same bytes as hex. */
+function ulidToHex(id: string): string {
+  if (!/^[0-9A-HJKMNP-TV-Z]{26}$/.test(id)) return id.toLowerCase()
+  let value = 0n
+  for (const char of id) value = value * 32n + BigInt(CROCKFORD.indexOf(char))
+  return value.toString(16).padStart(32, '0')
+}
+
 const SYNC_POLL_MS = 30_000
 
 const queryClient = useQueryClient()
@@ -153,7 +163,16 @@ const conflicts = createQuery(() => ({
 }))
 
 /** Device ids this desktop already holds a row for, so discovery can mark them. */
-const pairedIds = $derived(new Set((devices.data ?? []).map((device) => device.device_id)))
+const pairedIds = $derived(
+  new Set(
+    (devices.data ?? []).flatMap((device) => [device.device_id, ulidToHex(device.device_id)]),
+  ),
+)
+
+/** Discovery also sees devices that are already paired; the list is for pairing, so omit them. */
+const unpairedNearby = $derived(
+  (nearby.data ?? []).filter((peer) => !pairedIds.has(peer.device_id)),
+)
 
 /** Only unresolved rows can be acted on; resolved ones stay visible as history. */
 const unresolvedConflicts = $derived(
@@ -550,16 +569,12 @@ onMount(() => {
         <p class="muted">Looking for nearby devices…</p>
       {:else if nearby.isError}
         <p class="muted">Nearby discovery is unavailable.</p>
-      {:else if nearby.data?.length}
-        {#each nearby.data as peer (peer.node_id)}
-          {@const paired = pairedIds.has(peer.device_id)}
+      {:else if unpairedNearby.length}
+        {#each unpairedNearby as peer (peer.node_id)}
           <div class="row">
             <span class="nearby-emoji" aria-hidden="true">{deviceEmoji(peer.device_type)}</span>
             <span class="row-main">
               <strong>{peer.name}</strong>
-              {#if paired}
-                <wa-badge variant="neutral">Paired</wa-badge>
-              {/if}
               <span class="muted">
                 · {peer.device_type}
               </span>
@@ -571,7 +586,7 @@ onMount(() => {
                 onclick={() => pairWith(peer)}
                 disabled={pairingWith !== null}
               >
-                {pairingWith === peer.node_id ? 'Waiting…' : paired ? 'Re-pair' : 'Pair'}
+                {pairingWith === peer.node_id ? 'Waiting…' : 'Pair'}
               </ActionButton>
               <ActionButton size="small" onclick={() => copy('Pairing code', peer.node_id)}>
                 Copy code
