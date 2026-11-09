@@ -179,6 +179,13 @@ const unresolvedConflicts = $derived(
   (conflicts.data ?? []).filter((conflict) => !conflict.resolved),
 )
 
+/** Notes merge automatically in Stage B; until then their row is read-only. */
+function isNoteConflict(conflict: SyncConflict): boolean {
+  return conflict.entity_type === 'reading_progress'
+}
+
+const resolvableConflicts = $derived(unresolvedConflicts.filter((conflict) => !isNoteConflict(conflict)))
+
 type SyncAction = { message: string; run: () => Promise<unknown> }
 
 const action = createMutation(() => ({
@@ -208,7 +215,7 @@ const pairing = createMutation(() => ({
 
 const bulkResolve = createMutation(() => ({
   mutationFn: async (resolution: 'local' | 'remote') => {
-    const targets = unresolvedConflicts.map((conflict) => conflict.id)
+    const targets = resolvableConflicts.map((conflict) => conflict.id)
     let resolved = 0
     for (const id of targets) {
       if (await syncConflictsResolve(id, resolution)) resolved += 1
@@ -274,6 +281,26 @@ function rejectPairing(nodeId: string) {
 
 function revokeDevice(deviceId: string) {
   action.mutate({ message: 'Device revoked', run: () => syncDevicesRevoke(deviceId) })
+}
+
+/** Revoke both sides, then claim again so the pair gets fresh mutual tokens. */
+async function repairDevice(device: { device_id: string; name: string | null }) {
+  const peers = await syncNearbyDevices().catch(() => [])
+  const target = peers.find(
+    (peer) => peer.device_id === ulidToHex(device.device_id) || peer.name === device.name,
+  )
+  action.mutate({
+    message: 'Repair request sent',
+    run: async () => {
+      await syncDevicesRevoke(device.device_id)
+      if (!target) {
+        throw new Error(
+          'Revoked locally, but the device is not nearby; pair again when it appears.',
+        )
+      }
+      await syncPairClaim(target.node_id, device.name)
+    },
+  })
 }
 
 type PullReport = { name: string; offered: number; error?: string }
@@ -377,7 +404,7 @@ function resolveConflict(conflict: SyncConflict) {
 
 /** Resolve every unresolved conflict with one choice; merged needs per-row input. */
 function resolveAllConflicts() {
-  if (!unresolvedConflicts.length || bulkResolve.isPending) return
+  if (!resolvableConflicts.length || bulkResolve.isPending) return
   bulkConfirmOpen = true
 }
 
@@ -660,6 +687,14 @@ onMount(() => {
             {device.outbound ? '' : '· pair again to read its books'}
           </span>
         </span>
+        <ActionButton
+          size="small"
+          variant="brand"
+          onclick={() => repairDevice(device)}
+          disabled={busy}
+        >
+          Repair
+        </ActionButton>
         <ActionButton size="small" onclick={() => revokeDevice(device.device_id)} disabled={busy}>
           Revoke
         </ActionButton>
@@ -737,7 +772,7 @@ onMount(() => {
         <wa-badge variant="warning">{unresolvedConflicts.length}</wa-badge>
       {/if}
     </div>
-    {#if unresolvedConflicts.length}
+    {#if resolvableConflicts.length}
       <div class="resolve bulk-resolve">
         <label class="control">
           <span>Resolve all as</span>
@@ -757,7 +792,7 @@ onMount(() => {
           disabled={busy}
           size="small"
         >
-          Resolve all ({unresolvedConflicts.length})
+          Resolve all ({resolvableConflicts.length})
         </ActionButton>
       </div>
     {/if}
@@ -779,6 +814,10 @@ onMount(() => {
         </div>
         {#if conflict.resolved}
           <p class="muted">Resolved as {conflict.resolution ?? 'unknown'}.</p>
+        {:else if isNoteConflict(conflict)}
+          <p class="muted">
+            Notes merge automatically in the next update; no action is needed here.
+          </p>
         {:else}
           <div class="resolve">
             <label class="control">
