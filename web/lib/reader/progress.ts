@@ -17,6 +17,11 @@ export interface Annotation {
   color?: HighlightColor
   /** ISO timestamp of when the note was written; absent on notes that predate it. */
   createdAt?: string
+  /** Stage B sync metadata: last edit and the device that made it. */
+  updatedAt?: string
+  updatedBy?: string
+  /** Present only on tombstones, which {@link parseAnnotations} filters out. */
+  deletedAt?: string | null
 }
 
 export interface ReaderProgress {
@@ -49,7 +54,9 @@ function parseAnnotations(raw: string | null | undefined): Annotation[] | undefi
   if (!raw) return undefined
   try {
     const parsed: unknown = JSON.parse(raw)
-    return Array.isArray(parsed) ? (parsed as Annotation[]) : undefined
+    return Array.isArray(parsed)
+      ? (parsed as Annotation[]).filter((note) => !note.deletedAt)
+      : undefined
   } catch {
     return undefined
   }

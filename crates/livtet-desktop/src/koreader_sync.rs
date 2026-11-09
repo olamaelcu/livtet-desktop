@@ -45,6 +45,7 @@ use std::time::Duration;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use livtet_core::data::entities::{digital_inventory, editions, reading_progress, works};
+use livtet_core::data::annotations as note_merge;
 use livtet_core::data::orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait,
     IntoActiveModel, QueryFilter, Set, Statement, Value,
@@ -1139,6 +1140,8 @@ async fn store_epub_fraction(
     edition_id: DbId,
     fraction: f64,
 ) -> Result<(), KoreaderSyncError> {
+    let stamp = timestamp_text();
+    let device = note_merge::local_device_id(db).await;
     let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
         return Err(KoreaderSyncError::new("not-found", "edition not found"));
     };
@@ -1158,6 +1161,8 @@ async fn store_epub_fraction(
             let mut active = row.into_active_model();
             active.progress = Set(fraction);
             active.progress_unit = Set(Some(Family::Epub.unit().to_string()));
+            active.updated_at = Set(Some(stamp));
+            active.updated_by = Set(Some(device));
             active.update(db).await?;
         }
         None => {
@@ -1171,6 +1176,8 @@ async fn store_epub_fraction(
                 total_reading_time_secs: Set(0),
                 annotations: Set(None),
                 created_at: Set(now_primitive()),
+                updated_at: Set(Some(stamp)),
+                updated_by: Set(Some(device)),
             }
             .insert(db)
             .await?;
@@ -1189,27 +1196,13 @@ async fn store_epub_fraction(
 pub(crate) fn merge_annotations(
     stored: Option<&str>,
     incoming: &[serde_json::Value],
+    now: &str,
+    device: &str,
 ) -> Result<String, KoreaderSyncError> {
-    let mut merged: Vec<serde_json::Value> = match stored {
-        Some(raw) => serde_json::from_str::<Vec<serde_json::Value>>(raw).unwrap_or_default(),
-        None => Vec::new(),
-    };
-    for note in incoming {
-        let id = note
-            .get("id")
-            .and_then(serde_json::Value::as_str)
-            .map(str::to_string);
-        match id.and_then(|id| {
-            merged.iter().position(|existing| {
-                existing.get("id").and_then(serde_json::Value::as_str) == Some(id.as_str())
-            })
-        }) {
-            Some(index) => merged[index] = note.clone(),
-            None => merged.push(note.clone()),
-        }
-    }
-    serde_json::to_string(&merged)
-        .map_err(|error| KoreaderSyncError::new("invalid", error.to_string()))
+    let stored = note_merge::parse_notes(stored);
+    // A KOReader push is a partial view: notes it omits are not deletions.
+    let merged = note_merge::replace_notes(&stored, incoming, now, device, false);
+    Ok(note_merge::notes_json(&merged))
 }
 
 /// A book's position plus its notes and bookmarks, as the extension endpoints
@@ -1229,7 +1222,13 @@ async fn book_sync_view(
     db: &DatabaseConnection,
     target: &DocumentTarget,
 ) -> Result<BookSyncView, KoreaderSyncError> {
-    let progress = reader::fetch_reader_position(db, target.edition_id).await?;
+    let mut progress = reader::fetch_reader_position(db, target.edition_id).await?;
+    if let Some(progress) = progress.as_mut()
+        && let Some(raw) = progress.annotations.as_deref()
+    {
+        let visible = note_merge::visible_notes(&note_merge::parse_notes(Some(raw)));
+        progress.annotations = Some(note_merge::notes_json(&visible));
+    }
     let bookmarks = reader::fetch_reader_bookmarks(db, target.edition_id).await?;
     Ok(BookSyncView {
         inventory_id: target.inventory_id.to_string(),
@@ -1309,12 +1308,16 @@ async fn apply_book_sync(
     // list and the bookmarks agree on where the reader is.
     if let Some(progress) = &push.progress {
         let stored = reader::fetch_reader_position(db, target.edition_id).await?;
+        let stamp = timestamp_text();
+        let device = note_merge::local_device_id(db).await;
         let annotations = match &progress.annotations {
             Some(incoming) => Some(merge_annotations(
                 stored
                     .as_ref()
                     .and_then(|position| position.annotations.as_deref()),
                 incoming,
+                &stamp,
+                &device,
             )?),
             None => None,
         };

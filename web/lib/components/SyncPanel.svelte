@@ -179,12 +179,7 @@ const unresolvedConflicts = $derived(
   (conflicts.data ?? []).filter((conflict) => !conflict.resolved),
 )
 
-/** Notes merge automatically in Stage B; until then their row is read-only. */
-function isNoteConflict(conflict: SyncConflict): boolean {
-  return conflict.entity_type === 'reading_progress'
-}
-
-const resolvableConflicts = $derived(unresolvedConflicts.filter((conflict) => !isNoteConflict(conflict)))
+const resolvableConflicts = $derived(unresolvedConflicts)
 
 type SyncAction = { message: string; run: () => Promise<unknown> }
 
@@ -814,10 +809,6 @@ onMount(() => {
         </div>
         {#if conflict.resolved}
           <p class="muted">Resolved as {conflict.resolution ?? 'unknown'}.</p>
-        {:else if isNoteConflict(conflict)}
-          <p class="muted">
-            Notes merge automatically in the next update; no action is needed here.
-          </p>
         {:else}
           <div class="resolve">
             <label class="control">

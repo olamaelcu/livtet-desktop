@@ -29,6 +29,7 @@ use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use livtet_core::data::entities::{
     digital_inventory, editions, reading_bookmarks, reading_progress,
 };
+use livtet_core::data::annotations as note_merge;
 use livtet_core::data::orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, Set,
 };
@@ -891,6 +892,14 @@ pub(crate) async fn store_reader_position(
     annotations: Option<String>,
 ) -> Result<(), ReaderError> {
     let unit = reader_progress_unit(kind)?;
+    let stamp = now_rfc3339();
+    let device = note_merge::local_device_id(db).await;
+    // A note-only save (the reader persists notes without a position) must not
+    // reset the stored position or claim a newer progress timestamp.
+    let note_only = annotations.is_some()
+        && locator.is_none()
+        && page_number.is_none()
+        && position_seconds.is_none();
     let Some(edition) = editions::Entity::find_by_id(edition_id).one(db).await? else {
         return Err(ReaderError::new("not-found", "edition not found"));
     };
@@ -931,19 +940,37 @@ pub(crate) async fn store_reader_position(
         .await?;
     match existing {
         Some(row) => {
+            let stored = note_merge::parse_notes(row.annotations.as_deref());
             let mut active = row.into_active_model();
-            active.progress = Set(progress);
-            active.progress_unit = Set(Some(unit.to_string()));
-            active.last_location = Set(last_location);
+            if !note_only {
+                active.progress = Set(progress);
+                active.progress_unit = Set(Some(unit.to_string()));
+                active.last_location = Set(last_location);
+                active.updated_at = Set(Some(stamp.clone()));
+                active.updated_by = Set(Some(device.clone()));
+            }
             // `None` means "this writer does not own annotations": a position
             // save must never blank notes written by another save. Callers that
             // own the list always send one (an empty array clears it).
             if let Some(annotations) = annotations {
-                active.annotations = Set(Some(annotations));
+                let incoming = note_merge::parse_notes(Some(&annotations));
+                let merged = note_merge::replace_notes(
+                    &stored,
+                    &incoming,
+                    &stamp,
+                    &device,
+                    true,
+                );
+                active.annotations = Set(Some(note_merge::notes_json(&merged)));
             }
             active.update(db).await?;
         }
         None => {
+            let annotations = annotations.map(|annotations| {
+                let incoming = note_merge::parse_notes(Some(&annotations));
+                let merged = note_merge::replace_notes(&[], &incoming, &stamp, &device, true);
+                note_merge::notes_json(&merged)
+            });
             reading_progress::ActiveModel {
                 id: Set(DbId::new()),
                 edition_id: Set(edition_id),
@@ -954,6 +981,8 @@ pub(crate) async fn store_reader_position(
                 total_reading_time_secs: Set(0),
                 annotations: Set(annotations),
                 created_at: Set(now_primitive()),
+                updated_at: Set(Some(stamp)),
+                updated_by: Set(Some(device)),
             }
             .insert(db)
             .await?;
@@ -975,6 +1004,12 @@ fn reader_progress_unit(kind: &str) -> Result<&'static str, ReaderError> {
             "kind must be 'epub', 'pdf' or 'audio'",
         )),
     }
+}
+
+fn now_rfc3339() -> String {
+    time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default()
 }
 
 /// Total audiobook duration in seconds from the edition's format metadata.
@@ -1517,8 +1552,101 @@ mod tests {
             .await
             .expect("read")
             .expect("row");
-        assert_eq!(saved.annotations.as_deref(), Some(annotations));
+        let saved_notes: Vec<serde_json::Value> =
+            serde_json::from_str(saved.annotations.as_deref().expect("notes")).expect("json");
+        assert_eq!(saved_notes.len(), 1);
+        assert_eq!(saved_notes[0]["id"], "a1");
+        assert_eq!(saved_notes[0]["text"], "Key point");
+        assert!(saved_notes[0]["updatedAt"].is_string());
+        assert!(saved_notes[0]["updatedBy"].is_string());
         assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c1\"}"));
+    }
+
+    #[tokio::test]
+    async fn removing_a_note_writes_a_tombstone() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c1\"}".to_string()),
+            None,
+            None,
+            Some(r#"[{"id":"a1","text":"keep"},{"id":"a2","text":"delete"}]"#.to_string()),
+        )
+        .await
+        .expect("save both notes");
+
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c1\"}".to_string()),
+            None,
+            None,
+            Some(r#"[{"id":"a1","text":"keep"}]"#.to_string()),
+        )
+        .await
+        .expect("delete one note");
+
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        let notes: Vec<serde_json::Value> =
+            serde_json::from_str(saved.annotations.as_deref().expect("notes")).expect("json");
+        assert_eq!(notes.len(), 2);
+        let removed = notes.iter().find(|note| note["id"] == "a2").expect("tombstone");
+        assert!(removed["deletedAt"].is_string());
+        assert_eq!(removed["text"], "delete");
+    }
+
+    #[tokio::test]
+    async fn a_note_only_save_keeps_the_stored_position() {
+        let test_db = TestDb::new(&[Kind::Business]).await.expect("test db");
+        let db = test_db.state().db_conn();
+        let edition = epub_fixture(&db).await;
+        let id = edition.edition_id;
+        mark_format(&db, id, KnownFormats::Epub).await;
+
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            Some("{\"href\":\"c1\"}".to_string()),
+            None,
+            None,
+            Some(r#"[{"id":"a1","text":"note"}]"#.to_string()),
+        )
+        .await
+        .expect("save position and note");
+
+        // The note editor calls saveProgress with annotations but no locator.
+        store_reader_position(
+            &db,
+            id,
+            "epub",
+            None,
+            None,
+            None,
+            Some(r#"[{"id":"a1","text":"edited note"}]"#.to_string()),
+        )
+        .await
+        .expect("save note only");
+
+        let saved = fetch_reader_position(&db, id)
+            .await
+            .expect("read")
+            .expect("row");
+        assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c1\"}"));
+        let notes: Vec<serde_json::Value> =
+            serde_json::from_str(saved.annotations.as_deref().expect("notes")).expect("json");
+        assert_eq!(notes[0]["text"], "edited note");
     }
 
     #[tokio::test]
@@ -1560,7 +1688,10 @@ mod tests {
             .await
             .expect("read")
             .expect("row");
-        assert_eq!(saved.annotations.as_deref(), Some(annotations));
+        let saved_notes: Vec<serde_json::Value> =
+            serde_json::from_str(saved.annotations.as_deref().expect("notes")).expect("json");
+        assert_eq!(saved_notes.len(), 1);
+        assert_eq!(saved_notes[0]["id"], "a1");
         assert_eq!(saved.locator.as_deref(), Some("{\"href\":\"c2\"}"));
     }
 
@@ -1590,6 +1721,8 @@ mod tests {
             total_reading_time_secs: Set(0),
             annotations: Set(None),
             created_at: Set(now_primitive()),
+            updated_at: Set(None),
+            updated_by: Set(None),
         }
         .insert(&db)
         .await

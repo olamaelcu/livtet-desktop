@@ -496,8 +496,16 @@ fn annotations_merge_by_id_and_keep_notes_the_push_omits() {
     ];
 
     let merged: Vec<serde_json::Value> =
-        serde_json::from_str(&merge_annotations(Some(stored), &incoming).expect("merge"))
-            .expect("json");
+        serde_json::from_str(
+            &merge_annotations(
+                Some(stored),
+                &incoming,
+                "2026-01-01T00:00:00Z",
+                "ko",
+            )
+            .expect("merge"),
+        )
+        .expect("json");
 
     assert_eq!(merged.len(), 3);
     assert_eq!(merged[0]["text"], "first, edited");

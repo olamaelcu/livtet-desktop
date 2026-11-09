@@ -429,22 +429,19 @@ async fn save_reader_position_upserts_and_reads_back() {
         .expect("row written");
     assert_eq!(row.progress_unit.as_deref(), Some("epub"));
     assert_eq!(row.last_location.as_deref(), Some("{\"href\":\"c1\"}"));
-    assert_eq!(row.annotations.as_deref(), Some(annotations));
+    let stored: Vec<serde_json::Value> =
+        serde_json::from_str(row.annotations.as_deref().expect("notes")).expect("json");
+    assert_eq!(stored[0]["id"], "a1");
+    assert!(stored[0]["updatedAt"].is_string());
+    assert!(stored[0]["updatedBy"].is_string());
 
     let position = get_reader_position(edition_id.to_string(), app.state::<AppState>())
         .await
         .expect("read")
         .expect("stored position");
-    assert_eq!(
-        position,
-        ReaderPosition {
-            kind: "epub".to_string(),
-            locator: Some("{\"href\":\"c1\"}".to_string()),
-            page_number: None,
-            position_seconds: None,
-            annotations: Some(annotations.to_string()),
-        }
-    );
+    assert_eq!(position.kind, "epub");
+    assert_eq!(position.locator.as_deref(), Some("{\"href\":\"c1\"}"));
+    assert!(position.annotations.is_some());
 
     // A PDF save overwrites the same `(edition, format)` row in place and
     // must not blank the annotations owned by the EPUB writer.
@@ -468,22 +465,17 @@ async fn save_reader_position_upserts_and_reads_back() {
     assert_eq!(rows.len(), 1, "a second save updates the existing row");
     assert_eq!(rows[0].progress, 12.0);
     assert_eq!(rows[0].progress_unit.as_deref(), Some("pdf"));
-    assert_eq!(rows[0].annotations.as_deref(), Some(annotations));
+    let stored: Vec<serde_json::Value> =
+        serde_json::from_str(rows[0].annotations.as_deref().expect("notes")).expect("json");
+    assert_eq!(stored[0]["id"], "a1");
 
     let position = get_reader_position(edition_id.to_string(), app.state::<AppState>())
         .await
         .expect("read")
         .expect("pdf position");
-    assert_eq!(
-        position,
-        ReaderPosition {
-            kind: "pdf".to_string(),
-            locator: None,
-            page_number: Some(12),
-            position_seconds: None,
-            annotations: Some(annotations.to_string()),
-        }
-    );
+    assert_eq!(position.kind, "pdf");
+    assert_eq!(position.page_number, Some(12));
+    assert!(position.annotations.is_some());
 
     // An absent edition has no stored position, so reading it is `None`.
     assert!(

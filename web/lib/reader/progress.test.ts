@@ -210,6 +210,26 @@ describe('progress store', () => {
     expect(loaded?.annotations).toEqual(annotations)
   })
 
+  it('hides tombstoned notes when reading', async () => {
+    const annotations = [
+      { id: 'a1', text: 'alive' },
+      { id: 'a2', text: 'deleted', deletedAt: '2026-01-01T00:00:00Z' },
+    ]
+    getReaderPosition.mockResolvedValue({
+      status: 'ok',
+      data: {
+        kind: 'epub',
+        locator: '{"href":"c2"}',
+        page_number: null,
+        position_seconds: null,
+        annotations: JSON.stringify(annotations),
+      },
+    })
+
+    const loaded = await loadProgress(editionId)
+    expect(loaded?.annotations).toEqual([{ id: 'a1', text: 'alive' }])
+  })
+
   it('ignores malformed annotation JSON rather than failing the load', async () => {
     getReaderPosition.mockResolvedValue({
       status: 'ok',
